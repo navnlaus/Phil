@@ -150,17 +150,21 @@ function start(config) {
   }
 
   // Terminal panel: one bash on a pseudo-terminal per WebSocket. Binary frames
-  // carry terminal data both ways; text frames carry {resize: [cols, rows]}.
+  // carry terminal data both ways; text frames carry {resize: [cols, rows]} or
+  // {cd: path}, which changes the shell's directory without typing a command
+  // (see __phil_follow in shell-init.bash).
   async function terminalSocket(req, url) {
     if (req.headers.get("upgrade") !== "websocket" || req.headers.get("origin") !== `http://${host}`) {
       return text(400, "Bad request");
     }
     const cwd = await isDir(url.searchParams.get("cwd") ?? "") ? url.searchParams.get("cwd") : home();
     const size = (name, fallback) => Math.max(1, Number(url.searchParams.get(name)) || fallback);
+    const cdFile = join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-cd-${crypto.randomUUID()}`);
     const pty = new Pty(["bash", "--rcfile", await shellInit, "-i"], {
       cwd,
       cols: size("cols", 80),
       rows: size("rows", 24),
+      env: { PHIL_CD_FILE: cdFile },
     });
     const { socket, response } = Deno.upgradeWebSocket(req);
     socket.binaryType = "arraybuffer";
@@ -171,15 +175,24 @@ function start(config) {
       }
       if (socket.readyState === WebSocket.OPEN) socket.close(1000, "shell exited");
     };
+    // Handled strictly in order, so keystrokes sent right after a {cd} can't
+    // overtake its key sequence + Enter and end up executed as a command.
+    let queue = Promise.resolve();
     socket.onmessage = (e) => {
-      if (typeof e.data === "string") {
-        const { resize } = JSON.parse(e.data);
+      queue = queue.then(async () => {
+        if (typeof e.data !== "string") return pty.write(new Uint8Array(e.data));
+        const { resize, cd } = JSON.parse(e.data);
         if (resize) pty.resize(resize[0], resize[1]);
-      } else {
-        pty.write(new Uint8Array(e.data));
-      }
+        if (cd && await isDir(cd)) {
+          await Deno.writeTextFile(cdFile, `${Math.floor(Date.now() / 1000)}\0${cd}\0`);
+          await pty.write("\r");
+        }
+      }).catch(() => {});
     };
-    socket.onclose = () => pty.close();
+    socket.onclose = () => {
+      pty.close();
+      Deno.remove(cdFile).catch(() => {});
+    };
     return response;
   }
 

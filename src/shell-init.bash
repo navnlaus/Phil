@@ -3,14 +3,8 @@
 # every command using OSC 7, the escape sequence terminals use for this.
 [ -f ~/.bashrc ] && . ~/.bashrc
 
-# phil types "cd" commands with a leading space; keep them out of history.
-case ":$HISTCONTROL:" in
-  *:ignorespace:* | *:ignoreboth:*) ;;
-  *) HISTCONTROL="${HISTCONTROL:+$HISTCONTROL:}ignorespace" ;;
-esac
-
 __phil_report_cwd() {
-  local status=$? LC_ALL=C path=$PWD url="" c i
+  local LC_ALL=C path=$PWD url="" c i
   for ((i = 0; i < ${#path}; i++)); do
     c=${path:i:1}
     case $c in
@@ -19,6 +13,27 @@ __phil_report_cwd() {
     esac
   done
   printf '\e]7;file://%s%s\e\\' "${HOSTNAME:-localhost}" "$url"
+}
+
+# Silent cd: when you change folder in the file view while this shell sits at
+# an empty prompt, phil writes "<unix time>\0<path>\0" to $PHIL_CD_FILE and
+# sends an empty Enter. The cd happens here, before the new prompt is drawn,
+# so no command is typed or added to history. Stale requests are ignored.
+__phil_follow() {
+  local stamp dir
+  { IFS= read -r -d '' stamp && IFS= read -r -d '' dir; } < "$PHIL_CD_FILE"
+  command rm -f -- "$PHIL_CD_FILE"
+  if [[ -n $dir ]] && (( ${EPOCHREALTIME%%[.,]*} - ${stamp:-0} <= 2 )); then
+    builtin cd -- "$dir" 2>/dev/null
+  fi
+}
+
+__phil_prompt() {
+  local status=$?
+  [[ -n $PHIL_CD_FILE && -e $PHIL_CD_FILE ]] && __phil_follow
+  __phil_report_cwd
   return $status
 }
-PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}__phil_report_cwd"
+# First in line: prompt hooks like starship's render the prompt text right
+# away, so the cd has to happen before them. $? is passed through for them.
+PROMPT_COMMAND="__phil_prompt${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}"

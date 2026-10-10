@@ -68,9 +68,12 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 
 - `cd` in the shell and the file view follows.
 - Change folder in the file view while the shell sits at an empty prompt and
-  phil types ` cd -- '<path>'` into it (leading space, kept out of history).
-  If you're in the middle of typing or a command is running, it leaves the
-  shell alone.
+  the shell changes directory too, silently: nothing is typed and nothing goes
+  into history, the prompt just redraws in place for the new folder. (phil
+  leaves the target in a file and sends an empty Enter; phil's prompt hook does
+  a `builtin cd` before your prompt renders, so `cd` wrappers like zoxide aren't
+  involved.) If you're in the middle of typing or a command is running, it
+  leaves the shell alone.
 - Right-click a file → "Paste path in terminal" inserts its quoted path.
 - Hiding the panel keeps the shell running; closing the window hangs it up.
 
