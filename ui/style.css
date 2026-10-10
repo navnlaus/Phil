@@ -232,6 +232,16 @@ main {
   aspect-ratio: 16 / 9;
   overflow: hidden;
 }
+.tile, .tile * { -webkit-user-drag: none; }
+
+.rubber-band {
+  position: absolute;
+  z-index: 4;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  pointer-events: none;
+}
+
 .tile:hover::after, .tile.selected::after {
   content: "";
   position: absolute;

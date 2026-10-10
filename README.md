@@ -86,6 +86,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | double-click / Enter | open folder, view media, or open file with default app |
 | arrows, Home/End, PgUp/PgDn | move selection (with Shift: extend it) |
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; Esc clears |
+| drag (Ctrl/Shift+drag) | select everything the rectangle touches (add to the selection); scrolls at the edges |
 | type a name | jump to the next entry starting with it (repeat a letter to cycle) |
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
 | Backspace / Alt+↑ | parent folder |
