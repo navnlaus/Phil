@@ -1,5 +1,5 @@
 // Local HTTP server for the UI. Runs in a worker; posts { url } once listening.
-import { basename, dirname, extname, join } from "@std/path";
+import { basename, dirname, extname, join, normalize } from "@std/path";
 import { home } from "./config.js";
 import { Pty } from "./pty.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
@@ -77,6 +77,8 @@ function start(config) {
         return preview(requirePath(path), url.searchParams.get("size") ?? "2560");
       case "POST /api/open":
         return openExternal(await req.json());
+      case "POST /api/delete":
+        return json(await deletePaths((await req.json()).paths ?? []));
       case "PUT /api/settings":
         await writeSettings(await req.json());
         return json({ ok: true });
@@ -342,6 +344,24 @@ async function preview(path, size) {
   const out = await child.output();
   if (!out.success) return text(415, "Can't decode image");
   return new Response(out.stdout, { headers: { "content-type": "image/jpeg", "cache-control": "no-cache" } });
+}
+
+// Permanent delete (Shift+Delete). Folders go recursively; symlinks are
+// removed themselves, never what they point to.
+async function deletePaths(paths) {
+  const errors = [];
+  for (const path of paths) {
+    try {
+      requirePath(path);
+      if (normalize(path) !== path || path === "/" || path === home()) {
+        throw new Error("refusing to delete this path");
+      }
+      await Deno.remove(path, { recursive: true });
+    } catch (err) {
+      errors.push({ path, error: err.message });
+    }
+  }
+  return { errors };
 }
 
 function openExternal({ path, app }) {

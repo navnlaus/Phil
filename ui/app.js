@@ -20,7 +20,9 @@ const state = {
   path: null,
   entries: [], // everything in the folder, from the server
   view: [], // filtered + sorted, what the grid shows
-  selected: -1, // index into view
+  selected: -1, // index into view: the keyboard cursor
+  marked: new Set(), // paths of the selected entries (one or more)
+  anchor: -1, // where Shift+click / Shift+arrow ranges start
   settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false },
 };
 const tiles = new Map(); // path -> tile element
@@ -259,8 +261,11 @@ function render(selectPath = state.view[state.selected]?.path) {
   }
 
   state.selected = -1;
+  const marked = state.marked;
+  state.marked = new Set();
   const idx = state.view.findIndex((e) => e.path === selectPath);
   if (idx !== -1) select(idx, { scroll: false });
+  if (marked.size > 1) setMarked([...marked].filter((p) => tiles.has(p))); // survive re-sort/filter
   updateStatus();
 }
 
@@ -344,14 +349,59 @@ function closeLocation() {
 
 // ---------------------------------------------------------------- selection & status
 
-function select(index, { scroll = true } = {}) {
-  tiles.get(state.view[state.selected]?.path)?.classList.remove("selected");
+/**
+ * Moves the cursor to `index`. Plain: selects just that entry. `toggle`
+ * (Ctrl+click) adds/removes it; `extend` (Shift) selects the range from the
+ * anchor. An index of -1 clears the selection.
+ */
+function select(index, { scroll = true, toggle = false, extend = false } = {}) {
+  const entry = state.view[index];
+  if (!entry) {
+    setMarked([]);
+    state.selected = state.anchor = -1;
+    return updateStatus();
+  }
+  if (extend && state.anchor !== -1) {
+    const [from, to] = [Math.min(state.anchor, index), Math.max(state.anchor, index)];
+    setMarked(state.view.slice(from, to + 1).map((e) => e.path));
+  } else if (toggle) {
+    const marked = new Set(state.marked);
+    if (!marked.delete(entry.path)) marked.add(entry.path);
+    setMarked(marked);
+    state.anchor = index;
+  } else {
+    setMarked([entry.path]);
+    state.anchor = index;
+  }
   state.selected = index;
-  const tile = tiles.get(state.view[index]?.path);
-  if (!tile) return updateStatus();
-  tile.classList.add("selected");
-  if (scroll) tile.scrollIntoView({ block: "nearest" });
+  if (scroll) tiles.get(entry.path)?.scrollIntoView({ block: "nearest" });
   updateStatus();
+}
+
+function setMarked(paths) {
+  for (const p of state.marked) tiles.get(p)?.classList.remove("selected");
+  state.marked = new Set(paths);
+  for (const p of state.marked) tiles.get(p)?.classList.add("selected");
+}
+
+const markedEntries = () => state.view.filter((e) => state.marked.has(e.path));
+
+// Typing a name jumps to the next entry starting with what was typed. Letters
+// typed within a second build up the prefix; repeating one letter cycles.
+let typed = "";
+let typedTimer;
+function typeAhead(ch) {
+  clearTimeout(typedTimer);
+  typedTimer = setTimeout(() => (typed = ""), 1000);
+  ch = ch.toLowerCase();
+  const cycling = typed === ch;
+  if (!cycling) typed += ch;
+  const n = state.view.length;
+  const start = state.selected + (typed.length === 1 ? 1 : 0); // a new search looks past the current entry
+  for (let k = 0; k < n; k++) {
+    const i = (((start + k) % n) + n) % n;
+    if (state.view[i].name.toLowerCase().startsWith(typed)) return select(i);
+  }
 }
 
 function columns() {
@@ -363,7 +413,12 @@ function updateStatus() {
   const files = state.view.length - dirs;
   const sel = state.view[state.selected];
   let text = `${dirs} folder${dirs === 1 ? "" : "s"}, ${files} file${files === 1 ? "" : "s"}`;
-  if (sel) text += `  ·  ${sel.name}` + (sel.kind === "dir" ? "" : `  ${formatSize(sel.size)}  ${formatDate(sel.mtime)}`);
+  if (state.marked.size > 1) {
+    const size = markedEntries().reduce((sum, e) => sum + (e.kind === "dir" ? 0 : e.size), 0);
+    text += `  ·  ${state.marked.size} selected  ${formatSize(size)}`;
+  } else if (sel) {
+    text += `  ·  ${sel.name}` + (sel.kind === "dir" ? "" : `  ${formatSize(sel.size)}  ${formatDate(sel.mtime)}`);
+  }
   $("#status-count").textContent = text;
 }
 
@@ -481,6 +536,51 @@ viewerEl.querySelector(".open-mpv").onclick = () => {
   openExternal(path, "mpv");
 };
 
+// ---------------------------------------------------------------- deleting
+
+const confirmDialog = $("#confirm");
+
+function askConfirm({ title, detail, ok }) {
+  confirmDialog.querySelector(".title").textContent = title;
+  confirmDialog.querySelector(".detail").textContent = detail;
+  confirmDialog.querySelector("[value=ok]").textContent = ok;
+  confirmDialog.returnValue = "";
+  confirmDialog.showModal();
+  return new Promise((resolve) => {
+    confirmDialog.addEventListener("close", () => resolve(confirmDialog.returnValue === "ok"), { once: true });
+  });
+}
+
+// Shift+Delete: permanent, no trash. Asks first; Enter confirms, Esc cancels.
+async function deleteMarked() {
+  const targets = markedEntries();
+  if (!targets.length) return;
+  const dirs = targets.filter((e) => e.kind === "dir").length;
+  const names = targets.slice(0, 4).map((e) => e.name).join(", ") + (targets.length > 4 ? `, … (${targets.length - 4} more)` : "");
+  const confirmed = await askConfirm({
+    title: targets.length === 1 ? `Permanently delete “${targets[0].name}”?` : `Permanently delete ${targets.length} items?`,
+    detail: (targets.length > 1 ? names + "\n\n" : "") +
+      (dirs ? "Folders are deleted with everything in them. " : "") + "This can't be undone.",
+    ok: "Delete",
+  });
+  grid.focus({ preventScroll: true });
+  if (!confirmed) return;
+
+  const firstIndex = state.view.indexOf(targets[0]);
+  let result;
+  try {
+    result = await api("/api/delete", { method: "POST", body: JSON.stringify({ paths: targets.map((e) => e.path) }) });
+  } catch (err) {
+    result = { errors: [{ path: "", error: err.message }] };
+  }
+  await load(state.path);
+  select(Math.min(firstIndex, state.view.length - 1));
+  if (result.errors.length) {
+    alert(`Couldn't delete ${result.errors.length} item(s):\n` +
+      result.errors.map((e) => `${e.path.split("/").pop()}: ${e.error}`).join("\n"));
+  }
+}
+
 // ---------------------------------------------------------------- context menu
 
 function showContextMenu(x, y, entry) {
@@ -490,6 +590,7 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
   items.push(["Open with default app", () => openExternal(entry.path)]);
   items.push(["Copy path", () => copyText(entry.path)]);
+  items.push([state.marked.size > 1 ? `Delete ${state.marked.size} items permanently…` : "Delete permanently…", deleteMarked]);
   if (terminal.isRunning) {
     items.push(["Paste path in terminal", () => {
       if (!terminal.isOpen) toggleTerminal();
@@ -537,13 +638,15 @@ const tileIndex = (target) => {
   return tile ? Number(tile.dataset.index) : -1;
 };
 
-grid.addEventListener("click", (e) => select(tileIndex(e.target), { scroll: false }));
+grid.addEventListener("click", (e) => {
+  select(tileIndex(e.target), { scroll: false, toggle: e.ctrlKey || e.metaKey, extend: e.shiftKey });
+});
 grid.addEventListener("dblclick", (e) => open(tileIndex(e.target)));
 grid.addEventListener("contextmenu", (e) => {
   const i = tileIndex(e.target);
   if (i === -1) return; // keep the webview's own menu (Inspect Element) on empty space
   e.preventDefault();
-  select(i, { scroll: false });
+  if (!state.marked.has(state.view[i].path)) select(i, { scroll: false });
   showContextMenu(e.clientX, e.clientY, state.view[i]);
 });
 grid.addEventListener("wheel", (e) => {
@@ -659,6 +762,7 @@ document.addEventListener("keydown", (e) => {
   const ctrl = e.ctrlKey || e.metaKey;
   const handled = () => e.preventDefault();
 
+  if (confirmDialog.open) return; // the dialog handles its own keys
   if (!contextMenu.hidden && e.key === "Escape") return hideContextMenu(), handled();
   if (e.target.closest?.("#term-panel")) return; // keys typed into the shell are the shell's
 
@@ -703,10 +807,14 @@ document.addEventListener("keydown", (e) => {
     PageUp: cur - cols * rowsPerPage,
   }[e.key];
   if (move !== undefined) {
-    select(Math.max(0, Math.min(last, move)));
+    select(Math.max(0, Math.min(last, move)), { extend: e.shiftKey });
     return handled();
   }
-  if (e.key === "Enter" || e.key === " ") return open(cur), handled();
+  if (e.shiftKey && e.key === "Delete") return deleteMarked(), handled();
+  if (ctrl && e.key === "a") return setMarked(state.view.map((v) => v.path)), updateStatus(), handled();
+  if (e.key === "Escape") return select(-1), handled();
+  if (e.key === "Enter" || (e.key === " " && !typed)) return open(cur), handled();
+  if (e.key.length === 1 && !ctrl && !e.altKey) return typeAhead(e.key), handled();
 });
 
 // ---------------------------------------------------------------- start
