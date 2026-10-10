@@ -1,12 +1,14 @@
 // Local HTTP server for the UI. Runs in a worker; posts { url } once listening.
 import { basename, dirname, extname, join } from "@std/path";
 import { home } from "./config.js";
+import { Pty } from "./pty.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
 const UI_DIR = new URL("../ui/", import.meta.url);
 
 const CONTENT_TYPES = {
-  html: "text/html; charset=utf-8", js: "text/javascript; charset=utf-8", css: "text/css; charset=utf-8",
+  html: "text/html; charset=utf-8", js: "text/javascript; charset=utf-8", mjs: "text/javascript; charset=utf-8",
+  css: "text/css; charset=utf-8",
   svg: "image/svg+xml", txt: "text/plain; charset=utf-8", json: "application/json",
   jpg: "image/jpeg", jpeg: "image/jpeg", jpe: "image/jpeg", jfif: "image/jpeg", png: "image/png",
   gif: "image/gif", webp: "image/webp", avif: "image/avif", heic: "image/heic", heif: "image/heif",
@@ -80,6 +82,8 @@ function start(config) {
         return json({ ok: true });
       case "GET /ws":
         return thumbSocket(req);
+      case "GET /term":
+        return terminalSocket(req, url);
     }
     if (req.method === "GET" && url.pathname.startsWith("/ui/")) return staticFile(url.pathname.slice(4));
     const thumb = /^\/thumbs\/([^/]+)\/([^/]+)$/.exec(url.pathname);
@@ -145,6 +149,40 @@ function start(config) {
     return response;
   }
 
+  // Terminal panel: one bash on a pseudo-terminal per WebSocket. Binary frames
+  // carry terminal data both ways; text frames carry {resize: [cols, rows]}.
+  async function terminalSocket(req, url) {
+    if (req.headers.get("upgrade") !== "websocket" || req.headers.get("origin") !== `http://${host}`) {
+      return text(400, "Bad request");
+    }
+    const cwd = await isDir(url.searchParams.get("cwd") ?? "") ? url.searchParams.get("cwd") : home();
+    const size = (name, fallback) => Math.max(1, Number(url.searchParams.get(name)) || fallback);
+    const pty = new Pty(["bash", "--rcfile", await shellInit, "-i"], {
+      cwd,
+      cols: size("cols", 80),
+      rows: size("rows", 24),
+    });
+    const { socket, response } = Deno.upgradeWebSocket(req);
+    socket.binaryType = "arraybuffer";
+    socket.onopen = async () => {
+      for await (const chunk of pty.output()) {
+        if (socket.readyState !== WebSocket.OPEN) break;
+        socket.send(chunk);
+      }
+      if (socket.readyState === WebSocket.OPEN) socket.close(1000, "shell exited");
+    };
+    socket.onmessage = (e) => {
+      if (typeof e.data === "string") {
+        const { resize } = JSON.parse(e.data);
+        if (resize) pty.resize(resize[0], resize[1]);
+      } else {
+        pty.write(new Uint8Array(e.data));
+      }
+    };
+    socket.onclose = () => pty.close();
+    return response;
+  }
+
   async function readSettings() {
     try {
       return JSON.parse(await Deno.readTextFile(config.settingsFile));
@@ -158,6 +196,17 @@ function start(config) {
     await Deno.writeTextFile(config.settingsFile, JSON.stringify(settings, null, 2) + "\n");
   }
 }
+
+// bash --rcfile needs a real file, and under `deno compile` ours lives in the
+// binary, so copy it out once per run.
+const shellInit = (async () => {
+  const dir = Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp";
+  const path = join(dir, "phil-shell-init.bash");
+  const tmp = `${path}.${Deno.pid}`;
+  await Deno.writeTextFile(tmp, await Deno.readTextFile(new URL("./shell-init.bash", import.meta.url)));
+  await Deno.rename(tmp, path); // atomic, so a concurrently starting shell never reads half a file
+  return path;
+})();
 
 function requirePath(path) {
   if (!path || !path.startsWith("/")) throw Object.assign(new Error("absolute path required"), { status: 400 });
@@ -292,7 +341,7 @@ function openExternal({ path, app }) {
 }
 
 async function staticFile(name) {
-  if (!/^[\w.-]+$/.test(name)) return text(404, "Not found");
+  if (!/^(vendor\/)?[\w.-]+$/.test(name)) return text(404, "Not found");
   try {
     const body = await Deno.readFile(new URL(name, UI_DIR));
     return new Response(body, { headers: { "content-type": contentType(name), "cache-control": "no-cache" } });

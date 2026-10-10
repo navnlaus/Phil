@@ -119,10 +119,35 @@ body.sidebar #sidebar {
 /* Main column */
 
 main {
-  position: relative;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+#files {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+#term-panel {
+  position: relative;
+  flex: none;
+  height: 260px;
+  padding: 3px 0 0 6px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+#term-panel[hidden] { display: none; }
+#term { height: 100%; }
+#term-resize {
+  position: absolute;
+  inset: -4px 0 auto 0;
+  height: 8px;
+  z-index: 6;
+  cursor: ns-resize;
 }
 
 /* Top and bottom bars float over the grid, invisible until hovered (or while

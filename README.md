@@ -44,7 +44,9 @@ src/main.js     parse options, start the server worker, open the window
 src/window.js   GTK3 + WebKitGTK window via Deno FFI (blocks in gtk_main)
 src/server.js   127.0.0.1 HTTP server (worker): listing, files with Range, thumbnails
 src/thumbs.js   thumbnail cache + LIFO job pool (vipsthumbnail / ffmpegthumbnailer)
-ui/             the frontend
+src/pty.js      pseudo-terminals via libc FFI (Deno has no PTY API)
+src/shell-init.bash  rc file for the terminal panel's bash
+ui/             the frontend (ui/vendor: xterm.js 6, MIT)
 ```
 
 - Thumbnails that are already cached come back as URLs in the directory listing.
@@ -58,6 +60,20 @@ ui/             the frontend
   fix, `WEBKIT_DISABLE_DMABUF_RENDERER=1`, also works but switches WebKit to CPU
   rendering, which makes scrolling sluggish.
 
+## Terminal panel
+
+F4 (or Ctrl+`) opens bash in a panel under the grid; drag its top edge to resize.
+It is a real terminal (xterm.js on a pseudo-terminal), started with your
+`~/.bashrc`, so prompts, aliases, job control and full-screen programs work.
+
+- `cd` in the shell and the file view follows.
+- Change folder in the file view while the shell sits at an empty prompt and
+  phil types ` cd -- '<path>'` into it (leading space, kept out of history).
+  If you're in the middle of typing or a command is running, it leaves the
+  shell alone.
+- Right-click a file → "Paste path in terminal" inserts its quoted path.
+- Hiding the panel keeps the shell running; closing the window hangs it up.
+
 ## Keys
 
 | | |
@@ -70,6 +86,7 @@ ui/             the frontend
 | `/` or Ctrl+F | filter |
 | Ctrl+H | show hidden files |
 | F9 | toggle the places sidebar |
+| F4 / Ctrl+` | toggle the terminal panel |
 | Ctrl + / − / wheel | thumbnail size |
 | F5 | reload folder |
 | in viewer: ← → Esc, `f` | previous/next, close, fullscreen |
