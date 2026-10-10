@@ -33,22 +33,17 @@ export class TerminalPanel {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  show(cwd) {
+  show(cwd, { focus = true } = {}) {
     this.panel.hidden = false;
     if (!this.term) this.start(cwd);
     requestAnimationFrame(() => {
       this.fit.fit();
-      this.term.focus();
+      if (focus) this.term.focus();
     });
   }
 
   hide() {
     this.panel.hidden = true;
-  }
-
-  toggle(cwd) {
-    if (this.isOpen) this.hide();
-    else this.show(cwd);
   }
 
   start(cwd) {

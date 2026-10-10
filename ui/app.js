@@ -21,7 +21,7 @@ const state = {
   entries: [], // everything in the folder, from the server
   view: [], // filtered + sorted, what the grid shows
   selected: -1, // index into view
-  settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260 },
+  settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false },
 };
 const tiles = new Map(); // path -> tile element
 const scrollPositions = new Map(); // path -> scrollTop, restored on back/up
@@ -60,11 +60,11 @@ const openExternal = (path, app) =>
   api("/api/open", { method: "POST", body: JSON.stringify({ path, app }) }).catch((err) => alert(err.message));
 
 let saveTimer;
-function saveSettings() {
+function saveSettings(delay = 400) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     fetch("/api/settings", { method: "PUT", body: JSON.stringify(state.settings) });
-  }, 400);
+  }, delay);
 }
 
 // ---------------------------------------------------------------- thumbnails
@@ -217,6 +217,10 @@ async function load(path) {
   if (selectPath) tiles.get(selectPath)?.scrollIntoView({ block: "center" });
   // Don't steal focus from the terminal when the view follows a `cd` typed there.
   if (!document.activeElement?.closest("#term-panel")) grid.focus({ preventScroll: true });
+  if (restoreTerminal) {
+    restoreTerminal = false;
+    setTerminalOpen(true, { focus: false });
+  }
 }
 
 function sortEntries(list) {
@@ -609,10 +613,22 @@ const terminal = new TerminalPanel({
   onCwd: (path) => path !== state.path && navigate(path),
 });
 
+// Reopen the panel on startup if it was open when phil last quit (set below).
+let restoreTerminal = false;
+
+function setTerminalOpen(open, { focus = true } = {}) {
+  if (open) terminal.show(state.path, { focus });
+  else terminal.hide();
+  $("#btn-terminal").setAttribute("aria-pressed", String(open));
+  if (!open) grid.focus({ preventScroll: true });
+  if (state.settings.termOpen !== open) {
+    state.settings.termOpen = open;
+    saveSettings(0); // right away: quitting is often the next thing that happens
+  }
+}
+
 function toggleTerminal() {
-  terminal.toggle(state.path);
-  $("#btn-terminal").setAttribute("aria-pressed", String(terminal.isOpen));
-  if (!terminal.isOpen) grid.focus({ preventScroll: true });
+  setTerminalOpen(!terminal.isOpen);
 }
 
 // Capture phase, so F4 / Ctrl+` work while the terminal has focus too.
@@ -703,5 +719,6 @@ thumbDirEl.textContent = `Thumbnails: ${state.init.thumbDir}`;
 thumbDirEl.title = `${state.init.thumbDir} (${state.init.thumbSize})`;
 thumbs.connect();
 
+restoreTerminal = state.settings.termOpen;
 if (location.hash.length > 1) load(decodeURIComponent(location.hash.slice(1)));
 else navigate(state.init.start);
