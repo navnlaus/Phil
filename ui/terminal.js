@@ -8,7 +8,9 @@ export const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
  * command (OSC 7, see src/shell-init.bash):
  *  - when the shell's directory changes, the file view follows (onCwd)
  *  - when the file view changes folder and the shell sits at an empty prompt,
- *    a " cd -- '<path>'" is typed into it, like Dolphin's terminal panel does
+ *    the shell changes directory too, without a command being typed: the
+ *    server leaves the target for the prompt hook (__phil_follow) and sends an
+ *    empty Enter, and the old prompt is erased so the new one replaces it
  */
 export class TerminalPanel {
   constructor({ panel, container, onCwd }) {
@@ -19,6 +21,7 @@ export class TerminalPanel {
     this.ws = null;
     this.cwd = null; // last directory the shell reported
     this.idle = false; // at a prompt with nothing typed since
+    this.promptRow = null; // buffer line where the current prompt began, if at column 0
     this.exited = false;
   }
 
@@ -77,6 +80,8 @@ export class TerminalPanel {
         return true;
       }
       const changed = path !== this.cwd;
+      const buf = this.term.buffer.active;
+      this.promptRow = buf.cursorX === 0 ? buf.baseY + buf.cursorY : null;
       this.cwd = path;
       this.idle = true;
       if (changed) this.onCwd(path);
@@ -125,7 +130,20 @@ export class TerminalPanel {
     this.restartCwd = path;
     if (!this.isRunning || !this.idle || path === this.cwd) return;
     this.idle = false;
-    this.send(` cd -- ${shellQuote(path)}\r`);
+    this.erasePrompt();
+    this.ws.send(JSON.stringify({ cd: path }));
+  }
+
+  // Clears the idle prompt and parks the cursor at the end of the line above,
+  // so the newline bash prints for the empty Enter lands where the prompt
+  // began and the redrawn prompt takes its exact place. Display-only: nothing
+  // is sent to the shell. Skipped when the prompt's start isn't on screen.
+  erasePrompt() {
+    const buf = this.term.buffer.active;
+    const promptLine = this.promptRow - buf.baseY; // viewport row
+    if (this.promptRow === null || promptLine < 1) return;
+    const up = buf.cursorY - promptLine;
+    this.term.write(`${up > 0 ? `\x1b[${up}A` : ""}\r\x1b[J\x1b[A`);
   }
 
   /** Types text at the prompt (e.g. a quoted file path) and focuses the terminal. */
