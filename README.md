@@ -76,6 +76,8 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
   leaves the shell alone.
 - Right-click a file → "Paste path in terminal" inserts its quoted path.
 - Hiding the panel keeps the shell running; closing the window hangs it up.
+- Whether the panel is open is remembered: quit with it open and the next
+  start opens it again (in the start folder, with the grid focused).
 
 ## Keys
 
