@@ -1,0 +1,9 @@
+{
+  "tasks": {
+    "start": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net=127.0.0.1 --allow-run src/main.js",
+    "compile": "deno compile --allow-read --allow-write --allow-env --allow-ffi --allow-net=127.0.0.1 --allow-run --include src/server.js --include ui -o phil src/main.js"
+  },
+  "imports": {
+    "@std/path": "jsr:@std/path@^1"
+  }
+}
