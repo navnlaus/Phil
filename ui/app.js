@@ -169,6 +169,7 @@ function setThumbImage(box, url) {
   const img = new Image();
   img.decoding = "sync"; // small JPEGs: decoding while painting beats drawing an empty tile first
   img.alt = "";
+  img.draggable = false; // dragging over thumbnails draws a selection rectangle instead
   img.onload = () => box.classList.add("has-img");
   img.src = url;
   box.prepend(img);
@@ -379,9 +380,10 @@ function select(index, { scroll = true, toggle = false, extend = false } = {}) {
 }
 
 function setMarked(paths) {
-  for (const p of state.marked) tiles.get(p)?.classList.remove("selected");
-  state.marked = new Set(paths);
-  for (const p of state.marked) tiles.get(p)?.classList.add("selected");
+  const next = new Set(paths);
+  for (const p of state.marked) if (!next.has(p)) tiles.get(p)?.classList.remove("selected");
+  for (const p of next) if (!state.marked.has(p)) tiles.get(p)?.classList.add("selected");
+  state.marked = next;
 }
 
 const markedEntries = () => state.view.filter((e) => state.marked.has(e.path));
@@ -411,7 +413,7 @@ function columns() {
 function updateStatus() {
   const dirs = state.view.filter((e) => e.kind === "dir").length;
   const files = state.view.length - dirs;
-  const sel = state.view[state.selected];
+  const sel = state.marked.size === 1 ? markedEntries()[0] : null;
   let text = `${dirs} folder${dirs === 1 ? "" : "s"}, ${files} file${files === 1 ? "" : "s"}`;
   if (state.marked.size > 1) {
     const size = markedEntries().reduce((sum, e) => sum + (e.kind === "dir" ? 0 : e.size), 0);
@@ -639,8 +641,100 @@ const tileIndex = (target) => {
 };
 
 grid.addEventListener("click", (e) => {
+  if (suppressClick) return; // the click that ends a rubber-band drag
   select(tileIndex(e.target), { scroll: false, toggle: e.ctrlKey || e.metaKey, extend: e.shiftKey });
 });
+
+// Rubber-band selection: dragging anywhere in the grid (on tiles too, since
+// they fill it) draws a rectangle and selects what it touches. It only starts
+// after the pointer moves a few pixels, so clicks and double-clicks are
+// unaffected. Ctrl/Shift add to the existing selection. Near the top or bottom
+// edge the grid scrolls.
+let band = null;
+let suppressClick = false;
+
+function contentPoint(clientX, clientY) {
+  const r = grid.getBoundingClientRect();
+  return { x: clientX - r.left + grid.scrollLeft, y: clientY - r.top + grid.scrollTop };
+}
+
+grid.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || (e.target === grid && e.offsetX >= grid.clientWidth)) return; // not the scrollbar
+  band = {
+    id: e.pointerId,
+    start: contentPoint(e.clientX, e.clientY),
+    startClient: [e.clientX, e.clientY],
+    client: [e.clientX, e.clientY],
+    additive: e.ctrlKey || e.metaKey || e.shiftKey,
+    active: false,
+  };
+});
+
+grid.addEventListener("pointermove", (e) => {
+  if (!band || e.pointerId !== band.id) return;
+  band.client = [e.clientX, e.clientY];
+  if (!band.active) {
+    if (Math.hypot(e.clientX - band.startClient[0], e.clientY - band.startClient[1]) < 5) return;
+    startBand();
+  }
+  updateBand();
+});
+
+grid.addEventListener("pointerup", endBand);
+grid.addEventListener("pointercancel", endBand);
+
+function startBand() {
+  band.active = true;
+  grid.setPointerCapture(band.id);
+  hideContextMenu();
+  band.base = band.additive ? new Set(state.marked) : new Set();
+  band.tiles = [...tiles.values()].map((t) => ({
+    index: Number(t.dataset.index),
+    x: t.offsetLeft,
+    y: t.offsetTop,
+    w: t.offsetWidth,
+    h: t.offsetHeight,
+  }));
+  band.el = Object.assign(document.createElement("div"), { className: "rubber-band" });
+  grid.append(band.el);
+  const autoScroll = () => {
+    if (!band?.active) return;
+    const r = grid.getBoundingClientRect();
+    const y = band.client[1];
+    const edge = 40;
+    const speed = y < r.top + edge ? -(r.top + edge - y) : y > r.bottom - edge ? y - (r.bottom - edge) : 0;
+    if (speed) {
+      grid.scrollTop += Math.max(-40, Math.min(40, speed / 2));
+      updateBand();
+    }
+    requestAnimationFrame(autoScroll);
+  };
+  requestAnimationFrame(autoScroll);
+}
+
+function updateBand() {
+  const end = contentPoint(...band.client);
+  const left = Math.min(band.start.x, end.x), top = Math.min(band.start.y, end.y);
+  const right = Math.max(band.start.x, end.x), bottom = Math.max(band.start.y, end.y);
+  Object.assign(band.el.style, { left: `${left}px`, top: `${top}px`, width: `${right - left}px`, height: `${bottom - top}px` });
+  const hits = band.tiles.filter((t) => t.x < right && t.x + t.w > left && t.y < bottom && t.y + t.h > top);
+  setMarked([...band.base, ...hits.map((t) => state.view[t.index].path)]);
+  band.first = hits.length ? Math.min(...hits.map((t) => t.index)) : -1;
+  updateStatus();
+}
+
+function endBand(e) {
+  if (!band || e.pointerId !== band.id) return;
+  if (band.active) {
+    band.el.remove();
+    grid.releasePointerCapture(band.id);
+    if (band.first !== -1) state.selected = state.anchor = band.first; // keyboard continues from here
+    suppressClick = true;
+    setTimeout(() => (suppressClick = false));
+    updateStatus();
+  }
+  band = null;
+}
 grid.addEventListener("dblclick", (e) => open(tileIndex(e.target)));
 grid.addEventListener("contextmenu", (e) => {
   const i = tileIndex(e.target);
