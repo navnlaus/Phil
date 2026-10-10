@@ -1,3 +1,5 @@
+import { isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
+
 const $ = (sel) => document.querySelector(sel);
 const grid = $("#grid");
 const crumbs = $("#crumbs");
@@ -19,7 +21,7 @@ const state = {
   entries: [], // everything in the folder, from the server
   view: [], // filtered + sorted, what the grid shows
   selected: -1, // index into view
-  settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false },
+  settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260 },
 };
 const tiles = new Map(); // path -> tile element
 const scrollPositions = new Map(); // path -> scrollTop, restored on back/up
@@ -141,7 +143,7 @@ const nearObserver = observe(800, (tile, entry, near) => {
     thumbs.cancel(entry.path);
   }
 });
-const farObserver = observe(4000, (tile, entry, inRange) => {
+const farObserver = observe(4000, (tile, _entry, inRange) => {
   if (!inRange) unloadThumb(tile);
 });
 
@@ -200,6 +202,7 @@ async function load(path) {
     return;
   }
   state.path = listing.path;
+  terminal.follow(listing.path);
   state.entries = listing.entries;
   document.title = (listing.path === "/" ? "/" : listing.path.split("/").pop()) + " — phil";
   renderCrumbs();
@@ -212,7 +215,8 @@ async function load(path) {
   render(selectPath);
   grid.scrollTop = selectPath ? grid.scrollTop : scrollPositions.get(listing.path) ?? 0;
   if (selectPath) tiles.get(selectPath)?.scrollIntoView({ block: "center" });
-  grid.focus({ preventScroll: true });
+  // Don't steal focus from the terminal when the view follows a `cd` typed there.
+  if (!document.activeElement?.closest("#term-panel")) grid.focus({ preventScroll: true });
 }
 
 function sortEntries(list) {
@@ -372,6 +376,7 @@ function applySettings() {
   hiddenButton.setAttribute("aria-pressed", String(s.showHidden));
   $("#btn-sidebar").setAttribute("aria-pressed", String(s.sidebar));
   document.body.classList.toggle("sidebar", s.sidebar);
+  termPanel.style.height = `${s.termHeight}px`;
 }
 
 function toggleSidebar() {
@@ -481,6 +486,12 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
   items.push(["Open with default app", () => openExternal(entry.path)]);
   items.push(["Copy path", () => copyText(entry.path)]);
+  if (terminal.isRunning) {
+    items.push(["Paste path in terminal", () => {
+      if (!terminal.isOpen) toggleTerminal();
+      terminal.insert(shellQuote(entry.path) + " ");
+    }]);
+  }
 
   contextMenu.replaceChildren(...items.map(([label, action]) => {
     const li = document.createElement("li");
@@ -587,6 +598,45 @@ function toggleHidden() {
 }
 
 $("#btn-sidebar").addEventListener("click", toggleSidebar);
+$("#btn-terminal").addEventListener("click", toggleTerminal);
+
+// ---------------------------------------------------------------- terminal panel
+
+const termPanel = $("#term-panel");
+const terminal = new TerminalPanel({
+  panel: termPanel,
+  container: $("#term"),
+  onCwd: (path) => path !== state.path && navigate(path),
+});
+
+function toggleTerminal() {
+  terminal.toggle(state.path);
+  $("#btn-terminal").setAttribute("aria-pressed", String(terminal.isOpen));
+  if (!terminal.isOpen) grid.focus({ preventScroll: true });
+}
+
+// Capture phase, so F4 / Ctrl+` work while the terminal has focus too.
+document.addEventListener("keydown", (e) => {
+  if (!isToggleKey(e) || !viewerEl.hidden) return;
+  e.preventDefault();
+  e.stopPropagation();
+  toggleTerminal();
+}, true);
+
+$("#term-resize").addEventListener("pointerdown", (e) => {
+  const handle = e.currentTarget;
+  handle.setPointerCapture(e.pointerId);
+  const bottom = termPanel.getBoundingClientRect().bottom;
+  const move = (ev) => {
+    state.settings.termHeight = Math.round(Math.max(80, Math.min(innerHeight - 120, bottom - ev.clientY)));
+    termPanel.style.height = `${state.settings.termHeight}px`;
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", () => {
+    handle.removeEventListener("pointermove", move);
+    saveSettings();
+  }, { once: true });
+});
 zoomInput.addEventListener("input", () => setZoom(Number(zoomInput.value)));
 
 document.addEventListener("keydown", (e) => {
@@ -594,6 +644,7 @@ document.addEventListener("keydown", (e) => {
   const handled = () => e.preventDefault();
 
   if (!contextMenu.hidden && e.key === "Escape") return hideContextMenu(), handled();
+  if (e.target.closest?.("#term-panel")) return; // keys typed into the shell are the shell's
 
   if (!viewerEl.hidden) {
     const inVideo = e.target.tagName === "VIDEO";
