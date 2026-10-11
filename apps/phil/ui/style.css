@@ -288,7 +288,7 @@ main {
 }
 .thumb.has-img > svg.kind, .thumb.has-text > svg.kind { display: none; }
 .thumb > canvas, .face > .cell > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.thumb.has-text .ext { display: none; } /* the details line says it */
+.thumb.has-text .ext, .thumb.has-img .ext { display: none; } /* the details line says it */
 .thumb .ext {
   position: absolute;
   top: 52%;

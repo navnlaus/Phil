@@ -106,7 +106,7 @@ export function createServer({ profile, controlSocket }) {
         symlink: d.isSymlink,
       };
       if (!lookups) return entry;
-      if (stat && (kind === "image" || kind === "video")) entry.thumb = await thumbs.lookup(path, stat);
+      if (stat && (kind === "image" || kind === "video" || kind === "pdf")) entry.thumb = await thumbs.lookup(path, stat);
       if (kind === "dir") entry.summary = await folders.get(path);
       return entry;
     });
