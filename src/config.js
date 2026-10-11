@@ -1,10 +1,11 @@
-import { join, resolve } from "@std/path";
+import { dirname, join, resolve } from "@std/path";
 
 export const HELP = `phil — a small media-oriented file manager
 
-Usage: phil [options] [directory]
+Usage: phil [options] [directory | file...]
 
 Without a directory, phil opens the folder it was showing when it last closed.
+Given files, it opens their folder with them selected.
 
 Options:
   --thumb-dir PATH   Where this process stores thumbnails
@@ -18,6 +19,9 @@ Options:
                      .thumbnails folder inside each folder instead of the cache
                      (unless --thumb-dir is given), no WebKit disk cache
   --browser          Don't open a window; print the URL to open in a browser
+  --file-manager-service
+                     Run the org.freedesktop.FileManager1 D-Bus service that
+                     "Show in folder" uses; started by D-Bus, see scripts/install.sh
   -h, --help         Show this help
 
 Long options can be shortened to any unique prefix, e.g. --incog.
@@ -31,6 +35,7 @@ const OPTIONS = {
   "--port": true,
   "--incognito": false,
   "--browser": false,
+  "--file-manager-service": false,
   "--help": false,
 };
 
@@ -79,11 +84,23 @@ export function parseConfig(args) {
   const stateHome = env("XDG_STATE_HOME") ?? join(home(), ".local", "state");
   const incognito = !!opts.incognito;
   const thumbDir = opts["thumb-dir"] ?? env("PHIL_THUMB_DIR");
+  // A folder to open, or files to show selected in their folder.
+  const paths = positional.map((p) => resolve(p));
+  const isFile = (p) => {
+    try {
+      return !Deno.statSync(p).isDirectory;
+    } catch {
+      return false;
+    }
+  };
+  const startDir = paths.length && isFile(paths[0]) ? dirname(paths[0]) : paths[0] ?? Deno.cwd();
   return {
     browser: !!opts.browser,
+    fileManagerService: !!opts["file-manager-service"],
     incognito,
-    startDir: resolve(positional[0] ?? Deno.cwd()),
-    startDirGiven: positional.length > 0,
+    startDir,
+    startDirGiven: paths.length > 0,
+    select: paths.filter((p) => dirname(p) === startDir && isFile(p)),
     // null: per-folder .thumbnails (incognito without an explicit thumbnail dir)
     thumbDir: thumbDir ? resolve(thumbDir) : incognito ? null : join(cacheHome, "phil", "thumbnails"),
     // incognito: thumbnails for folders that can't hold a .thumbnails folder; deleted on exit

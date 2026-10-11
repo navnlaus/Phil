@@ -62,6 +62,7 @@ function start(config) {
       case "GET /api/init":
         return json({
           start: config.startDirGiven ? config.startDir : (await lastDir()) ?? config.startDir,
+          select: config.select,
           home: home(),
           places: await places(),
           incognito: config.incognito,
