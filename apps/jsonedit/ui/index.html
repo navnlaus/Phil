@@ -13,13 +13,13 @@
       <span id="file-name">Untitled</span><span id="dirty" title="Unsaved changes" hidden>●</span>
       <span id="file-dir"></span>
     </div>
+    <input id="search" type="search" placeholder="Find  Ctrl+F" spellcheck="false" autocomplete="off">
+    <span id="search-count"></span>
+    <button id="btn-undo" class="icon" title="Undo (Ctrl+Z)">↶</button>
+    <button id="btn-redo" class="icon" title="Redo (Ctrl+Shift+Z)">↷</button>
     <button id="btn-open" title="Open a file (Ctrl+O)">Open…</button>
     <button id="btn-save" title="Save (Ctrl+S); Save as: Ctrl+Shift+S">Save</button>
-    <span class="sep"></span>
-    <button id="btn-format" title="Format (Ctrl+Shift+F)">Format</button>
-    <button id="btn-minify" title="All on one line">Minify</button>
-    <button id="btn-sort" title="Sort object keys, at every level">Sort keys</button>
-    <select id="indent" title="Indentation for Format and Sort keys">
+    <select id="indent" title="Indentation the file is saved with">
       <option value="2">2 spaces</option>
       <option value="4">4 spaces</option>
       <option value="tab">Tabs</option>
@@ -34,17 +34,21 @@
   </form>
 
   <main>
-    <section id="editor">
-      <div id="gutter" aria-hidden="true"><div id="lines"></div></div>
-      <textarea id="text" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="JSON text"></textarea>
+    <section id="tree" tabindex="0" aria-label="JSON"></section>
+
+    <!-- A file that isn't valid JSON opens here, to be fixed as text. -->
+    <section id="fix" hidden>
+      <p id="fix-error"></p>
+      <textarea id="fix-text" spellcheck="false" wrap="off" aria-label="The file's text"></textarea>
+      <div class="buttons"><button id="fix-apply">Show as tree</button></div>
     </section>
-    <div id="split" title="Drag to resize"></div>
-    <section id="tree" aria-label="Structure" tabindex="0"></section>
   </main>
 
   <footer id="status">
-    <span id="state"></span>
-    <span id="caret"></span>
+    <span id="where"></span>
+    <span id="keys">Enter edit · F2 rename · Insert add · Del delete · right-click for more</span>
   </footer>
+
+  <menu id="menu" hidden></menu>
 </body>
 </html>

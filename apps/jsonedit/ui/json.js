@@ -150,30 +150,3 @@ export function position(text, offset) {
   for (let j = text.indexOf("\n"); j !== -1 && j < offset; j = text.indexOf("\n", j + 1)) line++, last = j;
   return { line, column: offset - last };
 }
-
-/**
- * The JSON of `node` laid out again: `indent` per level ("" for one line).
- * Keys, strings and numbers keep their exact text from `text` (no reordered
- * keys, no lost digits); `sortKeys` sorts object members by key.
- */
-export function format(text, node, { indent = "  ", sortKeys = false } = {}) {
-  const nl = indent ? "\n" : "";
-  const sep = indent ? ": " : ":";
-  const out = (n, depth) => {
-    if (n.type !== "object" && n.type !== "array") return text.slice(n.start, n.end);
-    const [open, close] = n.type === "object" ? ["{", "}"] : ["[", "]"];
-    if (!n.children.length) return open + close;
-    const pad = indent.repeat(depth + 1);
-    const members = sortKeys && n.type === "object" ? [...n.children].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)) : n.children;
-    const items = members.map((c) => pad + (n.type === "object" ? text.slice(c.keyStart, keyEnd(text, c.keyStart)) + sep : "") + out(c, depth + 1));
-    return open + nl + items.join("," + nl) + nl + indent.repeat(depth) + close;
-  };
-  return out(node, 0);
-}
-
-// Where the key string starting at `start` ends (after its closing quote).
-function keyEnd(text, start) {
-  let j = start + 1;
-  while (text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
-  return j + 1;
-}

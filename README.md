@@ -264,23 +264,33 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 
 ## jsonedit
 
-`jsonedit [file.json]` edits JSON as text, with a live tree of its structure
-beside it. Without a file it starts a new one.
+`jsonedit [file.json]` shows JSON as a tree and edits it in place. Without a
+file it starts a new one.
 
-- Errors show as you type, with the line and column (click to go there).
-- The tree follows the cursor, and clicking a value selects it in the text.
-  Large arrays and objects show 500 items at a time.
-- Format, Minify and Sort keys rewrite the text with 2 or 4 spaces or tabs (it
-  picks up the file's own) and keep keys in their order and numbers as written
-  (no lost digits). They can be undone with Ctrl+Z.
-- Saving writes a temporary file and renames it over the old one, keeping its
-  permissions. If the file changed on disk since it was opened, it asks first.
+- Click a value to edit it. What you type sets the type: JSON is taken as such
+  (`42`, `true`, `null`, `{"a": 1}`, `[1, 2]`, `"quoted"`), anything else is a
+  string; a hint says which, and objects or arrays that aren't valid JSON yet
+  can't be kept. An object or array can be edited as JSON text too.
+- Double-click a key (or F2) to rename it; booleans toggle with a click.
+- `+ key` / `+ item` on an object or array adds one inside; the right-click
+  menu (or `⋯`) adds after, duplicates, moves, copies as JSON or path, changes
+  the type (keeping what it can) and deletes. Pasting JSON inserts it.
+- Undo and redo cover every change; Find searches keys and values.
+- Saving writes the tree with 2 or 4 spaces or tabs (it picks up the file's
+  own), keeping key order and numbers as written (no lost digits). It writes a
+  temporary file and renames it over the old one, keeping its permissions; if
+  the file changed on disk since it was opened, it asks first. A file that
+  isn't valid JSON opens as text, with the error located, to fix first.
 
 | | |
 |---|---|
-| Ctrl+S / Ctrl+Shift+S | save / save as |
-| Ctrl+O | open |
-| Ctrl+Shift+F | format |
-| Tab, Enter | indent; keep the indentation (one more after `{` or `[`) |
+| ↑ ↓ ← → Home End | move; ← → close and open |
+| Enter / F2 / Space | edit the value (open or close an object or array) / rename the key / toggle |
+| Ctrl+Enter, Insert | add inside, add after |
+| Delete, Ctrl+D, Ctrl+↑ ↓ | delete, duplicate, move |
+| Ctrl+C / Ctrl+X / Ctrl+V | copy, cut, paste as JSON |
+| `*` | open everything inside |
+| Ctrl+Z / Ctrl+Shift+Z | undo / redo |
+| Ctrl+F, Ctrl+S, Ctrl+Shift+S, Ctrl+O | find, save, save as, open |
 
 `deno task jsonedit [file]` runs it from the source.
