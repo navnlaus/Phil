@@ -1112,7 +1112,7 @@ const inRename = (e) => e.target.closest?.(".rename");
 // ---------------------------------------------------------------- context menu
 
 function showContextMenu(x, y, entry) {
-  const items = [];
+  const items = [["Properties", () => showProperties(entry)]];
   if (entry.kind === "dir") items.push(["Open", () => navigate(entry.path)]);
   if (entry.kind === "dir" && remoteOf(entry.path)) items.push([`SSH here (${remoteOf(entry.path).host})`, () => sshTo(entry.path)]);
   if (entry.kind === "image") items.push(["View", () => open(state.view.indexOf(entry))]);
@@ -1124,7 +1124,6 @@ function showContextMenu(x, y, entry) {
   items.push(["Open with default app", () => openExternal(entry.path)]);
   items.push(["Rename…", () => startRename(state.view.indexOf(entry))]);
   items.push(["Copy path", () => copyText(entry.path)]);
-  items.push(["Properties", () => showProperties(entry)]);
   items.push([state.marked.size > 1 ? `Delete ${state.marked.size} items permanently…` : "Delete permanently…", deleteMarked]);
   if (terminal.isRunning) {
     items.push(["Paste path in terminal", () => {
