@@ -487,6 +487,12 @@ function render(selectPath = state.view[state.selected]?.path) {
   updateStatus();
 }
 
+// The extension, if the name has a short one ("md", "json"; not "tar.gz"'s "tar").
+function fileType(name) {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && name.length - dot <= 6 ? name.slice(dot + 1) : "";
+}
+
 // A tile is rebuilt when its file changed; a folder's tile is updated in place.
 const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime}`);
 
@@ -500,11 +506,10 @@ function makeTile(entry, index) {
   box.className = "thumb";
   if (entry.kind !== "dir") {
     box.innerHTML = icon(KIND_ICON[entry.kind], "kind") + (entry.kind === "video" ? `<span class="badge">${icon("play")}</span>` : "");
-    const dot = entry.name.lastIndexOf(".");
-    if (entry.kind === "file" && dot > 0 && entry.name.length - dot <= 6) {
+    if (entry.kind === "file" && fileType(entry.name)) { // under the icon; hidden once the text is drawn
       const ext = document.createElement("span");
       ext.className = "ext";
-      ext.textContent = entry.name.slice(dot + 1);
+      ext.textContent = fileType(entry.name);
       box.append(ext);
     }
   }
@@ -521,7 +526,7 @@ function makeTile(entry, index) {
   tile.append(box, label);
   if (entry.kind === "dir") showFolderInfo(tile, entry);
   else {
-    meta.textContent = `${formatSize(entry.size)} · ${formatShortDate(entry.mtime)}`;
+    meta.textContent = [fileType(entry.name).toUpperCase(), formatSize(entry.size), formatShortDate(entry.mtime)].filter(Boolean).join(" · ");
     tile.title = `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}`;
   }
   return tile;
