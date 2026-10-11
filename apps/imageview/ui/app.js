@@ -1,4 +1,4 @@
-import { closeWindow, copyText, embedded, holdFocus, onCloseRequest, ready } from "../engine/ui/kit.js";
+import { closeWindow, copyText, holdFocus, onCloseRequest, ready, tellParent } from "../engine/ui/kit.js";
 
 const $ = (sel) => document.querySelector(sel);
 const stage = $("#stage");
@@ -116,7 +116,7 @@ async function show(index) {
   document.title = entry.name;
   $("#prev").disabled = index === 0;
   $("#next").disabled = index === state.images.length - 1;
-  if (embedded) parent.postMessage({ app: "imageview", showing: entry.path }, "*"); // phil selects it
+  tellParent({ app: "imageview", showing: entry.path }); // shown in phil: it selects it
 
   // Decoded before it's swapped in, so the previous one stays until then.
   // What the webview can't decode (HEIC, TIFF, ...) is converted by the server.

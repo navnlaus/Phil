@@ -4,7 +4,25 @@
  * Shown inside another app's window (an <iframe>, see appUrl): closing
  * returns to that app instead of closing the window.
  */
-export const embedded = globalThis.parent !== globalThis && new URLSearchParams(location.search).has("embedded");
+const embedId = new URLSearchParams(location.search).get("embedded");
+export const embedded = globalThis.parent !== globalThis && !!embedId;
+
+// Messages between an app and the one it's shown in (see appUrl) are told
+// apart by origin and the embedded view's id, not by event.source: WebKitGTK
+// sometimes gives the receiving window as the source (for a message sent
+// while handling a real key press, say).
+const ours = (e) => e.origin === location.origin;
+
+/** The id of the embedded view at `url` (from appUrl), which its messages carry. */
+export const embedOf = (url) => new URL(url).searchParams.get("embedded");
+
+/**
+ * Tells the app this one is shown in something: {engine: "ready" | "close"},
+ * or the app's own (imageview's {app, showing}). Marked as this view's.
+ */
+export function tellParent(message) {
+  if (embedded) parent.postMessage({ ...message, embed: embedId }, location.origin);
+}
 
 // Ctrl+Z undoes and Ctrl+Shift+Z / Ctrl+Y redo in text fields and editable
 // text: WebKitGTK doesn't bind those keys itself. Apps that handle them
@@ -26,13 +44,13 @@ document.addEventListener("keydown", (e) => {
  * (a page in a frame can't take focus itself in WebKit).
  */
 export function ready(detail = "") {
-  if (embedded) parent.postMessage({ engine: "ready" }, "*");
+  if (embedded) tellParent({ engine: "ready" });
   else globalThis.webkit?.messageHandlers?.phil?.postMessage(detail ? `ready:${detail}` : "ready");
 }
 
 /** Closes the window, or the embedded view. */
 export function closeWindow() {
-  if (embedded) return parent.postMessage({ engine: "close" }, "*");
+  if (embedded) return tellParent({ engine: "close" });
   const native = globalThis.webkit?.messageHandlers?.phil; // a window of the engine's own
   if (native) return native.postMessage("close");
   fetch("/api/quit", { method: "POST" }).finally(() => globalThis.close()); // --browser
@@ -42,12 +60,12 @@ export function closeWindow() {
  * The URL that shows another app inside this page (an <iframe>), e.g.
  * appUrl("jsonedit", { file }): `params` go in its query. It's served on this
  * page's origin (/engine/embed/, see engine/server.js), and gets ?embedded, so
- * its close button comes back here.
+ * its close button comes back here. Its messages carry that id (embedOf).
  */
 export function appUrl(app, params = {}) {
   const url = new URL(`/engine/embed/${app}/`, location.origin);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  url.searchParams.set("embedded", "1");
+  url.searchParams.set("embedded", Math.random().toString(36).slice(2));
   return url.href;
 }
 
@@ -108,7 +126,7 @@ export function holdFocus(el) {
   addEventListener("focus", take);
   // Shown inside another app: WebKit ignores focus() here until that app has
   // given this frame the keyboard; it says so once it has (see ready()).
-  if (embedded) addEventListener("message", (e) => e.source === parent && e.data?.engine === "focus" && take());
+  if (embedded) addEventListener("message", (e) => ours(e) && e.data?.engine === "focus" && take());
   take();
 }
 
@@ -118,7 +136,7 @@ export function holdFocus(el) {
  */
 export function onCloseRequest(fn) {
   if (!embedded) return;
-  addEventListener("message", (e) => e.source === parent && e.data?.engine === "close-request" && fn());
+  addEventListener("message", (e) => ours(e) && e.data?.engine === "close-request" && fn());
 }
 
 /**
