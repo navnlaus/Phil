@@ -7,7 +7,8 @@ export const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
  *  - when the file view changes folder and the shell sits at an empty prompt,
  *    the shell changes directory too, without a command being typed: the
  *    server leaves the target for the prompt hook (__phil_follow) and sends an
- *    empty Enter, and the old prompt is erased so the new one replaces it
+ *    empty Enter, and the old prompt is erased so the new one replaces it.
+ *    The prompt counts as empty again when what was typed is erased.
  */
 export class TerminalPanel {
   constructor({ panel, container, onCwd }) {
@@ -18,6 +19,8 @@ export class TerminalPanel {
     this.ws = null;
     this.cwd = null; // last directory the shell reported
     this.idle = false; // at a prompt with nothing typed since
+    this.typedAt = null; // where the cursor was, and what followed it, at the first key typed at this prompt
+    this.running = false; // a command was entered and its prompt hasn't come back
     this.promptRow = null; // buffer line where the current prompt began, if at column 0
     this.dropEcho = false; // swallow the newline bash echoes for a silent cd's Enter
     this.exited = false;
@@ -82,6 +85,8 @@ export class TerminalPanel {
       this.promptRow = buf.cursorX === 0 ? buf.baseY + buf.cursorY : null;
       this.cwd = path;
       this.idle = true;
+      this.typedAt = null;
+      this.running = false;
       if (changed) this.onCwd(path);
       return true;
     });
@@ -90,7 +95,7 @@ export class TerminalPanel {
         if (data === "\r") this.connect(this.restartCwd ?? cwd);
         return;
       }
-      this.idle = false;
+      this.typed(data);
       this.send(data);
     });
     this.term.onResize(({ cols, rows }) => {
@@ -140,11 +145,45 @@ export class TerminalPanel {
     if (this.isRunning) this.ws.send(new TextEncoder().encode(data));
   }
 
-  /** The file view moved to `path`: follow it if the shell is idle at a prompt. */
+  // Keys (or text) about to go to the shell. The first ones at a prompt note
+  // where the line began; Enter means a command runs.
+  typed(data) {
+    if (this.idle) {
+      const buf = this.term.buffer.active;
+      const row = buf.baseY + buf.cursorY;
+      this.typedAt = { x: buf.cursorX, row, rest: this.textFrom(row, buf.cursorX) };
+    }
+    this.idle = false;
+    if (/[\r\n]/.test(data)) this.running = true;
+  }
+
+  // The screen's text from (row, x) to the end of the buffer.
+  textFrom(row, x) {
+    const buf = this.term.buffer.active;
+    const lines = [];
+    for (let y = row; y < buf.length; y++) lines.push(buf.getLine(y)?.translateToString(true, y === row ? x : 0) ?? "");
+    return lines.join("\n").trimEnd();
+  }
+
+  /**
+   * At a prompt with an empty command line: nothing typed since the prompt, or
+   * everything typed erased again (the cursor is back where typing began, and
+   * the screen after it reads as it did then).
+   */
+  get atEmptyPrompt() {
+    if (this.idle) return true;
+    const at = this.typedAt;
+    if (!at || this.running) return false;
+    const buf = this.term.buffer.active;
+    return buf.baseY + buf.cursorY === at.row && buf.cursorX === at.x && this.textFrom(at.row, at.x) === at.rest;
+  }
+
+  /** The file view moved to `path`: follow it if the shell is at an empty prompt. */
   follow(path) {
     this.restartCwd = path;
-    if (!this.isRunning || !this.idle || path === this.cwd) return;
+    if (!this.isRunning || !this.atEmptyPrompt || path === this.cwd) return;
     this.idle = false;
+    this.running = true;
     this.erasePrompt();
     this.ws.send(JSON.stringify({ cd: path }));
   }
@@ -165,7 +204,7 @@ export class TerminalPanel {
   /** Types text at the prompt (e.g. a quoted file path) and focuses the terminal. */
   insert(text) {
     if (!this.isRunning) return;
-    this.idle = false;
+    this.typed(text);
     this.send(text);
     this.term.focus();
   }

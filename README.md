@@ -93,6 +93,14 @@ how phil was closed). A folder argument always wins.
 
 Files inside `.thumbnails` folders are shown as their own thumbnails.
 
+### Live updates
+
+The folder you're looking at updates by itself, within about half a second,
+whatever changed it: phil, the terminal, a download, another program. Scroll
+position, selection and already loaded thumbnails stay. Its subfolders are
+watched too (one level down), so a folder tile's counts and previews follow
+changes inside it. F5 still reloads by hand.
+
 ### Folder tiles
 
 A folder's tile shows what it holds: how many folders and files, the files'
@@ -173,7 +181,8 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 - `cd` in the shell and the file view follows.
 - Change folder in the file view while the shell sits at an empty prompt and
   the shell changes directory too, silently: nothing is typed and nothing goes
-  into history, the prompt just redraws in place for the new folder. (phil
+  into history, the prompt just redraws in place for the new folder. A prompt
+  where you typed something and erased it again counts as empty. (phil
   leaves the target in a file and sends an empty Enter; phil's prompt hook does
   a `builtin cd` before your prompt renders, so `cd` wrappers like zoxide aren't
   involved.) If you're in the middle of typing or a command is running, it

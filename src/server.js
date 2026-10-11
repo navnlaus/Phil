@@ -193,18 +193,23 @@ function start(config) {
   }
 
   // One WebSocket per page. The page sends {want: [paths]} for tiles entering the
-  // viewport, {folders: [paths], sort} for folder tiles that need a summary, and
-  // {cancel: [paths]} for tiles that scrolled away before loading. Unlike <img>
-  // requests this isn't capped at ~6 connections per host. It also carries
-  // {theme} when the theme in the settings file changes.
+  // viewport, {folders: [paths], sort} for folder tiles that need a summary,
+  // {cancel: [paths]} for tiles that scrolled away before loading, and
+  // {watch: path} for the folder it shows. Unlike <img> requests this isn't
+  // capped at ~6 connections per host. The server sends the answers, {changed}
+  // (see watchFolder), and {theme} when the theme in the settings file changes.
   function thumbSocket(req) {
     if (req.headers.get("upgrade") !== "websocket" || req.headers.get("origin") !== `http://${host}`) {
       return text(400, "Bad request");
     }
     const { socket, response } = Deno.upgradeWebSocket(req);
     const pending = new Map();
+    let watcher = null, watching = Promise.resolve(); // one watch request at a time
     socket.onmessage = (e) => {
       const msg = JSON.parse(e.data);
+      if (msg.watch) {
+        watching = watching.then(async () => (watcher = await watchFolder(msg.watch, watcher, send))).catch(() => {});
+      }
       for (const path of msg.cancel ?? []) pending.get(path)?.abort();
       for (const path of msg.want ?? []) {
         if (pending.has(path)) continue;
@@ -233,9 +238,64 @@ function start(config) {
     socket.onclose = () => {
       sockets.delete(socket);
       pending.forEach((c) => c.abort());
+      watching.then(() => watcher?.close());
     };
     const send = (msg) => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(msg));
     return response;
+  }
+
+  // Watches the folder a page shows and its subfolders (not deeper), and sends
+  // {changed: dir, folders: [subfolders]} at most twice a second: `dir` itself
+  // when something in it was added, removed or modified, `folders` for those
+  // whose contents changed. Whatever made the change: phil, the terminal or
+  // another program. Returns the watcher, or reuses `old` when it already
+  // watches the same folders (the page asks again after every refresh, so
+  // new subfolders get watched).
+  async function watchFolder(dir, old, send) {
+    const subfolders = [];
+    try {
+      for await (const d of Deno.readDir(dir)) {
+        if (d.name.startsWith(".") || subfolders.length >= 2000) continue;
+        const path = join(dir, d.name);
+        if (d.isDirectory || (d.isSymlink && await isDir(path))) subfolders.push(path);
+      }
+    } catch { /* gone, or no permission: watch nothing */ }
+    const paths = [dir, ...subfolders.sort()];
+    const key = paths.join("\0");
+    if (old?.key === key) return old;
+    old?.close();
+    let fsWatcher;
+    try {
+      fsWatcher = Deno.watchFs(paths, { recursive: false });
+    } catch {
+      try {
+        fsWatcher = Deno.watchFs(dir, { recursive: false }); // a subfolder we can't watch
+      } catch {
+        return null;
+      }
+    }
+    const watched = new Set(subfolders);
+    let changed = false, timer = null;
+    const folders = new Set();
+    const flush = () => {
+      timer = null;
+      send({ changed: changed ? dir : null, folders: [...folders] });
+      changed = false;
+      folders.clear();
+    };
+    (async () => {
+      for await (const event of fsWatcher) {
+        if (event.kind === "access") continue; // closing a file isn't a change
+        for (const path of event.paths) {
+          if (thumbs.dir && path.startsWith(thumbs.dir + "/")) continue; // our own cache, shown in phil: no feedback loop
+          const parent = dirname(path);
+          if (path === dir || parent === dir) changed = true;
+          else if (watched.has(parent) && !basename(path).startsWith(".")) folders.add(parent);
+        }
+        if ((changed || folders.size) && !timer) timer = setTimeout(flush, 500);
+      }
+    })().catch(() => {});
+    return { key, close: () => (clearTimeout(timer), fsWatcher.close()) };
   }
 
   // Terminal panel: one bash on a pseudo-terminal per WebSocket. Binary frames
