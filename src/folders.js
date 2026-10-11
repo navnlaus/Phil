@@ -33,14 +33,19 @@ export class FolderSummaries {
     }
   }
 
-  /** Records a folder that was just listed. Previews are spread over its media, in name order. */
-  async update(path, entries) {
+  /**
+   * Records a folder that was just read, with its modification time (when that
+   * changes, the summary is out of date). Previews are spread over its media,
+   * in name order. Returns the summary.
+   */
+  async update(path, mtime, entries) {
     const files = entries.filter((e) => e.kind !== "dir");
     const media = entries
       .filter((e) => typeof e.thumb === "string" && !e.name.startsWith("."))
       .sort((a, b) => collator.compare(a.name, b.name));
     const step = media.length / Math.min(PREVIEWS, media.length);
     const summary = {
+      mtime,
       files: files.length,
       dirs: entries.length - files.length,
       size: files.reduce((sum, e) => sum + e.size, 0),
@@ -53,6 +58,16 @@ export class FolderSummaries {
     this.memory.set(path, summary);
     if (this.dir && this.memory.size > 200) this.memory.delete(this.memory.keys().next().value);
     await this.save(path, summary);
+    return summary;
+  }
+
+  /** A folder was renamed: its summary goes with it. */
+  async moved(from, to) {
+    const summary = await this.get(from);
+    if (!summary) return;
+    this.memory.delete(from);
+    this.memory.set(to, summary);
+    await this.save(to, summary);
   }
 
   /** A thumbnail was just generated for a file in `folder`: use it if the folder has room. */

@@ -23,7 +23,7 @@ const state = {
   selected: -1, // index into view: the keyboard cursor
   marked: new Set(), // paths of the selected entries (one or more)
   anchor: -1, // where Shift+click / Shift+arrow ranges start
-  settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false },
+  settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, labels: "overlay" },
 };
 const tiles = new Map(); // path -> tile element
 const scrollPositions = new Map(); // path -> scrollTop, restored on back/up
@@ -284,63 +284,66 @@ function makeTile(entry, index) {
   const tile = document.createElement("div");
   tile.className = `tile ${entry.kind}${entry.name.startsWith(".") ? " hidden-file" : ""}`;
   tile.dataset.index = index;
-  tile.title = entry.kind === "dir" ? entry.name : `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}`;
-  if (entry.kind === "dir") return fillFolderTile(tile, entry);
 
   const box = document.createElement("div");
   box.className = "thumb";
-  box.innerHTML = icon(KIND_ICON[entry.kind], "kind") + (entry.kind === "video" ? `<span class="badge">${icon("play")}</span>` : "");
-  if (entry.kind === "file") {
+  if (entry.kind === "dir") fillFolderThumb(box, entry.summary);
+  else {
+    box.innerHTML = icon(KIND_ICON[entry.kind], "kind") + (entry.kind === "video" ? `<span class="badge">${icon("play")}</span>` : "");
     const dot = entry.name.lastIndexOf(".");
-    if (dot > 0 && entry.name.length - dot <= 6) {
+    if (entry.kind === "file" && dot > 0 && entry.name.length - dot <= 6) {
       const ext = document.createElement("span");
       ext.className = "ext";
       ext.textContent = entry.name.slice(dot + 1);
       box.append(ext);
     }
   }
-  const name = document.createElement("div");
+
+  // Name, and what it is: size and date for files, contents for folders.
+  const label = document.createElement("div");
+  label.className = "label";
+  const name = document.createElement("span");
   name.className = "name";
   name.textContent = entry.name;
-  tile.append(box, name);
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  if (entry.kind !== "dir") meta.textContent = `${formatSize(entry.size)} · ${formatShortDate(entry.mtime)}`;
+  else if (entry.summary) meta.textContent = folderContents(entry.summary);
+  label.append(name, meta);
+  tile.title = entry.kind === "dir"
+    ? entry.name + (meta.textContent ? `\n${meta.textContent}` : "")
+    : `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}`;
+  if (entry.summary && !entry.summary.files && !entry.summary.dirs) tile.classList.add("empty-dir");
+  tile.append(box, label);
   return tile;
 }
 
-// A folder is a card: a tab, a few of its thumbnails (or an icon for what it
-// holds) and its name with what it held. Contents come from the summary saved when the folder
-// was last opened (src/folders.js); folders never opened show just the icon.
-function fillFolderTile(tile, entry) {
-  const s = entry.summary;
-  const box = document.createElement("div");
-  box.className = "thumb";
+// A folder looks like one: a tab over a face that holds a few of its
+// thumbnails, or an icon for what it holds. Contents come from the summary saved
+// when the folder was last opened (src/folders.js); folders never opened are
+// plain.
+function fillFolderThumb(box, summary) {
   const face = document.createElement("div");
   face.className = "face";
-  const previews = s?.previews ?? [];
+  const previews = summary?.previews ?? [];
   if (previews.length) {
-    face.classList.add(`previews`, `n${previews.length}`);
+    face.classList.add("previews", `n${previews.length}`);
     for (const url of previews) {
       const img = Object.assign(new Image(), { src: url, alt: "", draggable: false, loading: "lazy", decoding: "async" });
       img.onerror = () => img.remove(); // the thumbnail cache was cleared since
       face.append(img);
     }
-  } else if (s?.files || s?.dirs) {
-    face.innerHTML = icon(s.files ? "file" : "folder", "kind");
+  } else if (summary?.files || summary?.dirs) {
+    face.innerHTML = icon(summary.files ? "file" : "folder", "kind");
   }
   box.append(face);
+}
 
-  const name = document.createElement("div");
-  name.className = "name";
-  name.textContent = entry.name;
-  if (s) {
-    const meta = document.createElement("span");
-    meta.className = "meta";
-    meta.textContent = folderContents(s);
-    name.append(meta);
-    tile.title += `\n${meta.textContent}\n(when opened ${formatDate(s.seen)})`;
-    if (!s.files && !s.dirs) tile.classList.add("empty-dir");
-  }
-  tile.append(box, name);
-  return tile;
+function formatShortDate(ms) {
+  if (!ms) return "";
+  const date = new Date(ms);
+  const thisYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString(undefined, thisYear ? { month: "short", day: "numeric" } : { dateStyle: "medium" });
 }
 
 function folderContents({ files, dirs, size }) {
@@ -495,6 +498,7 @@ function applySettings() {
   hiddenButton.setAttribute("aria-pressed", String(s.showHidden));
   $("#btn-sidebar").setAttribute("aria-pressed", String(s.sidebar));
   document.body.classList.toggle("sidebar", s.sidebar);
+  document.body.dataset.labels = s.labels;
   termPanel.style.height = `${s.termHeight}px`;
 }
 
@@ -648,6 +652,55 @@ async function deleteMarked() {
   }
 }
 
+// ---------------------------------------------------------------- renaming
+
+// F2: the name becomes a text field, like in Windows. Enter (or clicking
+// elsewhere) renames, Esc cancels. A file's name starts selected without its
+// extension.
+let renaming = null;
+
+function startRename(index) {
+  const entry = state.view[index];
+  const tile = entry && tiles.get(entry.path);
+  if (!tile || renaming) return;
+  hideContextMenu();
+  const input = Object.assign(document.createElement("input"), { className: "rename", value: entry.name, spellcheck: false });
+  tile.classList.add("renaming");
+  tile.querySelector(".label").append(input);
+  tile.scrollIntoView({ block: "nearest" });
+  input.focus();
+  const dot = entry.kind === "dir" ? -1 : entry.name.lastIndexOf(".");
+  input.setSelectionRange(0, dot > 0 ? dot : entry.name.length);
+  renaming = { entry, input };
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation(); // typing a name isn't navigating
+    if (e.key === "Enter") finishRename(true, { refocus: true }), e.preventDefault();
+    else if (e.key === "Escape") finishRename(false, { refocus: true }), e.preventDefault();
+  });
+  input.addEventListener("blur", () => finishRename(true));
+}
+
+async function finishRename(commit, { refocus = false } = {}) {
+  if (!renaming) return;
+  const { entry, input } = renaming;
+  renaming = null;
+  const name = input.value.trim();
+  input.closest(".tile")?.classList.remove("renaming");
+  input.remove();
+  if (refocus) grid.focus({ preventScroll: true });
+  if (!commit || !name || name === entry.name) return;
+  try {
+    const { path } = await api("/api/rename", { method: "POST", body: JSON.stringify({ path: entry.path, name }) });
+    await load(state.path);
+    const i = state.view.findIndex((e) => e.path === path);
+    if (i !== -1) select(i);
+  } catch (err) {
+    alert(`Couldn't rename “${entry.name}”: ${err.message}`);
+  }
+}
+
+const inRename = (e) => e.target.closest?.(".rename");
+
 // ---------------------------------------------------------------- context menu
 
 function showContextMenu(x, y, entry) {
@@ -657,6 +710,7 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
   if (entry.kind === "video") items.push(["Play here", () => viewer.open(state.view.indexOf(entry))]);
   items.push(["Open with default app", () => openExternal(entry.path)]);
+  items.push(["Rename…", () => startRename(state.view.indexOf(entry))]);
   items.push(["Copy path", () => copyText(entry.path)]);
   items.push([state.marked.size > 1 ? `Delete ${state.marked.size} items permanently…` : "Delete permanently…", deleteMarked]);
   if (terminal.isRunning) {
@@ -710,7 +764,7 @@ const tileIndex = (target) => {
 };
 
 grid.addEventListener("click", (e) => {
-  if (suppressClick) return; // the click that ends a rubber-band drag
+  if (suppressClick || inRename(e)) return; // suppressClick: the click that ends a rubber-band drag
   select(tileIndex(e.target), { scroll: false, toggle: e.ctrlKey || e.metaKey, extend: e.shiftKey });
 });
 
@@ -732,15 +786,16 @@ function contentPoint(clientX, clientY) {
 // repainted, so the rectangle never shows). Cancelling the press's default
 // action stops both; the grid then has to take focus itself.
 grid.addEventListener("mousedown", (e) => {
+  if (inRename(e)) return; // clicks in the name field place the cursor
   if (e.target === grid && e.offsetX >= grid.clientWidth) return; // the scrollbar
   if (e.button === 0 || e.button === 1) e.preventDefault(); // no native drag; middle: no autoscroll or paste
   if (e.button !== 2) grid.focus({ preventScroll: true });
 });
 grid.addEventListener("dragstart", (e) => e.preventDefault());
-grid.addEventListener("selectstart", (e) => e.preventDefault());
+grid.addEventListener("selectstart", (e) => inRename(e) || e.preventDefault());
 
 grid.addEventListener("pointerdown", (e) => {
-  if (e.button !== 0 || (e.target === grid && e.offsetX >= grid.clientWidth)) return; // not the scrollbar
+  if (e.button !== 0 || inRename(e) || (e.target === grid && e.offsetX >= grid.clientWidth)) return; // not the scrollbar
   addEventListener("pointermove", moveBand);
   addEventListener("pointerup", endBand);
   addEventListener("pointercancel", endBand);
@@ -808,7 +863,7 @@ function edgeScroll(clientY, onScroll) {
 let drag = null;
 
 grid.addEventListener("pointerdown", (e) => {
-  if (e.button !== 1 && e.button !== 2) return;
+  if ((e.button !== 1 && e.button !== 2) || inRename(e)) return;
   const i = tileIndex(e.target);
   if (i === -1) return;
   drag = { id: e.pointerId, button: e.button, index: i, start: [e.clientX, e.clientY], client: [e.clientX, e.clientY] };
@@ -940,10 +995,10 @@ function endBand(e) {
   }
   band = null;
 }
-grid.addEventListener("dblclick", (e) => open(tileIndex(e.target)));
+grid.addEventListener("dblclick", (e) => inRename(e) || open(tileIndex(e.target)));
 grid.addEventListener("contextmenu", (e) => {
   const i = tileIndex(e.target);
-  if (i === -1) return; // keep the webview's own menu (Inspect Element) on empty space
+  if (i === -1 || inRename(e)) return; // keep the webview's own menu (Inspect Element, or Paste in the name field)
   e.preventDefault();
   // On Linux this fires when the button goes down. A right press may become a
   // drag, so the menu waits for the release (see endDrag).
@@ -1123,6 +1178,7 @@ document.addEventListener("keydown", (e) => {
     return handled();
   }
   if (e.shiftKey && e.key === "Delete") return deleteMarked(), handled();
+  if (e.key === "F2") return startRename(cur), handled();
   if (ctrl && e.key === "a") return setMarked(state.view.map((v) => v.path)), updateStatus(), handled();
   if (e.key === "Escape") return select(-1), handled();
   if (e.key === "Enter" || (e.key === " " && !typed)) return open(cur), handled();

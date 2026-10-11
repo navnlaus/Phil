@@ -98,8 +98,10 @@ Files inside `.thumbnails` folders are shown as their own thumbnails.
 Opening a folder saves a summary of it: how many folders and files it holds,
 the files' total size (not counting subfolders), and up to four of its
 thumbnails, spread over the folder in name order. Its tile in the parent folder
-then shows these, as they were when it was last opened. Thumbnails generated
-while the folder is open fill in its previews, so a first visit is enough.
+then shows these. Thumbnails generated while the folder is open fill in its
+previews, so a first visit is enough. If the folder changed since (say a file
+was deleted in the terminal), it's read again when its tile is shown, so the
+counts stay true.
 Folders never opened show a plain folder card. Summaries live next to the
 thumbnails (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for
 the session.
@@ -180,6 +182,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; Esc clears |
 | drag (Ctrl/Shift+drag) | select everything the rectangle touches (add to the selection); scrolls at the edges |
 | type a name | jump to the next entry starting with it (repeat a letter to cycle) |
+| F2 | rename in place (Enter or clicking elsewhere renames, Esc cancels) |
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
 | right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, places) |
 | middle-drag onto a folder | move there right away |
