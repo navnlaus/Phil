@@ -64,6 +64,7 @@ const webkit = Deno.dlopen("libwebkit2gtk-4.1.so.0", {
   webkit_web_view_new_with_context: { parameters: ["pointer"], result: "pointer" },
   webkit_web_view_load_uri: { parameters: ["pointer", "buffer"], result: "void" },
   webkit_web_view_get_title: { parameters: ["pointer"], result: "pointer" },
+  webkit_web_view_terminate_web_process: { parameters: ["pointer"], result: "void" },
   webkit_web_view_get_settings: { parameters: ["pointer"], result: "pointer" },
   webkit_web_view_get_user_content_manager: { parameters: ["pointer"], result: "pointer" },
   webkit_user_content_manager_register_script_message_handler: { parameters: ["pointer", "buffer"], result: "i32" },
@@ -103,9 +104,14 @@ export function createApp({ appId, ephemeral = false, keepRunning = false, trace
     gtk.symbols.gtk_widget_show_all(w.win);
   };
 
+  // A closing window's web process is killed rather than left to exit by
+  // itself: on NVIDIA its exit often crashes (a thread's cleanup calls into the
+  // EGL driver while it is being unloaded), and the desktop reports the crash.
+  // Nothing is lost; phil keeps no state in the page.
   const onDestroy = new Deno.UnsafeCallback({ parameters: ["pointer", "pointer"], result: "void" }, (win) => {
     const w = byWin.get(key(win));
     if (!w) return;
+    webkit.symbols.webkit_web_view_terminate_web_process(w.view);
     windows.delete(w);
     byWin.delete(key(w.win));
     byView.delete(key(w.view));
