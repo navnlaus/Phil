@@ -7,9 +7,9 @@ const HELP = `jsonedit — a JSON editor
 
 Usage: jsonedit [file.json]
 
-Edits the file as text, with a live tree of its structure and errors shown as
-you type. Without a file it starts a new one (saved with Ctrl+S, which asks
-where). Runs on phil-engine, like phil; see \`phil-engine --help\` for the
+Shows the file as a tree and edits it in place: values, keys, adding, moving
+and deleting items. Without a file it starts a new one (saved with Ctrl+S,
+which asks where). Runs on phil-engine, like phil; see \`phil-engine --help\` for the
 engine options (--browser, --standalone, --quit, --retire).
 `;
 
