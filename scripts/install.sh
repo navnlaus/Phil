@@ -18,6 +18,9 @@ update-desktop-database "$data/applications" 2>/dev/null || true
 xdg-mime default phil.desktop inode/directory
 # Have the session bus pick up the new service file.
 busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig >/dev/null 2>&1 || true
+# Background phils keep their open windows but stop taking new ones and exit
+# once those are closed, so the next launch runs the new build.
+"$bin" --retire || true
 # A FileManager1 service still running the previous build: stop it, D-Bus
 # starts the new one on the next request.
 service=$(busctl --user status org.freedesktop.FileManager1 2>/dev/null || true)

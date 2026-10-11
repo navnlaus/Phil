@@ -486,3 +486,14 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
+/* Incognito windows: a stripe along the top that's always visible (the bars
+   are hidden until hovered), so they can't be mistaken for normal ones. */
+body.incognito::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 3px;
+  z-index: 50;
+  background: #a855f7;
+  pointer-events: none;
+}

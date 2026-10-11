@@ -77,7 +77,7 @@ function philCommand() {
   const exe = Deno.execPath().replace(/ \(deleted\)$/, "");
   if (!/(^|\/)deno$/.test(exe)) return [exe];
   const main = new URL("./main.js", import.meta.url).pathname;
-  return [Deno.execPath(), "run", "--allow-read", "--allow-write", "--allow-env", "--allow-ffi", "--allow-net=127.0.0.1", "--allow-run", main];
+  return [Deno.execPath(), "run", "--allow-read", "--allow-write", "--allow-env", "--allow-ffi", "--allow-net", "--allow-run", main];
 }
 
 function launch(args, startupId) {
