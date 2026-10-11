@@ -1,5 +1,11 @@
 import { HELP, parseConfig } from "./config.js";
 
+// PHIL_TRACE=1 prints startup milestones (ms since the process started).
+const trace = Deno.env.get("PHIL_TRACE")
+  ? (label) => console.error(`phil: ${performance.now().toFixed(0).padStart(5)}ms ${label}`)
+  : () => {};
+trace("main.js running");
+
 let config;
 try {
   config = parseConfig(Deno.args);
@@ -19,11 +25,23 @@ if (config.fileManagerService) {
 
 // The HTTP server lives in a worker because the GTK main loop blocks this thread.
 const server = new Worker(new URL("./server.js", import.meta.url), { type: "module" });
-const url = await new Promise((resolve, reject) => {
+const serverReady = new Promise((resolve, reject) => {
   server.onmessage = (e) => resolve(e.data.url);
   server.onerror = (e) => reject(e.error ?? new Error(e.message));
   server.postMessage(config);
 });
+
+// Meanwhile set up GTK/WebKit (window still hidden) on this thread.
+const appWindow = config.browser ? null : (await import("./window.js")).createWindow({
+  title: "phil",
+  width: 1280,
+  height: 820,
+  ephemeral: config.incognito,
+  trace,
+});
+
+const url = await serverReady;
+trace("server listening");
 
 // Incognito thumbnails for folders that couldn't hold a .thumbnails folder.
 const cleanUp = () => {
@@ -50,8 +68,7 @@ if (config.browser) {
     });
   }
 } else {
-  const { openWindow } = await import("./window.js");
-  openWindow({ title: "phil", url, width: 1280, height: 820, ephemeral: config.incognito });
+  appWindow.run(url);
   cleanUp();
   Deno.exit(0);
 }
