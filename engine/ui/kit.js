@@ -6,6 +6,20 @@
  */
 export const embedded = globalThis.parent !== globalThis && new URLSearchParams(location.search).has("embedded");
 
+// Ctrl+Z undoes and Ctrl+Shift+Z / Ctrl+Y redo in text fields and editable
+// text: WebKitGTK doesn't bind those keys itself. Apps that handle them
+// first (calling preventDefault) keep them, e.g. jsonedit's tree.
+document.addEventListener("keydown", (e) => {
+  if (e.defaultPrevented || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const key = e.key.toLowerCase();
+  const command = key === "z" ? (e.shiftKey ? "redo" : "undo") : key === "y" && !e.shiftKey ? "redo" : null;
+  if (!command) return;
+  const el = document.activeElement;
+  if (!(el?.isContentEditable || el?.tagName === "TEXTAREA" || (el?.tagName === "INPUT" && /^(text|search|url|email|tel|password|)$/.test(el.type)))) return;
+  e.preventDefault();
+  document.execCommand(command);
+});
+
 /**
  * The page is styled and running: the engine shows its window
  * (engine/window.js); shown inside another app, that app gives it the keyboard
