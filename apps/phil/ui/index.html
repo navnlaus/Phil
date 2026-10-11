@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>phil</title>
   <link rel="stylesheet" href="/ui/vendor/xterm.css">
+  <link rel="stylesheet" href="/engine/ui/kit.css">
   <link rel="stylesheet" href="/ui/style.css">
   <script type="module" src="/ui/app.js"></script>
 </head>
@@ -59,7 +60,7 @@
         <button id="btn-terminal" class="icon toggle" title="Terminal (F4)"><svg><use href="#i-terminal"/></svg></button>
         <button id="btn-hidden" class="icon toggle" title="Show hidden files (Ctrl+H)"><svg><use href="#i-eye"/></svg></button>
         <input id="zoom" type="range" min="128" max="480" step="8" title="Thumbnail size (Ctrl +/−)">
-        <button id="btn-close" class="icon" title="Close phil"><svg><use href="#i-close"/></svg></button>
+        <button id="btn-close" class="icon close-button" title="Close phil"><svg><use href="#i-close"/></svg></button>
       </header>
 
       <section id="grid" tabindex="0" aria-label="Files"></section>
@@ -87,6 +88,8 @@
       <button class="icon close" title="Close (Esc)"><svg><use href="#i-close"/></svg></button>
     </div>
   </div>
+
+  <div id="app-view" hidden></div>
 
   <menu id="context" hidden></menu>
 

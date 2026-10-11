@@ -1,0 +1,24 @@
+/* What every app's pages share (served at /engine/ui/kit.css). Apps define
+   the colors: --bg, --border. */
+
+/* Top and bottom bars float over the page, invisible until hovered (or while
+   something inside them has focus, e.g. a search field). */
+.overlay-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  opacity: 0;
+  transition: opacity 0.2s ease 0.25s;
+}
+.overlay-bar:hover, .overlay-bar:focus-within {
+  opacity: 1;
+  transition: opacity 0.08s ease;
+}
+.overlay-bar.top { top: 0; border-bottom: 1px solid var(--border); }
+.overlay-bar.bottom { bottom: 0; border-top: 1px solid var(--border); }
+
+/* The X at the right end of the top bar. */
+.close-button { margin-left: 2px; }
+.close-button:hover { background: #c94b4b !important; color: #fff; }

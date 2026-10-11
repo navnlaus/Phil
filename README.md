@@ -16,7 +16,12 @@ quickly. The engine keeps running after its last window closes.
 - **jsonedit**, a JSON editor: `jsonedit file.json` (see [jsonedit](#jsonedit)).
 
 Each app gets its own server on 127.0.0.1, with its own port and origin; its
-windows get its own Wayland app id (`phil`, `jsonedit`) for window rules.
+windows get its own Wayland app id (`phil`, `jsonedit`) for window rules. Apps
+share a look: a top (and bottom) bar that floats over the page and fades out
+until hovered, with an X at the right that closes the window
+(`engine/ui/kit.css`, `kit.js`). One app can show another inside its window:
+phil opens `.json` files in jsonedit that way, like images in its viewer, and
+jsonedit's X (or Esc) goes back to the folder.
 
 - The engine finds the running one through `$XDG_RUNTIME_DIR/phil/main.sock`;
   its output goes to `main.log` next to it.
@@ -178,6 +183,8 @@ engine/server.js    the apps' 127.0.0.1 HTTP servers (a worker): session, static
 engine/http.js      responses, files with Range
 engine/pty.js       pseudo-terminals via libc FFI (Deno has no PTY API)
 engine/apps.js      the apps, and what an app consists of
+engine/ui/          what every app's pages share: the fading bars, the close
+                    button, showing another app inside a window
 apps/phil/          launch.js (options, window URL), server.js (listing, files,
                     thumbnails, terminal), thumbs.js (cache + LIFO job pool:
                     vipsthumbnail / ffmpegthumbnailer), folders.js (folder
@@ -190,7 +197,9 @@ data/, scripts/install.sh  desktop entries, D-Bus service file, installer
 An app is a folder in `apps/` with a `launch.js` (its command line and window
 URL; loaded by every command, so it stays small), a `server.js` (its routes, in
 the engine's server worker) and a `ui/` folder (`index.html` at `/`, the rest
-under `/ui/`); `engine/apps.js` lists them. The engine handles the session
+under `/ui/`); `engine/apps.js` lists them. Pages also get `/engine/ui/` (the
+shared kit) and `/engine/apps` (every app's URL, to show one in an `<iframe>`
+with `?embedded`). The engine handles the session
 (a random token in the window's URL becomes a cookie; requests without it, or
 to another host, are refused), static files and window management.
 
@@ -241,7 +250,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 
 | | |
 |---|---|
-| double-click / Enter | open folder, view image, play video in mpv, or open file with default app (right-click a video → "Play here" for the built-in player) |
+| double-click / Enter | open folder, view image, play video in mpv, edit a `.json` file in jsonedit (in this window), or open the file with its default app (right-click a video → "Play here" for the built-in player) |
 | arrows, Home/End, PgUp/PgDn | move selection (with Shift: extend it) |
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; Esc clears |
 | drag (Ctrl/Shift+drag) | select everything the rectangle touches (add to the selection); scrolls at the edges |
@@ -265,13 +274,19 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 ## jsonedit
 
 `jsonedit [file.json]` shows JSON as a tree and edits it in place. Without a
-file it starts a new one.
+file it starts a new one. Opened from phil, it shows in phil's window.
 
-- Click a value to edit it. What you type sets the type: JSON is taken as such
-  (`42`, `true`, `null`, `{"a": 1}`, `[1, 2]`, `"quoted"`), anything else is a
-  string; a hint says which, and objects or arrays that aren't valid JSON yet
-  can't be kept. An object or array can be edited as JSON text too.
+- Click a value to edit it, or select it and start typing. What you type sets
+  the type: JSON is taken as such (`42`, `true`, `null`, `{"a": 1}`, `[1, 2]`,
+  `"quoted"`), anything else is a string; a hint says which, and objects or
+  arrays that aren't valid JSON yet can't be kept. An object or array can be
+  edited as JSON text too.
 - Double-click a key (or F2) to rename it; booleans toggle with a click.
+- Rows select like lines in a text editor: Shift+arrows, Shift+click and
+  dragging select several, and a selected object or array takes everything
+  inside along. Dragging inside a key or value selects text there instead.
+  Delete, copy, cut, duplicate and move act on the whole selection; copied
+  lines paste back in as items.
 - `+ key` / `+ item` on an object or array adds one inside; the right-click
   menu (or `⋯`) adds after, duplicates, moves, copies as JSON or path, changes
   the type (keeping what it can) and deletes. Pasting JSON inserts it.
@@ -284,13 +299,15 @@ file it starts a new one.
 
 | | |
 |---|---|
-| ↑ ↓ ← → Home End | move; ← → close and open |
-| Enter / F2 / Space | edit the value (open or close an object or array) / rename the key / toggle |
+| ↑ ↓ Home End PgUp PgDn, ← → | move; close and open |
+| Shift + those, Shift+click, drag | select rows; Ctrl+A everything, Esc one again |
+| Enter / F2 / Space / typing | edit the value (open or close an object or array) / rename the key / toggle / replace the value |
 | Ctrl+Enter, Insert | add inside, add after |
-| Delete, Ctrl+D, Ctrl+↑ ↓ | delete, duplicate, move |
-| Ctrl+C / Ctrl+X / Ctrl+V | copy, cut, paste as JSON |
+| Delete, Ctrl+D (Shift+Alt+↓), Alt+↑ ↓ (Ctrl+↑ ↓) | delete, duplicate, move |
+| Ctrl+C / Ctrl+X / Ctrl+V | copy, cut, paste |
 | `*` | open everything inside |
 | Ctrl+Z / Ctrl+Shift+Z | undo / redo |
 | Ctrl+F, Ctrl+S, Ctrl+Shift+S, Ctrl+O | find, save, save as, open |
+| Esc (shown in phil) | back to the folder |
 
 `deno task jsonedit [file]` runs it from the source.

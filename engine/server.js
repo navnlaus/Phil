@@ -6,6 +6,9 @@ import { APPS } from "./apps.js";
 import { errorResponse, json, staticFile, text } from "./http.js";
 import { listen } from "./instance.js";
 
+const KIT_DIR = new URL("./ui/", import.meta.url); // shared by every app's pages
+const TRACE = !!Deno.env.get("PHIL_TRACE"); // also logs every request
+
 self.onmessage = (e) => start(e.data);
 
 async function start({ profile, controlSocket, wakeFd }) {
@@ -15,7 +18,7 @@ async function start({ profile, controlSocket, wakeFd }) {
   await Promise.all(Object.entries(APPS).map(async ([name, app]) => {
     const mod = await app.server();
     const server = await mod.createServer({ profile, quit });
-    urls[name] = await serve(name, mod.UI_DIR, server, token, quit);
+    urls[name] = await serve(name, mod.UI_DIR, server, { token, quit, urls });
   }));
 
   // Take over the instance's control socket (if any): its requests go to the
@@ -38,7 +41,10 @@ async function start({ profile, controlSocket, wakeFd }) {
 }
 
 // Resolves to the app's URL with the token: opening it sets the session cookie.
-function serve(name, uiDir, app, token, quit) {
+// Besides the app's own files and routes, its pages get /engine/ui/ (shared
+// styles and scripts) and /engine/apps (every app's URL, for showing one
+// inside another).
+function serve(name, uiDir, app, { token, quit, urls }) {
   let host, cookie;
   const { promise, resolve } = Promise.withResolvers();
   Deno.serve({
@@ -50,11 +56,14 @@ function serve(name, uiDir, app, token, quit) {
       resolve(`http://${host}/?token=${token}`);
     },
   }, async (req) => {
+    let res;
     try {
-      return await handle(req);
+      res = await handle(req);
     } catch (err) {
-      return errorResponse(err);
+      res = errorResponse(err);
     }
+    if (TRACE) console.error(`${name}: ${req.method} ${new URL(req.url).pathname} ${res.status}`);
+    return res;
   });
 
   async function handle(req) {
@@ -76,6 +85,8 @@ function serve(name, uiDir, app, token, quit) {
 
     if (req.method === "GET" && url.pathname === "/") return staticFile(uiDir, "index.html");
     if (req.method === "GET" && url.pathname.startsWith("/ui/")) return staticFile(uiDir, url.pathname.slice(4));
+    if (req.method === "GET" && url.pathname.startsWith("/engine/ui/")) return staticFile(KIT_DIR, url.pathname.slice(11));
+    if (req.method === "GET" && url.pathname === "/engine/apps") return json(urls);
     if (req.method === "POST" && url.pathname === "/api/quit") { // the close button in --browser mode (windows close natively)
       quit();
       return json({ ok: true });

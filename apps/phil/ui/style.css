@@ -150,21 +150,8 @@ main {
   cursor: ns-resize;
 }
 
-/* Top and bottom bars float over the grid, invisible until hovered (or while
-   something inside them has focus, e.g. the filter or location field). */
-.overlay-bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 5;
-  background: color-mix(in srgb, var(--bg) 94%, transparent);
-  opacity: 0;
-  transition: opacity 0.2s ease 0.25s;
-}
-.overlay-bar:hover, .overlay-bar:focus-within {
-  opacity: 1;
-  transition: opacity 0.08s ease;
-}
+/* Top and bottom bars float over the grid (.overlay-bar, from the engine's
+   kit.css), invisible until hovered or something inside them has focus. */
 
 #toolbar {
   top: 0;
@@ -211,8 +198,6 @@ main {
 #location:focus, #filter:focus { border-color: var(--accent); }
 #filter { width: 180px; }
 #zoom { width: 110px; accent-color: var(--accent); }
-#btn-close { margin-left: 2px; }
-#btn-close:hover { background: #c94b4b; color: #fff; }
 
 /* Grid */
 
@@ -627,3 +612,13 @@ body.incognito::before {
   background: #a855f7;
   pointer-events: none;
 }
+
+/* Another app shown in this window (a JSON file in jsonedit), like the viewer. */
+#app-view {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: var(--bg);
+}
+#app-view[hidden] { display: none; }
+#app-view iframe { width: 100%; height: 100%; border: 0; display: block; }

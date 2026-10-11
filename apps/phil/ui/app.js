@@ -1,3 +1,4 @@
+import { appUrl, closeWindow, ready } from "/engine/ui/kit.js";
 import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -769,8 +770,39 @@ function open(index) {
   else if (entry.kind === "image") viewer.open(index);
   // mpv plays everything; WebKit's player stalls on some files (NVIDIA decoding).
   else if (entry.kind === "video") openExternal(entry.path, "mpv");
+  else if (isJson(entry)) openInApp("jsonedit", { file: entry.path });
   else openExternal(entry.path);
 }
+
+const isJson = (entry) => entry.kind === "file" && /\.json$/i.test(entry.name);
+
+// Another app (jsonedit) shown in this window, over the folder, like the
+// viewer. Its close button (or Esc) comes back here.
+const appView = $("#app-view");
+
+async function openInApp(app, params) {
+  let src;
+  try {
+    src = await appUrl(app, params);
+  } catch (err) {
+    return alert(err.message);
+  }
+  const frame = Object.assign(document.createElement("iframe"), { src, title: app });
+  appView.replaceChildren(frame);
+  appView.hidden = false;
+  frame.addEventListener("load", () => frame.focus(), { once: true });
+}
+
+function closeApp() {
+  appView.hidden = true;
+  appView.replaceChildren();
+  grid.focus({ preventScroll: true });
+}
+
+addEventListener("message", (e) => {
+  const frame = appView.querySelector("iframe");
+  if (frame && e.source === frame.contentWindow && e.data?.engine === "close") closeApp();
+});
 
 const viewer = {
   index: -1,
@@ -955,6 +987,7 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "image") items.push(["View", () => open(state.view.indexOf(entry))]);
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
   if (entry.kind === "video") items.push(["Play here", () => viewer.open(state.view.indexOf(entry))]);
+  if (isJson(entry)) items.push(["Edit in jsonedit", () => openInApp("jsonedit", { file: entry.path })]);
   items.push(["Open with default app", () => openExternal(entry.path)]);
   items.push(["Rename…", () => startRename(state.view.indexOf(entry))]);
   items.push(["Copy path", () => copyText(entry.path)]);
@@ -1263,11 +1296,7 @@ document.addEventListener("mousedown", (e) => {
 });
 
 $("#btn-back").onclick = () => history.back();
-$("#btn-close").onclick = () => {
-  const native = globalThis.webkit?.messageHandlers?.phil; // phil's own window (src/window.js)
-  if (native) return native.postMessage("close");
-  fetch("/api/quit", { method: "POST" }).finally(() => window.close()); // --browser
-};
+$("#btn-close").onclick = closeWindow;
 $("#btn-forward").onclick = () => history.forward();
 $("#btn-up").onclick = () => parentOf(state.path) && navigate(parentOf(state.path));
 
@@ -1348,7 +1377,7 @@ function toggleTerminal() {
 // toggle the panel, Alt+↓ / Alt+↑ move focus to the terminal (opening it) / the
 // folder view.
 document.addEventListener("keydown", (e) => {
-  if (!viewerEl.hidden || confirmDialog.open) return;
+  if (!viewerEl.hidden || !appView.hidden || confirmDialog.open) return;
   if (isToggleKey(e)) toggleTerminal();
   else if (isFocusKey(e) && e.key === "ArrowDown") setTerminalOpen(true);
   else if (isFocusKey(e)) grid.focus({ preventScroll: true });
@@ -1433,8 +1462,8 @@ document.addEventListener("keydown", (e) => {
 
 // ---------------------------------------------------------------- start
 
-// phil keeps its window hidden until the page is styled and running (src/window.js).
-globalThis.webkit?.messageHandlers?.phil?.postMessage(`ready:${JSON.stringify({ script: Math.round(performance.now()) })}`);
+// phil keeps its window hidden until the page is styled and running (engine/window.js).
+ready(JSON.stringify({ script: Math.round(performance.now()) }));
 state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
 applySettings();
