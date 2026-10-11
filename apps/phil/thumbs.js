@@ -13,6 +13,7 @@ export function mediaKind(name) {
   const ext = extname(name).slice(1).toLowerCase();
   if (IMAGE_EXT.has(ext)) return "image";
   if (VIDEO_EXT.has(ext)) return "video";
+  if (ext === "pdf") return "pdf"; // thumbnailed: its first page
   return "file";
 }
 
@@ -184,8 +185,10 @@ export class Thumbnailer {
         // Grab a frame large enough that even portrait video still covers the 16:9 box.
         await run("ffmpegthumbnailer", ["-i", path, "-o", frame, "-s", String(this.width * 2), "-q", "9", "-c", "jpeg"], frame);
       }
+      // A PDF (vips renders its first page) is cropped from the top, so its
+      // title and headings show; everything else around the middle.
       await run("vipsthumbnail", [
-        frame ?? path, "--size", this.name, "--smartcrop", "centre", "-o", `${dest}[Q=82,keep=none]`,
+        frame ?? path, "--size", this.name, "--smartcrop", kind === "pdf" ? "low" : "centre", "-o", `${dest}[Q=82,keep=none]`,
       ], dest);
       await Deno.rename(dest, join(dir, key + ".jpg"));
       return this.url(key, dir);

@@ -13,7 +13,7 @@ const viewerEl = $("#viewer");
 const stage = viewerEl.querySelector(".stage");
 const contextMenu = $("#context");
 
-const KIND_ICON = { dir: "folder", image: "image", video: "video", file: "file" };
+const KIND_ICON = { dir: "folder", image: "image", video: "video", pdf: "file", file: "file" };
 // How names and details sit on the tiles (ui/style.css). Chosen with "theme" in
 // ~/.config/phil/settings.json; phil only reads it.
 const THEMES = ["overlay", "strip", "below", "chips"];
@@ -38,7 +38,8 @@ const icon = (name, cls = "") => `<svg class="${cls}"><use href="#i-${name}"/></
 const fileUrl = (path) => `/file?path=${encodeURIComponent(path)}`;
 const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 const parentOf = (path) => (path === "/" ? null : path.replace(/\/[^/]+$/, "") || "/");
-const isMedia = (e) => e.kind === "image" || e.kind === "video";
+const isMedia = (e) => e.kind === "image" || e.kind === "video"; // what the viewer shows
+const hasThumb = (e) => isMedia(e) || e.kind === "pdf"; // its first page
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -173,7 +174,7 @@ const nearObserver = observe(800, (tile, entry, near) => {
   }
 });
 const farObserver = observe(4000, (tile, entry, inRange) => {
-  if (!inRange && isMedia(entry)) unloadThumb(tile);
+  if (!inRange && hasThumb(entry)) unloadThumb(tile);
   if (!inRange && entry.kind === "file") tile.firstElementChild.querySelector("canvas")?.remove(); // its pixels, not its text
 });
 
@@ -548,7 +549,7 @@ function makeTile(entry, index) {
   box.className = "thumb";
   if (entry.kind !== "dir") {
     box.innerHTML = icon(KIND_ICON[entry.kind], "kind") + (entry.kind === "video" ? `<span class="badge">${icon("play")}</span>` : "");
-    if (entry.kind === "file" && fileType(entry.name)) { // under the icon; hidden once the text is drawn
+    if ((entry.kind === "file" || entry.kind === "pdf") && fileType(entry.name)) { // under the icon, until text or a thumbnail covers it
       const ext = document.createElement("span");
       ext.className = "ext";
       ext.textContent = fileType(entry.name);
@@ -869,6 +870,7 @@ function open(index) {
   else if (entry.kind === "image") viewer.open(index);
   // mpv plays everything; WebKit's player stalls on some files (NVIDIA decoding).
   else if (entry.kind === "video") openExternal(entry.path, "mpv");
+  else if (entry.kind === "pdf") openExternal(entry.path);
   else if (isJson(entry)) openInApp("jsonedit", { file: entry.path });
   else openFile(entry);
 }

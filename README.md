@@ -150,6 +150,13 @@ counts the folders being read. Summaries live next to the thumbnails
 (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for the
 session.
 
+### PDFs
+
+PDFs get a thumbnail of their first page, cropped from the top so the title
+and headings show (vips renders it with poppler; about 80 ms for a typical
+page, more for big scans). They count as folder previews too, and open with
+the default PDF app.
+
 ### Text files
 
 Files that turn out to be text (anything UTF-8 without NUL bytes: notes,
@@ -185,7 +192,7 @@ space → Inspect Element works too.
 
 ## Requirements
 
-`webkit2gtk-4.1`, `deno`, `wl-clipboard`, `libvips` (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
+`webkit2gtk-4.1`, `deno`, `wl-clipboard`, `libvips` (built with poppler, for PDF thumbnails) (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
 and GStreamer plugins for in-app video (`gst-plugins-good`, `gst-libav`). `mpv`
 and `xdg-open` are used for "open externally".
 
