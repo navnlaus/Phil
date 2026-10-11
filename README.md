@@ -335,8 +335,8 @@ folder, shown in italics above its name (kept in the same metadata.json).
 **Tile marks.** Before the name: a link icon on a link; a red lock on a file
 or folder you can't change without sudo (a file: also its folder, as saving
 replaces it there), and for a link, a red link icon when that's so of what it
-points to. Hovering says which. ▶ (videos) and ⚡ (hooks) are in the top
-corner. They're kept in `~/.config/phil/metadata.json`,
+points to. Hovering says which. ⚡ (a hook) is in the bottom right corner, ▶ (a
+video) in the top right one; nothing goes in the top left. They're kept in `~/.config/phil/metadata.json`,
 and follow the file when phil renames or moves it.
 
 ## jsonedit

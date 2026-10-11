@@ -593,17 +593,18 @@ function makeTile(entry, index) {
 // What a tile shows besides its name and details: its description (from
 // Properties) over the name; before the name, a link icon for a link, red
 // (the link's, or a lock) when you can't change it without sudo (through a
-// link, what it points to); and marks in the top corner: ▶ a video, ⚡ an
-// on-change hook.
+// link, what it points to); ⚡ in the bottom right corner for an on-change
+// hook; ▶ in the top right one for a video. (The top left is left alone.)
 function showMarks(tile, entry) {
   const desc = tile.querySelector(".label .desc");
   desc.textContent = entry.description ?? "";
   tile.classList.toggle("has-desc", !!entry.description);
   showState(tile, entry);
-  const marks = [
-    entry.kind === "video" && ["play", ""],
-    entry.onChange && ["bolt", "hook"],
-  ].filter(Boolean);
+  const label = tile.querySelector(".label");
+  tile.classList.toggle("has-hook", !!entry.onChange);
+  if (!entry.onChange) label.querySelector(".hook-mark")?.remove();
+  else if (!label.querySelector(".hook-mark")) label.insertAdjacentHTML("beforeend", `<span class="hook-mark">${icon("bolt")}</span>`);
+  const marks = [entry.kind === "video" && ["play", ""]].filter(Boolean);
   const key = marks.flat().join(" ");
   let el = tile.querySelector(":scope > .marks");
   if (el?.dataset.key === key) return;
