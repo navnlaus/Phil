@@ -658,8 +658,23 @@ function contentPoint(clientX, clientY) {
   return { x: clientX - r.left + grid.scrollLeft, y: clientY - r.top + grid.scrollTop };
 }
 
+// WebKit starts its own gestures on a mouse press: dragging the thumbnail
+// image, or a selection drag on empty space (during which the page isn't
+// repainted, so the rectangle never shows). Cancelling the press's default
+// action stops both; the grid then has to take focus itself.
+grid.addEventListener("mousedown", (e) => {
+  if (e.button !== 0 || (e.target === grid && e.offsetX >= grid.clientWidth)) return;
+  e.preventDefault();
+  grid.focus({ preventScroll: true });
+});
+grid.addEventListener("dragstart", (e) => e.preventDefault());
+grid.addEventListener("selectstart", (e) => e.preventDefault());
+
 grid.addEventListener("pointerdown", (e) => {
   if (e.button !== 0 || (e.target === grid && e.offsetX >= grid.clientWidth)) return; // not the scrollbar
+  addEventListener("pointermove", moveBand);
+  addEventListener("pointerup", endBand);
+  addEventListener("pointercancel", endBand);
   band = {
     id: e.pointerId,
     start: contentPoint(e.clientX, e.clientY),
@@ -670,7 +685,9 @@ grid.addEventListener("pointerdown", (e) => {
   };
 });
 
-grid.addEventListener("pointermove", (e) => {
+// Followed on the window rather than with pointer capture, so the drag keeps
+// working outside the grid in every engine.
+function moveBand(e) {
   if (!band || e.pointerId !== band.id) return;
   band.client = [e.clientX, e.clientY];
   if (!band.active) {
@@ -678,14 +695,10 @@ grid.addEventListener("pointermove", (e) => {
     startBand();
   }
   updateBand();
-});
-
-grid.addEventListener("pointerup", endBand);
-grid.addEventListener("pointercancel", endBand);
+}
 
 function startBand() {
   band.active = true;
-  grid.setPointerCapture(band.id);
   hideContextMenu();
   band.base = band.additive ? new Set(state.marked) : new Set();
   band.tiles = [...tiles.values()].map((t) => ({
@@ -725,9 +738,11 @@ function updateBand() {
 
 function endBand(e) {
   if (!band || e.pointerId !== band.id) return;
+  removeEventListener("pointermove", moveBand);
+  removeEventListener("pointerup", endBand);
+  removeEventListener("pointercancel", endBand);
   if (band.active) {
     band.el.remove();
-    grid.releasePointerCapture(band.id);
     if (band.first !== -1) state.selected = state.anchor = band.first; // keyboard continues from here
     suppressClick = true;
     setTimeout(() => (suppressClick = false));
