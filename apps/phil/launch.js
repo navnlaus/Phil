@@ -22,9 +22,9 @@ Options:
   --jobs N           Max parallel thumbnail jobs (default: CPU count)
   --port N           Port for phil's local server (default: random)
   --incognito        Leave no traces: don't remember the folder or settings,
-                     don't save the terminal's bash history, keep thumbnails in a
-                     .thumbnails folder inside each folder instead of the cache
-                     (unless --thumb-dir is given), no WebKit disk cache
+                     don't save the terminal's bash history, keep thumbnails and
+                     other caches in memory only (unless --thumb-dir is given),
+                     no WebKit disk cache
   --file-manager-service
                      Run the org.freedesktop.FileManager1 D-Bus service that
                      "Show in folder" uses; started by D-Bus, see scripts/install.sh
@@ -128,8 +128,9 @@ export function windowUrl(base, { dir, select = [] }) {
   return base;
 }
 
-// Incognito: thumbnails for folders that can't hold a .thumbnails folder.
-const scratchDir = () => join(env("XDG_RUNTIME_DIR") ?? "/tmp", `phil-incognito-${Deno.pid}`);
+// Incognito's thumbnails: in memory ($XDG_RUNTIME_DIR and /dev/shm are tmpfs),
+// deleted on exit.
+const scratchDir = () => join(env("XDG_RUNTIME_DIR") ?? "/dev/shm", `phil-incognito-${Deno.pid}`);
 
 export function cleanUp(profile) {
   if (!profile.incognito) return;
@@ -146,9 +147,8 @@ export function serverConfig(profile) {
   const incognito = !!profile.incognito;
   return {
     incognito,
-    // null: per-folder .thumbnails (incognito without an explicit thumbnail dir)
-    thumbDir: profile.thumbDir ?? (incognito ? null : join(cacheHome, "phil", "thumbnails")),
-    scratchDir: scratchDir(), // deleted on exit (cleanUp)
+    thumbDir: profile.thumbDir ?? (incognito ? join(scratchDir(), "thumbnails") : join(cacheHome, "phil", "thumbnails")),
+    thumbsInMemory: incognito && !profile.thumbDir,
     thumbSize: profile.thumbSize ?? 384,
     jobs: profile.jobs ?? navigator.hardwareConcurrency ?? 4,
     port: profile.port ?? 0,
