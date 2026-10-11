@@ -40,6 +40,10 @@ export const APPS = {
     launch: () => import("../apps/textedit/launch.js"),
     server: () => import("../apps/textedit/server.js"),
   },
+  imageview: {
+    launch: () => import("../apps/imageview/launch.js"),
+    server: () => import("../apps/imageview/server.js"),
+  },
   "phil-editor": {
     launch: () => import("../apps/phil-editor/launch.js"),
   },

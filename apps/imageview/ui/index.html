@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>imageview</title>
+  <!-- Relative URLs: imageview is also served inside other apps (engine/server.js). -->
+  <link rel="stylesheet" href="engine/ui/kit.css">
+  <link rel="stylesheet" href="ui/style.css">
+  <script type="module" src="ui/app.js"></script>
+</head>
+<body>
+  <main id="stage" tabindex="0" aria-label="Image">
+    <div id="canvas"><img id="img" alt="" draggable="false" hidden></div>
+  </main>
+  <p id="message" hidden></p>
+
+  <header id="bar" class="overlay-bar top">
+    <div id="file">
+      <span id="name"></span>
+      <span id="count"></span>
+      <span id="info"></span>
+    </div>
+    <button id="btn-mode" title="Fit the height, the width, or the original size (Z)">Fit</button>
+    <div class="zoom">
+      <button id="btn-out" class="icon" title="Zoom out (−)">−</button>
+      <button id="btn-zoom" title="Back to the fit (0)">100%</button>
+      <button id="btn-in" class="icon" title="Zoom in (+)">+</button>
+    </div>
+    <button id="btn-full" class="icon" title="Fullscreen (F)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button id="btn-close" class="icon close-button" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </header>
+
+  <button id="prev" class="nav icon" title="Previous (←, Page Up)"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <button id="next" class="nav icon" title="Next (→, Page Down, Space)"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+</body>
+</html>

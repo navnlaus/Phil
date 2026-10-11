@@ -38,8 +38,7 @@ const icon = (name, cls = "") => `<svg class="${cls}"><use href="#i-${name}"/></
 const fileUrl = (path) => `/file?path=${encodeURIComponent(path)}`;
 const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 const parentOf = (path) => (path === "/" ? null : path.replace(/\/[^/]+$/, "") || "/");
-const isMedia = (e) => e.kind === "image" || e.kind === "video"; // what the viewer shows
-const hasThumb = (e) => isMedia(e) || e.kind === "pdf"; // its first page
+const hasThumb = (e) => e.kind === "image" || e.kind === "video" || e.kind === "pdf"; // a PDF's: its first page
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -932,7 +931,7 @@ function open(index) {
   const entry = state.view[index];
   if (!entry) return;
   if (entry.kind === "dir") navigate(entry.path);
-  else if (entry.kind === "image") viewer.open(index);
+  else if (entry.kind === "image") openInApp("imageview", { file: entry.path, sort: state.settings.sort });
   // mpv plays everything; WebKit's player stalls on some files (NVIDIA decoding).
   else if (entry.kind === "video") openExternal(entry.path, "mpv");
   else if (entry.kind === "pdf") openExternal(entry.path);
@@ -961,7 +960,7 @@ let focusBeforeApp = null; // where the keyboard goes back to: the grid, or the 
 
 function openInApp(app, params) {
   focusBeforeApp = document.activeElement;
-  const frame = Object.assign(document.createElement("iframe"), { src: appUrl(app, params), title: app });
+  const frame = Object.assign(document.createElement("iframe"), { src: appUrl(app, params), title: app, allow: "fullscreen" });
   appView.replaceChildren(frame);
   appView.hidden = false;
   frame.focus();
@@ -993,9 +992,14 @@ addEventListener("message", (e) => {
     frame.contentWindow.postMessage({ engine: "focus" }, "*"); // now it can focus its view (kit.js holdFocus)
   } else if (e.data?.engine === "close") {
     closeApp();
+  } else if (e.data?.app === "imageview" && e.data.showing) { // the image it shows: selected here, for when it closes
+    const i = state.view.findIndex((v) => v.path === e.data.showing);
+    if (i !== -1) select(i);
   }
 });
 
+// "Play here": a video in this window (mpv plays everything else; images open
+// in imageview).
 const viewer = {
   index: -1,
 
@@ -1013,7 +1017,7 @@ const viewer = {
 
   step(dir) {
     for (let i = this.index + dir; i >= 0 && i < state.view.length; i += dir) {
-      if (isMedia(state.view[i])) return this.show(i);
+      if (state.view[i].kind === "video") return this.show(i);
     }
   },
 
@@ -1029,41 +1033,22 @@ const viewer = {
       stage.replaceChildren(el);
     };
 
-    if (entry.kind === "image") {
-      const img = new Image();
-      img.decoding = "async";
-      let triedPreview = false;
-      img.onerror = () => {
-        // Formats the webview can't decode (HEIC, TIFF, ...) get converted by vips on the server.
-        if (triedPreview) return failed("Can't display this image.");
-        triedPreview = true;
-        img.src = `/preview?path=${encodeURIComponent(entry.path)}&size=${Math.round(screen.width * devicePixelRatio)}`;
-      };
-      img.src = fileUrl(entry.path);
-      stage.append(img);
-    } else {
-      const video = document.createElement("video");
-      video.controls = true;
-      video.autoplay = true;
-      video.onerror = () =>
-        failed("This video can't be played here — GStreamer is probably missing a codec\n(gst-plugins-good / gst-libav). Use mpv instead.");
-      // WebKit's player waits forever on some files instead of failing, e.g.
-      // Matroska files with embedded subtitles.
-      setTimeout(() => {
-        if (video.isConnected && video.readyState === 0) failed("This video doesn't load in the built-in player (files with embedded\nsubtitles don't). Use mpv instead.");
-      }, 6000);
-      video.src = fileUrl(entry.path);
-      stage.append(video);
-      video.focus();
-    }
+    const video = document.createElement("video");
+    video.controls = true;
+    video.autoplay = true;
+    video.onerror = () =>
+      failed("This video can't be played here — GStreamer is probably missing a codec\n(gst-plugins-good / gst-libav). Use mpv instead.");
+    // WebKit's player waits forever on some files instead of failing, e.g.
+    // Matroska files with embedded subtitles.
+    setTimeout(() => {
+      if (video.isConnected && video.readyState === 0) failed("This video doesn't load in the built-in player (files with embedded\nsubtitles don't). Use mpv instead.");
+    }, 6000);
+    video.src = fileUrl(entry.path);
+    stage.append(video);
+    video.focus();
 
     viewerEl.querySelector(".caption").textContent =
       `${entry.name}   ·   ${formatSize(entry.size)}   ·   ${formatDate(entry.mtime)}`;
-    viewerEl.querySelector(".open-mpv").hidden = entry.kind !== "video";
-
-    // Warm the cache for the next image.
-    const next = state.view.slice(index + 1).find(isMedia);
-    if (next?.kind === "image") new Image().src = fileUrl(next.path);
   },
 };
 
