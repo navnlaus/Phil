@@ -114,6 +114,8 @@ function start(config) {
         return json(await deletePaths((await req.json()).paths ?? []));
       case "POST /api/transfer":
         return json(await transfer(await req.json()));
+      case "POST /api/rename":
+        return json(await rename(await req.json()));
       case "PUT /api/settings":
         if (!config.incognito) await writeSettings(await req.json()); // incognito: this session only
         return json({ ok: true });
@@ -132,9 +134,18 @@ function start(config) {
   }
 
   async function listDir(dir) {
+    const mtime = (await Deno.stat(dir)).mtime?.getTime() ?? 0; // before reading: a change while listing is caught next time
+    const entries = await readEntries(dir, { summaries: true });
+    folders.update(dir, mtime, entries).catch((err) => console.error(`phil: can't save folder summary: ${err.message}`));
+    return { path: dir, parent: dir === "/" ? null : dirname(dir), entries };
+  }
+
+  // The folder's entries with size, date and cached thumbnail; `summaries`:
+  // subfolders also get what they held when last opened.
+  async function readEntries(dir, { summaries = false } = {}) {
     const dirents = [];
     for await (const d of Deno.readDir(dir)) dirents.push(d);
-    const entries = await mapLimit(dirents, 64, async (d) => {
+    return await mapLimit(dirents, 64, async (d) => {
       const path = join(dir, d.name);
       let stat = null;
       try {
@@ -150,11 +161,22 @@ function start(config) {
         symlink: d.isSymlink,
       };
       if (stat && (kind === "image" || kind === "video")) entry.thumb = await thumbs.lookup(path, stat);
-      if (kind === "dir") entry.summary = await folders.get(path);
+      if (kind === "dir" && summaries) entry.summary = await summaryOf(path, entry.mtime);
       return entry;
     });
-    folders.update(dir, entries).catch((err) => console.error(`phil: can't save folder summary: ${err.message}`));
-    return { path: dir, parent: dir === "/" ? null : dirname(dir), entries };
+  }
+
+  // A subfolder's saved summary. If the folder changed since (something added
+  // or removed there by the terminal or another program), it's read again so
+  // the counts stay true; previews come from the thumbnails already cached.
+  async function summaryOf(path, mtime) {
+    const summary = await folders.get(path);
+    if (!summary || summary.mtime === mtime) return summary;
+    try {
+      return await folders.update(path, mtime, await readEntries(path));
+    } catch {
+      return null;
+    }
   }
 
   // One WebSocket per page. The page sends {want: [paths]} for tiles entering the
@@ -236,6 +258,23 @@ function start(config) {
       Deno.remove(cdFile).catch(() => {});
     };
     return response;
+  }
+
+  // F2: renames in place. Never overwrites: a name that's taken is an error.
+  async function rename({ path, name }) {
+    requirePath(path);
+    if (typeof name !== "string" || !name || name.includes("/") || name.includes("\0") || name === "." || name === "..") {
+      throw Object.assign(new Error("That isn't a valid name."), { status: 400 });
+    }
+    const target = join(dirname(path), name);
+    if (target === path) return { path };
+    if (normalize(path) !== path || path === "/") throw Object.assign(new Error("invalid path"), { status: 400 });
+    if (await Deno.lstat(target).then(() => true, () => false)) {
+      throw Object.assign(new Error(`There's already an item called “${name}” here.`), { status: 409 });
+    }
+    await Deno.rename(path, target);
+    await folders.moved(path, target).catch(() => {});
+    return { path: target };
   }
 
   async function readSettings() {
