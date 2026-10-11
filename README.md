@@ -14,14 +14,17 @@ quickly. The engine keeps running after its last window closes.
 
 - **phil**, the file manager (below).
 - **jsonedit**, a JSON editor: `jsonedit file.json` (see [jsonedit](#jsonedit)).
+- **textedit**, a text editor with syntax highlighting and Markdown that can be
+  edited as it reads: `textedit file` (see [textedit](#textedit)).
 
 Each app gets its own server on 127.0.0.1, with its own port and origin; its
 windows get its own Wayland app id (`phil`, `jsonedit`) for window rules. Apps
 share a look: a top (and bottom) bar that floats over the page and fades out
 until hovered, with an X at the right that closes the window
 (`engine/ui/kit.css`, `kit.js`). One app can show another inside its window:
-phil opens `.json` files in jsonedit that way, like images in its viewer, and
-jsonedit's X (or Esc) goes back to the folder. Copying and pasting go through
+phil opens `.json` files in jsonedit and other text files in textedit that
+way, like images in its viewer, and the editor's X (or Esc) goes back to the
+folder. Copying and pasting go through
 the desktop's clipboard (`wl-copy` / `wl-paste`), so they show up in Omarchy's
 clipboard history and take what was copied anywhere; every way of pressing
 them works the same: Ctrl+C / Ctrl+V, Super+C / Super+V, Ctrl+Insert /
@@ -195,7 +198,10 @@ apps/phil/          launch.js (options, window URL), server.js (listing, files,
                     vipsthumbnail / ffmpegthumbnailer), folders.js (folder
                     summaries), texthead.js (text tiles), dbus.js
                     (FileManager1), shell-init.bash, ui/ (ui/vendor: xterm.js 6, MIT)
-apps/jsonedit/      launch.js, server.js (read and save files), ui/
+apps/jsonedit/      launch.js, server.js, ui/ (json.js: a parser that keeps positions)
+apps/textedit/      launch.js, server.js, ui/ (syntax.js: highlight.js, vendor/
+                    BSD-3-Clause; markdown.js: Markdown to HTML and back)
+engine/files.js     reading and saving files for the editors
 data/, scripts/install.sh  desktop entries, D-Bus service file, installer
 ```
 
@@ -257,7 +263,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 
 | | |
 |---|---|
-| double-click / Enter | open folder, view image, play video in mpv, edit a `.json` file in jsonedit (in this window), or open the file with its default app (right-click a video → "Play here" for the built-in player) |
+| double-click / Enter | open folder, view image, play video in mpv, edit a `.json` file in jsonedit or any other text file (notes, code, configs, logs; whatever reads as text) in textedit, both in this window, or open the file with its default app (right-click a video → "Play here" for the built-in player; any file → "Edit as text") |
 | arrows, Home/End, PgUp/PgDn | move selection (with Shift: extend it) |
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; Esc clears |
 | Ctrl+C / Ctrl+Insert / Super+C | copy the selected files' paths, one per line |
@@ -323,3 +329,34 @@ file it starts a new one. Opened from phil, it shows in phil's window.
 | Esc (shown in phil) | back to the folder |
 
 `deno task jsonedit [file]` runs it from the source.
+
+## textedit
+
+`textedit [file]` edits text with syntax highlighting. The language comes from
+the file's name, its first line (`#!/bin/bash`, `[section]`), or a guess, and
+can be changed in the status bar; highlighting is
+[highlight.js](https://highlightjs.org/) (36 languages and Dockerfile, nginx,
+properties), in the background, so typing never waits for it (very large files
+aren't highlighted). It's a native text field with the highlighted text drawn
+under it: typing, selecting, undo and input methods are the browser's own.
+
+- Tab / Shift+Tab indent and outdent the selected lines; Enter keeps the
+  indentation (one more after an opening bracket).
+- Ctrl+/ comments lines out and back in; Alt+↑ ↓ moves lines, Shift+Alt+↑ ↓
+  duplicates them, Ctrl+Shift+K deletes them, Ctrl+L selects them.
+- Copy and cut with nothing selected take the whole line, which pastes back as
+  a line above the cursor's. Through the desktop's clipboard, like the others.
+- Ctrl+F find, Ctrl+H replace (one or all), F3 / Shift+F3 next and previous,
+  Ctrl+G go to line.
+- Saving works as in jsonedit: atomic, keeps permissions, asks if the file
+  changed on disk. Files that aren't text (or UTF-8) aren't opened.
+
+Markdown opens as it reads (Rendered), editable: type in it, Ctrl+B / Ctrl+I /
+Ctrl+K for bold, italic and links, and `# `, `- `, `1. `, `> ` at the start of a
+line turn it into a heading, list or quote. Code shows the Markdown itself
+(Ctrl+Shift+M switches). Going back to the code writes only the blocks that
+were edited as new Markdown; everything else keeps its exact source, so a
+small edit doesn't reformat the file. Front matter and raw HTML show as they
+are and can be edited in the code. Images show from the file's folder.
+
+`deno task textedit [file]` runs it from the source.

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>textedit</title>
+  <!-- Relative URLs: textedit is also served inside other apps (engine/server.js). -->
+  <link rel="stylesheet" href="engine/ui/kit.css">
+  <link rel="stylesheet" href="ui/style.css">
+  <script type="module" src="ui/app.js"></script>
+</head>
+<body>
+  <main>
+    <!-- The text: a native text field with its text drawn, highlighted, underneath. -->
+    <section id="editor">
+      <div id="gutter" aria-hidden="true"><div id="lines"></div></div>
+      <div id="code">
+        <div id="current-line" aria-hidden="true"></div>
+        <pre id="hl" aria-hidden="true"></pre>
+        <textarea id="text" spellcheck="false" wrap="off" autocomplete="off" autocapitalize="off" aria-label="Text"></textarea>
+      </div>
+    </section>
+
+    <!-- Markdown as it reads, editable. -->
+    <article id="md" contenteditable="true" spellcheck="true" hidden></article>
+
+    <p id="message" hidden></p>
+
+    <header id="bar" class="overlay-bar top">
+      <div id="file">
+        <span id="file-name">Untitled</span><span id="dirty" title="Unsaved changes" hidden>●</span>
+        <span id="file-dir"></span>
+      </div>
+      <div id="md-switch" class="segmented" hidden title="Markdown: as it reads, or its code (Ctrl+Shift+M)">
+        <button id="btn-view" class="on">Rendered</button><button id="btn-source">Code</button>
+      </div>
+      <button id="btn-find" title="Find (Ctrl+F), replace (Ctrl+H)">Find</button>
+      <button id="btn-open" title="Open a file (Ctrl+O)">Open…</button>
+      <button id="btn-save" title="Save (Ctrl+S); Save as: Ctrl+Shift+S">Save</button>
+      <button id="btn-close" class="icon close-button" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+
+      <form id="find-form" hidden>
+        <input id="find-input" type="text" placeholder="Find" spellcheck="false" autocomplete="off">
+        <span id="find-count"></span>
+        <button type="button" id="find-prev" class="icon" title="Previous (Shift+Enter)">↑</button>
+        <button type="button" id="find-next" class="icon" title="Next (Enter)">↓</button>
+        <label class="check" title="Match case"><input type="checkbox" id="find-case"> Aa</label>
+        <span class="replace-part">
+          <input id="replace-input" type="text" placeholder="Replace with" spellcheck="false" autocomplete="off">
+          <button type="button" id="replace-one">Replace</button>
+          <button type="button" id="replace-all">All</button>
+        </span>
+        <button type="button" id="find-close" class="icon" title="Close (Esc)">✕</button>
+      </form>
+
+      <form id="path-form" hidden>
+        <label for="path-input" id="path-label">Open</label>
+        <input id="path-input" type="text" spellcheck="false" autocomplete="off">
+        <button type="submit" id="path-ok">Open</button>
+        <button type="button" id="path-cancel">Cancel</button>
+      </form>
+    </header>
+
+    <footer id="status" class="overlay-bar bottom">
+      <span id="where"></span>
+      <select id="language" title="Highlight as"></select>
+      <select id="indent" title="What Tab inserts">
+        <option value="2">2 spaces</option>
+        <option value="4">4 spaces</option>
+        <option value="tab">Tabs</option>
+      </select>
+    </footer>
+  </main>
+</body>
+</html>

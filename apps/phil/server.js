@@ -5,7 +5,7 @@ import { httpError, json, serveFile, text } from "../../engine/http.js";
 import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
 import { home, serverConfig } from "./launch.js";
-import { textHead, textPreview } from "./texthead.js";
+import { isTextFile, textHead, textPreview } from "./texthead.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
@@ -41,6 +41,8 @@ export function createServer({ profile }) {
       case "GET /file":
       case "HEAD /file":
         return serveFile(req, requirePath(path), { "content-security-policy": "sandbox" });
+      case "GET /api/is-text": // opening a file: in the text editor?
+        return json({ text: await isTextFile(requirePath(path)) });
       case "GET /preview":
         return preview(requirePath(path), url.searchParams.get("size") ?? "2560");
       case "POST /api/open":
