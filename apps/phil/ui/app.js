@@ -498,15 +498,19 @@ function render(selectPath = state.view[state.selected]?.path) {
   nearObserver.disconnect();
   farObserver.disconnect();
   // Tiles of entries that haven't changed are kept, with their loaded images.
+  // Their text is drawn again: WebKitGTK blanks a canvas taken out of the page
+  // and put back.
   const old = new Map(tiles);
   tiles.clear();
   const frag = document.createDocumentFragment();
+  const redraw = [];
   state.view.forEach((entry, i) => {
     let tile = old.get(entry.path);
     if (tile?.dataset.sig === tileSig(entry) && !tile.classList.contains("renaming")) {
       tile.dataset.index = i;
       tile.classList.remove("selected");
       if (entry.kind === "dir") showFolderInfo(tile, entry);
+      if (tile.querySelector("canvas")) redraw.push(tile);
       old.delete(entry.path);
     } else {
       tile = makeTile(entry, i);
@@ -516,6 +520,13 @@ function render(selectPath = state.view[state.selected]?.path) {
   });
   for (const path of old.keys()) thumbs.cancel(path);
   grid.replaceChildren(frag);
+  for (const tile of redraw) {
+    for (const canvas of tile.querySelectorAll("canvas")) {
+      const box = canvas.parentElement;
+      canvas.remove();
+      drawText(box);
+    }
+  }
   if (!state.view.length) showGridMessage(q ? "No matches" : "This folder is empty");
   for (const tile of tiles.values()) {
     nearObserver.observe(tile);
