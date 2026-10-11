@@ -147,7 +147,8 @@ session.
 
 Files that turn out to be text (anything UTF-8 without NUL bytes: notes,
 Markdown, JSON, config files, code, CSV, logs...) show their own text on the
-tile, scaled to the file: a short one in readable type, a long one smaller to
+tile, syntax-highlighted in textedit's colors (in the background: tiles show
+plain first), scaled to the file: a short one in readable type, a long one smaller to
 fit more of it, down to lines drawn as bars. Markdown headings stay large
 enough to read even in long documents. Only the start of a file is read (32 KB,
 up to 400 lines), when its tile comes into view.
@@ -192,15 +193,16 @@ engine/http.js      responses, files with Range
 engine/pty.js       pseudo-terminals via libc FFI (Deno has no PTY API)
 engine/apps.js      the apps, and what an app consists of
 engine/ui/          what every app's pages share: the fading bars, the close
-                    button, showing another app inside a window
+                    button, showing another app inside a window, syntax
+                    highlighting (syntax.js, with highlight.js in vendor/,
+                    BSD-3-Clause; syntax-worker.js)
 apps/phil/          launch.js (options, window URL), server.js (listing, files,
                     thumbnails, terminal), thumbs.js (cache + LIFO job pool:
                     vipsthumbnail / ffmpegthumbnailer), folders.js (folder
                     summaries), texthead.js (text tiles), dbus.js
                     (FileManager1), shell-init.bash, ui/ (ui/vendor: xterm.js 6, MIT)
 apps/jsonedit/      launch.js, server.js, ui/ (json.js: a parser that keeps positions)
-apps/textedit/      launch.js, server.js, ui/ (syntax.js: highlight.js, vendor/
-                    BSD-3-Clause; markdown.js: Markdown to HTML and back)
+apps/textedit/      launch.js, server.js, ui/ (markdown.js: Markdown to HTML and back)
 engine/files.js     reading and saving files for the editors
 data/, scripts/install.sh  desktop entries, D-Bus service file, installer
 ```

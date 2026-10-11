@@ -297,26 +297,65 @@ function drawText(box) {
 
   const css = getComputedStyle(box);
   const strong = css.getPropertyValue("--text").trim(), dim = css.getPropertyValue("--text-dim").trim();
+  const colors = {}; // syntax roles (engine/ui/syntax.js) to --s-* colors
+  const colorOf = (role, plain) => (role ? (colors[role] ??= css.getPropertyValue(`--s-${role}`).trim() || plain) : plain);
   const family = prose ? "system-ui, sans-serif" : "ui-monospace, monospace";
+  const runs = box.text.runs; // highlighted, once the worker has answered
+  if (!runs) highlightText(box);
   let y = pad * 0.6;
-  for (const [kind, text] of lines) {
+  lines.forEach(([kind, text], i) => {
     const size = sizeOf(kind, body);
     y += size * LINE_HEIGHT;
-    if (y - size > h) break;
-    if (!text.trim()) continue;
+    if (y - size > h || !text.trim()) return;
     const heading = !!HEADING[kind];
-    ctx.fillStyle = heading ? strong : dim;
-    ctx.globalAlpha = kind === "c" ? 0.55 : heading ? 1 : 0.9;
+    const plain = heading ? strong : dim;
+    let line = runs?.[i] ?? [[text, null]];
+    if (heading) line = [[text.replace(/^\s*#+\s*/, ""), "heading"]]; // drawn large instead of with its #
+    ctx.globalAlpha = kind === "c" && !runs ? 0.55 : heading ? 1 : 0.9;
     if (size * dpr >= 3) {
       ctx.font = `${heading ? 700 : 400} ${size}px ${family}`;
-      ctx.fillText(heading ? text.replace(/^\s*#+\s*/, "") : text, pad, y - size * 0.3);
-    } else { // too small for letters: a bar for each run of words
+      let x = pad;
+      for (const [part, role] of line) {
+        ctx.fillStyle = colorOf(role, plain);
+        ctx.fillText(part, x, y - size * 0.3);
+        x += ctx.measureText(part).width;
+        if (x > w) break;
+      }
+    } else { // too small for letters: a bar for each run of words, in its color
       ctx.globalAlpha *= 0.8;
       const cw = size * charW;
-      for (const m of text.matchAll(/\S+(?: \S+)*/g)) ctx.fillRect(pad + m.index * cw, y - size, m[0].length * cw, size * 0.75);
+      let col = 0;
+      for (const [part, role] of line) {
+        ctx.fillStyle = colorOf(role, plain);
+        for (const m of part.matchAll(/\S+(?: \S+)*/g)) ctx.fillRect(pad + (col + m.index) * cw, y - size, m[0].length * cw, size * 0.75);
+        col += part.length;
+      }
     }
-  }
+  });
 }
+
+// Text tiles are drawn plain at once, and again in color when the syntax
+// worker (engine/ui/syntax-worker.js) has highlighted them, in the background.
+const syntaxWorker = new Worker("/engine/ui/syntax-worker.js", { type: "module" });
+const highlighting = new Map(); // request id -> { text, boxes }
+let highlightId = 0;
+
+function highlightText(box) {
+  const text = box.text;
+  for (const job of highlighting.values()) {
+    if (job.text === text) return void job.boxes.add(box); // already asked
+  }
+  highlighting.set(++highlightId, { text, boxes: new Set([box]) });
+  syntaxWorker.postMessage({ id: highlightId, runs: true, path: text.name ?? "", text: text.lines.map(([, t]) => t).join("\n") });
+}
+
+syntaxWorker.onmessage = (e) => {
+  const job = highlighting.get(e.data.id);
+  highlighting.delete(e.data.id);
+  if (!job) return;
+  job.text.runs = e.data.runs;
+  for (const box of job.boxes) if (box.isConnected && box.text === job.text && box.querySelector(":scope > canvas")) drawText(box);
+};
 
 // Tiles change size with the window, and the zoom, theme and sidebar
 // (applySettings).

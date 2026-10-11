@@ -11,6 +11,18 @@
   --thumb-bg: #1b1d21;
   --folder: #7fb0ff;
   --tile: 224px;
+  /* syntax colors for text tiles (as in textedit) */
+  --s-comment: #6f7682;
+  --s-string: #a8d68f;
+  --s-number: #e8b36b;
+  --s-keyword: #c792ea;
+  --s-literal: #d79bea;
+  --s-type: #7fd6c2;
+  --s-fn: #82aaff;
+  --s-attr: #9cc4ff;
+  --s-variable: #f07178;
+  --s-meta: #89ddff;
+  --s-heading: #ffcb6b;
   color-scheme: dark;
 }
 
@@ -27,6 +39,17 @@
     --accent-bg: rgba(47, 111, 224, 0.14);
     --thumb-bg: #eceef1;
     --folder: #3d7ee8;
+    --s-comment: #8a909b;
+    --s-string: #3d7a24;
+    --s-number: #a3620c;
+    --s-keyword: #8a3fa6;
+    --s-literal: #8a3fa6;
+    --s-type: #16807a;
+    --s-fn: #2257b8;
+    --s-attr: #2257b8;
+    --s-variable: #b8323f;
+    --s-meta: #1b7aa8;
+    --s-heading: #9a5b00;
     color-scheme: light;
   }
 }
