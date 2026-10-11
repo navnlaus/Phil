@@ -13,11 +13,18 @@ export const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
  *    The prompt counts as empty again when what was typed is erased.
  */
 export class TerminalPanel {
-  constructor({ panel, container, onCwd, onOpen }) {
+  constructor({ panel, container, onCwd, onBack, onOpen, isLocal, toLocal, toRemote }) {
     this.panel = panel;
     this.container = container;
     this.onCwd = onCwd;
+    this.onBack = onBack; // the shell is back on this machine after ssh
     this.onOpen = onOpen; // phil-editor in the shell asks for an app in this window
+    // ssh'd into another machine (phil's ssh, shell-init.bash): its folders
+    // map to and from local ones on a network mount of it.
+    this.isLocal = isLocal; // (host) => is this machine
+    this.toLocal = toLocal; // (host, dir) => local path, or null
+    this.toRemote = toRemote; // (path) => { host, dir }, or null
+    this.remote = null; // the host the shell is on, when not this machine
     this.term = null;
     this.ws = null;
     this.cwd = null; // last directory the shell reported
@@ -77,12 +84,18 @@ export class TerminalPanel {
     this.fit.fit();
 
     this.term.parser.registerOscHandler(7, (data) => {
-      let path;
+      let path, host;
       try {
-        path = decodeURIComponent(new URL(data).pathname);
+        const url = new URL(data);
+        path = decodeURIComponent(url.pathname);
+        host = url.hostname;
       } catch {
         return true;
       }
+      // On another machine: the view follows if it's a folder on a mount of it.
+      const wasRemote = !!this.remote;
+      this.remote = host && !this.isLocal(host) ? host : null;
+      if (this.remote) path = this.toLocal(host, path) ?? `ssh://${host}${path}`;
       const changed = path !== this.cwd;
       const buf = this.term.buffer.active;
       this.promptRow = buf.cursorX === 0 ? buf.baseY + buf.cursorY : null;
@@ -90,7 +103,10 @@ export class TerminalPanel {
       this.idle = true;
       this.typedAt = null;
       this.running = false;
-      if (changed) this.onCwd(path);
+      // Back from ssh: the view stays where the remote shell left it, and this
+      // shell follows it there instead.
+      if (wasRemote && !this.remote) setTimeout(() => this.onBack?.(), 200); // once the prompt is drawn, so it's replaced
+      else if (changed && path.startsWith("/")) this.onCwd(path);
       return true;
     });
     this.term.onData((data) => {
@@ -187,14 +203,37 @@ export class TerminalPanel {
     return buf.baseY + buf.cursorY === at.row && buf.cursorX === at.x && this.textFrom(at.row, at.x) === at.rest;
   }
 
-  /** The file view moved to `path`: follow it if the shell is at an empty prompt. */
+  /**
+   * The file view moved to `path`: follow it if the shell is at an empty
+   * prompt. ssh'd in, if the folder is on the same machine (a mount of it).
+   */
   follow(path) {
-    this.restartCwd = path;
+    if (!this.remote) this.restartCwd = path;
     if (!this.isRunning || !this.atEmptyPrompt || path === this.cwd) return;
+    let message = { cd: path };
+    if (this.remote) {
+      const there = this.toRemote(path);
+      if (!there || !this.isSameHost(there.host, this.remote)) return;
+      message = { cd: there.dir || ".", host: this.remote };
+    }
     this.idle = false;
     this.running = true;
     this.erasePrompt();
-    this.ws.send(JSON.stringify({ cd: path }));
+    this.ws.send(JSON.stringify(message));
+  }
+
+  isSameHost(a, b) {
+    const name = (h) => h.replace(/^.*@/, "").split(".")[0].toLowerCase();
+    return name(a) === name(b);
+  }
+
+  /** Runs a command at the prompt (typed, as if by hand); false if the shell is busy. */
+  run(command) {
+    if (!this.isRunning || !this.atEmptyPrompt) return false;
+    this.typed(command + "\r");
+    this.send(command + "\r");
+    this.term.focus();
+    return true;
   }
 
   // Clears the idle prompt and leaves the cursor where it began; the newline

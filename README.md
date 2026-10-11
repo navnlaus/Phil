@@ -258,6 +258,16 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 - Right-click a file → "Paste path in terminal" inserts its quoted path.
 - `phil-editor file` (or `ed file`) opens the file's editor over the folder,
   in this window; Esc comes back to the terminal.
+- On a network mount (NFS, sshfs; from /etc/fstab or mounted), `ssh` with
+  nothing else goes to that machine, into the same folder there. So does
+  "SSH here" on a folder's menu, or double-clicking (or right-clicking) a
+  network share in the sidebar. The remote shell gets a network icon (󰈀)
+  before its prompt, and it and the file view follow each other as they do
+  locally: `cd` there moves the view, and browsing the mount moves the shell
+  (silently, through the ssh session's own connection, a control socket).
+  After `exit`, the local shell goes to where the view is. phil sends the
+  remote shell its prompt hooks along with the ssh command (a temporary rc
+  file there that removes itself); `ssh` with arguments is plain ssh.
 - Ctrl+Insert copies the selected text, Shift+Insert pastes; Ctrl+C and Ctrl+V
   stay the shell's. On Omarchy, Super+C / Super+V do the same once Hyprland
   counts phil as a terminal (it sends terminals Ctrl+Insert / Shift+Insert, and

@@ -25,12 +25,14 @@ export function createServer({ profile, controlSocket }) {
     const route = `${req.method} ${url.pathname}`;
     switch (route) {
       case "GET /api/places": // again, when the window gets focus: drives come and go
-        return json(await places());
+        return json({ places: await places(), mounts: await networkMounts() });
       case "GET /api/init":
         return json({
           start: (await lastDir()) ?? config.startDir, // windows asked for a folder get it in the URL
           home: home(),
           places: await places(),
+          mounts: await networkMounts(),
+          hostname: await hostname(),
           incognito: config.incognito,
           thumbDir: config.thumbDir ?? "a .thumbnails folder in each folder",
           thumbSize: thumbs.name,
@@ -284,9 +286,21 @@ export function createServer({ profile, controlSocket }) {
     socket.onmessage = (e) => {
       queue = queue.then(async () => {
         if (typeof e.data !== "string") return pty.write(new Uint8Array(e.data));
-        const { resize, cd } = JSON.parse(e.data);
+        const { resize, cd, host } = JSON.parse(e.data);
         if (resize) pty.resize(resize[0], resize[1]);
-        if (cd && await isDir(cd)) {
+        if (cd && host) {
+          // The shell is ssh'd in (phil's ssh, shell-init.bash): leave the
+          // target in its cd file over the session's own connection, then the
+          // empty Enter, as below.
+          const shq = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
+          const write = `printf '%s\\000%s\\000' "$(date +%s)" ${shq(cd)} > /tmp/phil-cd-${terminal}`;
+          const socketPath = join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-ssh-${terminal}`);
+          const done = await new Deno.Command("ssh", {
+            args: ["-S", socketPath, "-o", "ControlMaster=no", "-o", "BatchMode=yes", host, write],
+            stdin: "null", stdout: "null", stderr: "null",
+          }).output().catch(() => ({ success: false }));
+          if (done.success) await pty.write("\r");
+        } else if (cd && await isDir(cd)) {
           await Deno.writeTextFile(cdFile, `${Math.floor(Date.now() / 1000)}\0${cd}\0`);
           await pty.write("\r");
         }
@@ -467,20 +481,53 @@ const SYSTEM_DIRS = /^\/(boot|efi|usr|var|etc|opt|root|tmp|srv\/tftp|proc|sys|de
 // own folders (not /, /home, /boot, swap...).
 async function fstabMounts() {
   const out = new Map();
+  for (const { target, type } of await readFstab()) {
+    if (type === "swap") continue;
+    if (NETWORK_FS.test(type)) out.set(target, "network");
+    else if (!SYSTEM_DIRS.test(target)) out.set(target, "drive");
+  }
+  return out;
+}
+
+// This machine's name, for telling a shell on it from one ssh'd elsewhere
+// (Deno.hostname() would need --allow-sys).
+async function hostname() {
+  return (await Deno.readTextFile("/etc/hostname").catch(() => "")).trim() || Deno.env.get("HOSTNAME") || "localhost";
+}
+
+async function readFstab() {
   let fstab = "";
   try {
     fstab = await Deno.readTextFile("/etc/fstab");
   } catch {
-    return out;
+    return [];
   }
-  for (const line of fstab.split("\n")) {
-    const [, where, type] = line.replace(/#.*/, "").trim().split(/\s+/);
-    if (!where?.startsWith("/") || !type || type === "swap") continue;
-    const path = where.replace(/\\040/g, " ").replace(/\/+$/, "") || "/";
-    if (NETWORK_FS.test(type)) out.set(path, "network");
-    else if (!SYSTEM_DIRS.test(path)) out.set(path, "drive");
-  }
-  return out;
+  return fstab.split("\n").map((line) => line.replace(/#.*/, "").trim().split(/\s+/))
+    .filter(([source, target, type]) => source && target?.startsWith("/") && type)
+    .map(([source, target, type]) => ({ source, target: target.replace(/\\040/g, " ").replace(/\/+$/, "") || "/", type }));
+}
+
+/**
+ * Network mounts that ssh can follow into: { target, host, root }, the local
+ * mount point, the machine and the folder there (root "" for one relative to
+ * the remote home, as sshfs allows). From /etc/fstab and the mounts in use.
+ */
+async function networkMounts() {
+  const found = new Map();
+  const add = (source, type, target) => {
+    const m = /^([^/:][^:]*):(.*)$/.exec(source); // host:/path (NFS), [user@]host:path (sshfs)
+    if (m && /^(nfs4?|fuse\.sshfs|sshfs)$/.test(type)) found.set(target, { target, host: m[1], root: m[2].replace(/(.)\/+$/, "$1") });
+  };
+  for (const { source, type, target } of await readFstab()) add(source, type, target);
+  try {
+    const out = await new Deno.Command("findmnt", { args: ["-rn", "-o", "SOURCE,FSTYPE,TARGET"], stdin: "null", stdout: "piped", stderr: "null" }).output();
+    const unescape = (s) => s.replace(/\\x([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+    for (const line of new TextDecoder().decode(out.stdout).split("\n")) {
+      const [source, type, target] = line.split(" ").map(unescape);
+      if (target) add(source, type, target);
+    }
+  } catch { /* no findmnt: fstab only */ }
+  return [...found.values()];
 }
 
 async function isDir(path) {
