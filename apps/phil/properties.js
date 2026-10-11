@@ -62,24 +62,35 @@ export async function folderSize(path, ms = 4000) {
   return total;
 }
 
-// What you can do with it: read, write (change, for a folder), and when you
-// can't, whether sudo is how (saving a root file in the editors asks for it).
+// What you can do with it: read, and write (change, for a folder).
 async function access(stat, path) {
-  const { uid, groups: mine } = await me();
-  const bits = uid === 0 ? 7 : stat.uid === uid ? (stat.mode >> 6) & 7 : mine.has(stat.gid) ? (stat.mode >> 3) & 7 : stat.mode & 7;
-  let write = !!(bits & 2) || uid === 0;
-  // The editors save by replacing the file in its folder: that takes the folder too.
-  const folder = await Deno.stat(dirname(path)).catch(() => null);
-  const folderBits = !folder ? 0 : uid === 0 ? 7 : folder.uid === uid ? (folder.mode >> 6) & 7 : mine.has(folder.gid) ? (folder.mode >> 3) & 7 : folder.mode & 7;
-  if (stat.isFile && !(folderBits & 2)) write = false;
-  return { read: !!(bits & 4) || uid === 0, write, mine: stat.uid === uid };
+  const who = await me();
+  const folder = stat.isFile ? await Deno.stat(dirname(path)).catch(() => null) : null;
+  return { read: !!(permissions(stat, who) & 4), write: canWrite(stat, folder, who), mine: stat.uid === who.uid };
+}
+
+/**
+ * Whether you can change it without sudo: a folder's contents, or a file,
+ * which also takes its `folder` (the editors save by replacing the file
+ * there). `who` is me().
+ */
+export function canWrite(stat, folder, who) {
+  if (!(permissions(stat, who) & 2)) return false;
+  return !stat.isFile || !!folder && !!(permissions(folder, who) & 2);
+}
+
+// The rwx bits that apply to `who`: the owner's, the group's or everyone's.
+function permissions(stat, { uid, groups }) {
+  if (uid === 0) return 7;
+  const mode = stat.mode ?? 0;
+  return stat.uid === uid ? (mode >> 6) & 7 : groups.has(stat.gid) ? (mode >> 3) & 7 : mode & 7;
 }
 
 // Who phil runs as: {uid, groups}, from id(1). (Deno.uid() and Deno.gid()
 // need --allow-sys, and /proc/self all permissions, which the installed build
 // doesn't have.)
 let meOnce = null;
-function me() {
+export function me() {
   const id = (flag) =>
     new Deno.Command("id", { args: [flag], stdin: "null", stderr: "null" }).output()
       .then((out) => new TextDecoder().decode(out.stdout).trim().split(/\s+/).filter(Boolean).map(Number));

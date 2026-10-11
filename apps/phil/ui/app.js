@@ -538,7 +538,7 @@ function fileType(name) {
 }
 
 // A tile is rebuilt when its file changed; a folder's tile is updated in place.
-const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime} ${e.onChange ?? ""}`);
+const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime} ${e.onChange ?? ""} ${e.writable} ${e.target}`);
 
 function makeTile(entry, index) {
   const tile = document.createElement("div");
@@ -549,8 +549,7 @@ function makeTile(entry, index) {
   const box = document.createElement("div");
   box.className = "thumb";
   if (entry.kind !== "dir") {
-    box.innerHTML = icon(KIND_ICON[entry.kind], "kind") + (entry.kind === "video" ? `<span class="badge">${icon("play")}</span>` : "") +
-      (entry.onChange ? `<span class="badge hook">${icon("bolt")}</span>` : "");
+    box.innerHTML = icon(KIND_ICON[entry.kind], "kind");
     if ((entry.kind === "file" || entry.kind === "pdf") && fileType(entry.name)) { // under the icon, until text or a thumbnail covers it
       const ext = document.createElement("span");
       ext.className = "ext";
@@ -572,9 +571,41 @@ function makeTile(entry, index) {
   if (entry.kind === "dir") showFolderInfo(tile, entry);
   else {
     meta.textContent = [fileType(entry.name).toUpperCase(), formatSize(entry.size), formatShortDate(entry.mtime)].filter(Boolean).join(" · ");
-    tile.title = `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}` + (entry.onChange ? `\nWhen it changes: ${entry.onChange}` : "");
+    tile.title = `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}` + titleNotes(entry);
+    showMarks(tile, entry);
   }
   return tile;
+}
+
+// Small marks at a tile's corner: ▶ a video, ⚡ an on-change hook (see
+// Properties), a link icon for a link; red (the link's, or a lock) when you
+// can't change it without sudo — through a link, what it points to.
+function showMarks(tile, entry) {
+  const locked = entry.writable === false;
+  const marks = [
+    entry.kind === "video" && ["play", ""],
+    entry.onChange && ["bolt", "hook"],
+    entry.symlink ? ["link", `line${locked ? " locked" : ""}`] : locked && ["lock", "line locked"],
+  ].filter(Boolean);
+  const key = marks.flat().join(" ");
+  let el = tile.querySelector(":scope > .marks");
+  if (el?.dataset.key === key) return;
+  el?.remove();
+  if (!marks.length) return;
+  el = document.createElement("span");
+  el.className = "marks";
+  el.dataset.key = key;
+  el.innerHTML = marks.map(([name, cls]) => `<span class="badge ${cls}">${icon(name)}</span>`).join("");
+  tile.append(el);
+}
+
+// The hover text's lines about links, permissions and hooks.
+function titleNotes(entry) {
+  const notes = [];
+  if (entry.symlink) notes.push(`Link to ${entry.target ?? "?"}`);
+  if (entry.writable === false) notes.push(entry.kind === "dir" ? "You can't change what's in it without sudo" : "You can't change it without sudo");
+  if (entry.onChange) notes.push(`When it changes: ${entry.onChange}`);
+  return notes.map((n) => `\n${n}`).join("");
 }
 
 // A folder looks like one: a tab over a face that holds its first few
@@ -592,7 +623,8 @@ function showFolderInfo(tile, entry) {
   box.dataset.look = look;
   const meta = tile.querySelector(".meta");
   meta.textContent = summary ? folderContents(summary) : "";
-  tile.title = entry.name + (meta.textContent ? `\n${meta.textContent}` : "");
+  tile.title = entry.name + (meta.textContent ? `\n${meta.textContent}` : "") + titleNotes(entry);
+  showMarks(tile, entry);
   tile.classList.toggle("empty-dir", !!summary && !summary.files && !summary.dirs);
 }
 
