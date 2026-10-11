@@ -1,17 +1,49 @@
 # phil
 
-A small file manager for folders full of pictures and videos. The UI is plain
-HTML/CSS/JS rendered by the system WebKitGTK; the backend is a few hundred lines
-of JavaScript running on Deno. No bundled browser, no npm dependencies.
+A small file manager for folders full of pictures and videos, and the engine it
+runs on. The UI is plain HTML/CSS/JS rendered by the system WebKitGTK; the
+backend is JavaScript running on Deno. No bundled browser, no npm dependencies.
 
-## Install as the default file manager
+## The engine and its apps
+
+phil is one app of `phil-engine`, which runs apps in one background process:
+their windows (GTK + WebKitGTK) share a main loop, and their servers a worker.
+The first app you run starts the engine in the background; after that, an app's
+command just asks the running engine for a window and returns, so windows open
+quickly. The engine keeps running after its last window closes.
+
+- **phil**, the file manager (below).
+- **jsonedit**, a JSON editor: `jsonedit file.json` (see [jsonedit](#jsonedit)).
+
+Each app gets its own server on 127.0.0.1, with its own port and origin; its
+windows get its own Wayland app id (`phil`, `jsonedit`) for window rules.
+
+- The engine finds the running one through `$XDG_RUNTIME_DIR/phil/main.sock`;
+  its output goes to `main.log` next to it.
+- An app's options can pick a separate engine (a profile): incognito phil
+  windows get their own (`incognito.sock`): separate servers, token and private
+  WebKit session, app id `phil-incognito` and a purple stripe along the top. It
+  exits, deleting its temporary thumbnails, with its last window. "Show in
+  folder" always goes to the normal engine. Non-default `--thumb-dir`,
+  `--thumb-size`, `--jobs` or `--port` also get an engine of their own, so those
+  options always apply.
+- Engine options, with any app: `--quit` stops the background engine (`phil
+  --incognito --quit` the incognito one); `--retire` (`phil-engine --retire`)
+  makes every running engine keep its windows but take no new ones and exit once
+  those close (`deno task install` does this); `--standalone` runs the app in a
+  process of its own that exits with its window (`deno task start` uses it, so
+  development runs don't end up in the installed engine); `--browser` prints a
+  URL instead of opening a window.
+
+## Install
 
 ```sh
 deno task install
 ```
 
-Builds `phil`, installs it to `~/.local/bin/phil` and makes it the default
-file manager. Rerun it after changing the code.
+Builds `phil-engine` and installs it to `~/.local/bin`, with a small `phil` and
+`jsonedit` command next to it, and makes phil the default file manager. Rerun it
+after changing the code.
 
 - `~/.local/share/applications/phil.desktop` (with a "New Incognito Window"
   action) and `inode/directory=phil.desktop` in `~/.config/mimeapps.list`:
@@ -21,36 +53,20 @@ file manager. Rerun it after changing the code.
   through the [FileManager1](https://www.freedesktop.org/wiki/Specifications/file-manager-interface/)
   D-Bus interface, not the MIME default. The user service file takes
   precedence over Nautilus's, so D-Bus starts `phil --file-manager-service`
-  (`src/dbus.js`), which opens a phil window per request with the items
+  (`apps/phil/dbus.js`), which opens a phil window per request with the items
   selected, and exits after 10 idle minutes. While Nautilus is running it
   holds that D-Bus name itself, so those requests go to Nautilus until it quits.
+- `~/.local/share/applications/jsonedit.desktop`: jsonedit is offered for JSON
+  files ("Open with"), not made their default.
 
-`phil file...` opens the files' folder with them selected.
+## phil
 
-## Background instance
-
-`phil` keeps running after its last window closes, so later windows open
-quickly (no GTK/WebKit startup): a new `phil ...` finds the running one through
-`$XDG_RUNTIME_DIR/phil/main.sock`, asks it for a window and exits.
-
-- Incognito windows get their own instance (`incognito.sock`): separate server,
-  token and private WebKit session, app id `phil-incognito` and a purple stripe
-  along the top. It exits, deleting its temporary thumbnails, with its last
-  window. "Show in folder" always goes to the normal instance.
-- Non-default `--thumb-dir`, `--thumb-size`, `--jobs` or `--port` make an
-  instance of their own, so those options always apply.
-- `phil --quit` stops the background phil (`--incognito --quit` the incognito
-  one). `deno task install` runs `phil --retire`: running phils keep their
-  windows but take no new ones and exit once those close.
-- `--standalone` is the old behavior: one process per window, which exits with
-  it. `deno task start` uses it, so development runs don't end up in the
-  installed background phil.
-
-## Run
+`phil [options] [directory | file...]`; `phil file...` opens the files' folder
+with them selected.
 
 ```sh
-deno task start [options] [directory]
-deno task compile          # single ./phil binary (~100 MB, mostly the Deno runtime)
+deno task start [options] [directory]   # phil from the source, --standalone
+deno task compile                       # the single ./phil-engine binary (~100 MB, mostly the Deno runtime)
 ```
 
 Options:
@@ -62,15 +78,15 @@ Options:
 | `--jobs N` | | CPU count |
 | `--port N` | | random |
 | `--incognito` | | off (see below) |
-| `--browser` | | open a native window |
 
-The thumbnail directory is per process, so you can run e.g. one instance with
+The thumbnail directory is per engine, so you can run e.g. one with
 `--thumb-dir /mnt/photos/.thumbs` for a photo drive and another with the default.
 Thumbnails are stored as `<thumb-dir>/<W>x<H>/<hash>.jpg`. The hash covers path,
 size and mtime, so edited files get new thumbnails. Clearing the cache means
 deleting the folder.
 
-Long options can be shortened to any unique prefix (`--incog`, `--thumb-s 256`).
+phil's long options can be shortened to any unique prefix (`--incog`,
+`--thumb-s 256`); the engine options can't.
 
 Started without a folder, phil reopens the folder it showed last (saved in
 `$XDG_STATE_HOME/phil/state.json` on every folder change, so it doesn't matter
@@ -155,18 +171,28 @@ and `xdg-open` are used for "open externally".
 ## How it works
 
 ```
-src/main.js     parse options, start the server worker, open the window
-src/window.js   GTK3 + WebKitGTK window via Deno FFI (blocks in gtk_main)
-src/server.js   127.0.0.1 HTTP server (worker): listing, files with Range, thumbnails
-src/thumbs.js   thumbnail cache + LIFO job pool (vipsthumbnail / ffmpegthumbnailer)
-src/folders.js  folder summaries for the folder tiles (counts, size, previews)
-src/texthead.js the start of text files, drawn on their tiles
-src/pty.js      pseudo-terminals via libc FFI (Deno has no PTY API)
-src/dbus.js     org.freedesktop.FileManager1 D-Bus service via GDBus FFI
-data/, scripts/install.sh  desktop entry, D-Bus service file, installer
-src/shell-init.bash  rc file for the terminal panel's bash
-ui/             the frontend (ui/vendor: xterm.js 6, MIT)
+engine/main.js      the command line: asks the running engine for a window, or starts one
+engine/instance.js  finding and talking to the running engine (Unix socket per profile)
+engine/window.js    GTK3 + WebKitGTK windows via Deno FFI (blocks in gtk_main)
+engine/server.js    the apps' 127.0.0.1 HTTP servers (a worker): session, static files
+engine/http.js      responses, files with Range
+engine/pty.js       pseudo-terminals via libc FFI (Deno has no PTY API)
+engine/apps.js      the apps, and what an app consists of
+apps/phil/          launch.js (options, window URL), server.js (listing, files,
+                    thumbnails, terminal), thumbs.js (cache + LIFO job pool:
+                    vipsthumbnail / ffmpegthumbnailer), folders.js (folder
+                    summaries), texthead.js (text tiles), dbus.js
+                    (FileManager1), shell-init.bash, ui/ (ui/vendor: xterm.js 6, MIT)
+apps/jsonedit/      launch.js, server.js (read and save files), ui/
+data/, scripts/install.sh  desktop entries, D-Bus service file, installer
 ```
+
+An app is a folder in `apps/` with a `launch.js` (its command line and window
+URL; loaded by every command, so it stays small), a `server.js` (its routes, in
+the engine's server worker) and a `ui/` folder (`index.html` at `/`, the rest
+under `/ui/`); `engine/apps.js` lists them. The engine handles the session
+(a random token in the window's URL becomes a cookie; requests without it, or
+to another host, are refused), static files and window management.
 
 - Thumbnails that are already cached come back as URLs in the directory listing.
   Missing ones are requested over a WebSocket as tiles scroll into view, and
@@ -235,3 +261,26 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Ctrl + / − / wheel | thumbnail size |
 | F5 | reload folder |
 | in viewer: ← → Esc, `f` | previous/next, close, fullscreen |
+
+## jsonedit
+
+`jsonedit [file.json]` edits JSON as text, with a live tree of its structure
+beside it. Without a file it starts a new one.
+
+- Errors show as you type, with the line and column (click to go there).
+- The tree follows the cursor, and clicking a value selects it in the text.
+  Large arrays and objects show 500 items at a time.
+- Format, Minify and Sort keys rewrite the text with 2 or 4 spaces or tabs (it
+  picks up the file's own) and keep keys in their order and numbers as written
+  (no lost digits). They can be undone with Ctrl+Z.
+- Saving writes a temporary file and renames it over the old one, keeping its
+  permissions. If the file changed on disk since it was opened, it asks first.
+
+| | |
+|---|---|
+| Ctrl+S / Ctrl+Shift+S | save / save as |
+| Ctrl+O | open |
+| Ctrl+Shift+F | format |
+| Tab, Enter | indent; keep the indentation (one more after `{` or `[`) |
+
+`deno task jsonedit [file]` runs it from the source.

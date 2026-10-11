@@ -1,93 +1,28 @@
-// Local HTTP server for the UI. Runs in a worker; posts { url } once listening.
-import { basename, dirname, extname, join, normalize } from "@std/path";
-import { home } from "./config.js";
+// phil's server: folder listings, files with Range, thumbnails, the terminal
+// panel's shells. Runs in the engine's server worker (engine/server.js).
+import { basename, dirname, join, normalize } from "@std/path";
+import { httpError, json, serveFile, text } from "../../engine/http.js";
+import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
-import { listen } from "./instance.js";
-import { Pty } from "./pty.js";
+import { home, serverConfig } from "./launch.js";
 import { textHead, textPreview } from "./texthead.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
-const UI_DIR = new URL("../ui/", import.meta.url);
+export const UI_DIR = new URL("./ui/", import.meta.url);
 const DEFAULT_THEME = "overlay"; // see the themes in ui/style.css
 
-const CONTENT_TYPES = {
-  html: "text/html; charset=utf-8", js: "text/javascript; charset=utf-8", mjs: "text/javascript; charset=utf-8",
-  css: "text/css; charset=utf-8",
-  svg: "image/svg+xml", txt: "text/plain; charset=utf-8", json: "application/json",
-  jpg: "image/jpeg", jpeg: "image/jpeg", jpe: "image/jpeg", jfif: "image/jpeg", png: "image/png",
-  gif: "image/gif", webp: "image/webp", avif: "image/avif", heic: "image/heic", heif: "image/heif",
-  jxl: "image/jxl", tif: "image/tiff", tiff: "image/tiff", bmp: "image/bmp", ico: "image/x-icon",
-  mp4: "video/mp4", m4v: "video/mp4", mkv: "video/x-matroska", webm: "video/webm", mov: "video/quicktime",
-  avi: "video/x-msvideo", wmv: "video/x-ms-wmv", flv: "video/x-flv", mpg: "video/mpeg", mpeg: "video/mpeg",
-  m2ts: "video/mp2t", mts: "video/mp2t", ts: "video/mp2t", "3gp": "video/3gpp", ogv: "video/ogg",
-};
-const contentType = (path) => CONTENT_TYPES[extname(path).slice(1).toLowerCase()] ?? "application/octet-stream";
-
-self.onmessage = (e) => start(e.data);
-
-function start(config) {
-  const token = crypto.randomUUID();
+export function createServer({ profile }) {
+  const config = serverConfig(profile);
   const thumbs = new Thumbnailer(config);
   // Incognito leaves no traces, so its folder summaries last for the session only.
   const sockets = new Set(); // every page's WebSocket, for {theme}
   const folders = new FolderSummaries(thumbs.dir && !config.incognito ? join(thumbs.dir, "folders") : null);
-  let host, cookie;
+  console.log(`phil: thumbnails in ${config.thumbDir ?? "a .thumbnails folder in each folder"}`);
 
-  // Tell the main thread we're up, after taking over the instance's control
-  // socket (if any): its requests go to the GTK main loop through wakeFd.
-  async function announce(url) {
-    let control = "none";
-    if (config.controlSocket) {
-      const libc = Deno.dlopen("libc.so.6", { write: { parameters: ["i32", "buffer", "usize"], result: "isize" } });
-      const forward = (message) => {
-        const line = new TextEncoder().encode(JSON.stringify(message) + "\n");
-        libc.symbols.write(config.wakeFd, line, line.length);
-      };
-      const listening = await listen(config.controlSocket, async (message, { stopListening }) => {
-        if (message.retire) await stopListening();
-        forward(message);
-        return { ok: true };
-      });
-      control = listening ? "listening" : "in-use";
-    }
-    self.postMessage({ url, control });
-  }
-
-  Deno.serve({
-    hostname: "127.0.0.1",
-    port: config.port,
-    onListen({ port }) {
-      host = `127.0.0.1:${port}`;
-      cookie = `phil-${port}`; // per port, so two phils never overwrite each other's session
-      announce(`http://${host}/?token=${token}`);
-    },
-  }, async (req) => {
-    try {
-      return await handle(req);
-    } catch (err) {
-      return errorResponse(err);
-    }
-  });
-
-  async function handle(req) {
-    const url = new URL(req.url);
-    // Only answer requests addressed to us (blocks DNS rebinding) that carry the session cookie.
-    if (req.headers.get("host") !== host) return text(403, "Forbidden");
-    if (url.searchParams.get("token") === token) {
-      url.searchParams.delete("token"); // keep the rest (?select=...); the #folder carries over by itself
-      return new Response(null, {
-        status: 303,
-        headers: { location: "/" + url.search, "set-cookie": `${cookie}=${token}; HttpOnly; SameSite=Strict; Path=/` },
-      });
-    }
-    const cookies = (req.headers.get("cookie") ?? "").split(/;\s*/);
-    if (!cookies.includes(`${cookie}=${token}`)) return text(403, "Forbidden: open the URL printed by phil");
-
+  async function handle(req, url) {
     const path = url.searchParams.get("path");
     const route = `${req.method} ${url.pathname}`;
     switch (route) {
-      case "GET /":
-        return staticFile("index.html");
       case "GET /api/init":
         return json({
           start: (await lastDir()) ?? config.startDir, // windows asked for a folder get it in the URL
@@ -108,9 +43,6 @@ function start(config) {
         return serveFile(req, requirePath(path), { "content-security-policy": "sandbox" });
       case "GET /preview":
         return preview(requirePath(path), url.searchParams.get("size") ?? "2560");
-      case "POST /api/quit": // the close button in --browser mode (the window closes itself natively)
-        self.postMessage({ quit: true });
-        return json({ ok: true });
       case "POST /api/open":
         return openExternal(await req.json());
       case "POST /api/delete":
@@ -127,13 +59,12 @@ function start(config) {
       case "GET /term":
         return terminalSocket(req, url);
     }
-    if (req.method === "GET" && url.pathname.startsWith("/ui/")) return staticFile(url.pathname.slice(4));
     const thumb = /^\/thumbs\/([^/]+)\/([^/]+)$/.exec(url.pathname);
     if (req.method === "GET" && thumb && thumb[1] === thumbs.name) {
       const file = thumbs.fileFor(thumb[2], url.searchParams.get("dir"));
       if (file) return serveFile(req, file, { "cache-control": "private, max-age=31536000, immutable" });
     }
-    return text(404, "Not found");
+    return null;
   }
 
   async function listDir(dir, sort) {
@@ -208,9 +139,7 @@ function start(config) {
   // capped at ~6 connections per host. The server sends the answers, {changed}
   // (see watchFolder), and {theme} when the theme in the settings file changes.
   function thumbSocket(req) {
-    if (req.headers.get("upgrade") !== "websocket" || req.headers.get("origin") !== `http://${host}`) {
-      return text(400, "Bad request");
-    }
+    if (req.headers.get("upgrade") !== "websocket") return text(400, "Bad request");
     const { socket, response } = Deno.upgradeWebSocket(req);
     const pending = new Map();
     let watcher = null, watching = Promise.resolve(); // one watch request at a time
@@ -316,9 +245,7 @@ function start(config) {
   // {cd: path}, which changes the shell's directory without typing a command
   // (see __phil_follow in shell-init.bash).
   async function terminalSocket(req, url) {
-    if (req.headers.get("upgrade") !== "websocket" || req.headers.get("origin") !== `http://${host}`) {
-      return text(400, "Bad request");
-    }
+    if (req.headers.get("upgrade") !== "websocket") return text(400, "Bad request");
     const cwd = await isDir(url.searchParams.get("cwd") ?? "") ? url.searchParams.get("cwd") : home();
     const size = (name, fallback) => Math.max(1, Number(url.searchParams.get(name)) || fallback);
     const cdFile = join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-cd-${crypto.randomUUID()}`);
@@ -362,13 +289,13 @@ function start(config) {
   async function rename({ path, name }) {
     requirePath(path);
     if (typeof name !== "string" || !name || name.includes("/") || name.includes("\0") || name === "." || name === "..") {
-      throw Object.assign(new Error("That isn't a valid name."), { status: 400 });
+      throw httpError(400, "That isn't a valid name.");
     }
     const target = join(dirname(path), name);
     if (target === path) return { path };
-    if (normalize(path) !== path || path === "/") throw Object.assign(new Error("invalid path"), { status: 400 });
+    if (normalize(path) !== path || path === "/") throw httpError(400, "invalid path");
     if (await Deno.lstat(target).then(() => true, () => false)) {
-      throw Object.assign(new Error(`There's already an item called “${name}” here.`), { status: 409 });
+      throw httpError(409, `There's already an item called “${name}” here.`);
     }
     await Deno.rename(path, target);
     await folders.moved(path, target).catch(() => {});
@@ -439,6 +366,8 @@ function start(config) {
       return null;
     }
   }
+
+  return { handle, port: config.port || undefined };
 }
 
 // bash --rcfile needs a real file, and under `deno compile` ours lives in the
@@ -453,7 +382,7 @@ const shellInit = (async () => {
 })();
 
 function requirePath(path) {
-  if (!path || !path.startsWith("/")) throw Object.assign(new Error("absolute path required"), { status: 400 });
+  if (!path || !path.startsWith("/")) throw httpError(400, "absolute path required");
   return path;
 }
 
@@ -502,67 +431,6 @@ async function isDir(path) {
   }
 }
 
-async function serveFile(req, path, extraHeaders = {}) {
-  const stat = await Deno.stat(path);
-  if (!stat.isFile) return text(404, "Not a file");
-  const size = stat.size;
-  let start = 0, end = size - 1, status = 200;
-  const headers = {
-    "content-type": contentType(path),
-    "accept-ranges": "bytes",
-    "x-content-type-options": "nosniff",
-    "cache-control": "no-cache",
-    ...extraHeaders,
-  };
-
-  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get("range")?.trim() ?? "");
-  if (range && (range[1] || range[2])) {
-    if (range[1] === "") {
-      start = Math.max(0, size - Number(range[2]));
-    } else {
-      start = Number(range[1]);
-      if (range[2]) end = Math.min(Number(range[2]), size - 1);
-    }
-    if (start > end || start >= size) {
-      return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
-    }
-    status = 206;
-    headers["content-range"] = `bytes ${start}-${end}/${size}`;
-  }
-  const length = Math.max(0, end - start + 1);
-  headers["content-length"] = String(length);
-  if (req.method === "HEAD" || length === 0) return new Response(null, { status, headers });
-
-  const file = await Deno.open(path);
-  if (start) await file.seek(start, Deno.SeekMode.Start);
-  return new Response(rangeStream(file, length), { status, headers });
-}
-
-function rangeStream(file, length) {
-  let left = length;
-  let closed = false;
-  const close = () => {
-    if (!closed) closed = true, file.close();
-  };
-  return new ReadableStream({
-    async pull(ctrl) {
-      const buf = new Uint8Array(Math.min(left, 512 * 1024));
-      const n = await file.read(buf);
-      if (!n) {
-        close();
-        return ctrl.close();
-      }
-      left -= n;
-      ctrl.enqueue(buf.subarray(0, n));
-      if (left <= 0) {
-        close();
-        ctrl.close();
-      }
-    },
-    cancel: close,
-  });
-}
-
 // Full-size preview for formats the webview can't decode itself (HEIC, TIFF, ...).
 async function preview(path, size) {
   if (!/^\d{2,5}$/.test(size)) return text(400, "Bad size");
@@ -597,9 +465,9 @@ async function deletePaths(paths) {
 // symlinks (copied as links) and moves across filesystems. Nothing is ever
 // overwritten: a name that already exists in `dest` is reported and skipped.
 async function transfer({ op, paths = [], dest }) {
-  if (op !== "move" && op !== "copy") throw Object.assign(new Error("bad op"), { status: 400 });
+  if (op !== "move" && op !== "copy") throw httpError(400, "bad op");
   requirePath(dest);
-  if (!(await isDir(dest))) throw Object.assign(new Error("destination is not a folder"), { status: 400 });
+  if (!(await isDir(dest))) throw httpError(400, "destination is not a folder");
   const errors = [];
   for (const src of paths) {
     try {
@@ -630,16 +498,6 @@ function openExternal({ path, app }) {
   return json({ ok: true });
 }
 
-async function staticFile(name) {
-  if (!/^(vendor\/)?[\w.-]+$/.test(name)) return text(404, "Not found");
-  try {
-    const body = await Deno.readFile(new URL(name, UI_DIR));
-    return new Response(body, { headers: { "content-type": contentType(name), "cache-control": "no-cache" } });
-  } catch {
-    return text(404, "Not found");
-  }
-}
-
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
   let next = 0;
@@ -651,21 +509,4 @@ async function mapLimit(items, limit, fn) {
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return out;
-}
-
-function json(data) {
-  return new Response(JSON.stringify(data), { headers: { "content-type": "application/json" } });
-}
-
-function text(status, body) {
-  return new Response(body, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
-}
-
-function errorResponse(err) {
-  if (err instanceof Deno.errors.NotFound) return text(404, "Not found");
-  if (err instanceof Deno.errors.PermissionDenied) return text(403, "Permission denied");
-  if (err instanceof Deno.errors.NotADirectory) return text(400, "Not a directory");
-  if (err.status) return text(err.status, err.message);
-  console.error(err);
-  return text(500, String(err?.message ?? err));
 }

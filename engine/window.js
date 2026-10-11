@@ -1,6 +1,6 @@
-// GTK3 + WebKitGTK (webkit2gtk-4.1) windows over Deno FFI. One app per
-// process: it can open several windows, and run() blocks the calling thread
-// in gtk_main() until quit().
+// GTK3 + WebKitGTK (webkit2gtk-4.1) windows over Deno FFI, for the engine:
+// windows of any app, and run() blocks the calling thread in gtk_main() until
+// quit().
 
 // WebKitGTK's DMA-BUF renderer dies with "Error 71 (Protocol error)" on the
 // proprietary NVIDIA driver under Wayland because of explicit sync. Turning off
@@ -79,15 +79,15 @@ const key = (ptr) => Deno.UnsafePointer.value(ptr);
 const SHOW_TIMEOUT_MS = 2000;
 
 /**
- * `appId`: Wayland app id / WM class (e.g. for Hyprland window rules).
+ * `name`: the process's program name (windows get their app's id instead).
  * `ephemeral`: all windows share one private WebKit session that writes
  *   nothing to disk (no cache, cookies, storage).
  * `keepRunning`: stay in gtk_main() after the last window closes (background
  *   instance); otherwise quit then.
  * `trace(label)`: startup milestones (PHIL_TRACE).
  */
-export function createApp({ appId, ephemeral = false, keepRunning = false, trace = () => {} }) {
-  glib.symbols.g_set_prgname(cstr(appId));
+export function createApp({ name, ephemeral = false, keepRunning = false, trace = () => {} }) {
+  glib.symbols.g_set_prgname(cstr(name));
   gtk.symbols.gtk_init(null, null);
   const context = ephemeral ? webkit.symbols.webkit_web_context_new_ephemeral() : null;
 
@@ -101,6 +101,9 @@ export function createApp({ appId, ephemeral = false, keepRunning = false, trace
     if (w.shown || !windows.has(w)) return;
     w.shown = true;
     trace(`window shown (${why})`);
+    // GTK takes a window's Wayland app id from the program name when it first
+    // shows it, so each app's windows get their own (for window rules).
+    glib.symbols.g_set_prgname(cstr(w.appId));
     gtk.symbols.gtk_widget_show_all(w.win);
   };
 
@@ -122,7 +125,7 @@ export function createApp({ appId, ephemeral = false, keepRunning = false, trace
     const w = byView.get(key(view));
     if (!w) return;
     const ptr = webkit.symbols.webkit_web_view_get_title(view);
-    gtk.symbols.gtk_window_set_title(w.win, cstr((ptr && Deno.UnsafePointerView.getCString(ptr)) || appId));
+    gtk.symbols.gtk_window_set_title(w.win, cstr((ptr && Deno.UnsafePointerView.getCString(ptr)) || w.appId));
   });
   // Windows stay hidden until their page is styled and its script runs
   // ("ready"). Mapped earlier, a window shows a buffer WebKit hasn't drawn yet
@@ -156,8 +159,11 @@ export function createApp({ appId, ephemeral = false, keepRunning = false, trace
       return windows.size;
     },
 
-    /** Opens a window on `url`; it appears once the page is ready. */
-    openWindow(url, { startupId, width = 1280, height = 820 } = {}) {
+    /**
+     * Opens a window on `url`; it appears once the page is ready. `appId`:
+     * its Wayland app id / WM class (e.g. for Hyprland window rules).
+     */
+    openWindow(url, { appId, startupId, width = 1280, height = 820 }) {
       const win = gtk.symbols.gtk_window_new(0);
       gtk.symbols.gtk_window_set_title(win, cstr(appId));
       gtk.symbols.gtk_window_set_default_size(win, width, height);
@@ -168,7 +174,7 @@ export function createApp({ appId, ephemeral = false, keepRunning = false, trace
       const manager = webkit.symbols.webkit_web_view_get_user_content_manager(view);
       webkit.symbols.webkit_user_content_manager_register_script_message_handler(manager, cstr("phil"));
 
-      const w = { win, view, manager, shown: false };
+      const w = { win, view, manager, appId, shown: false };
       windows.add(w);
       byWin.set(key(win), w);
       byView.set(key(view), w);

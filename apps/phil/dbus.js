@@ -5,6 +5,7 @@
 // Interface: https://www.freedesktop.org/wiki/Specifications/file-manager-interface/
 
 import { dirname } from "@std/path";
+import { engineCommand } from "../../engine/instance.js";
 
 const NAME = "org.freedesktop.FileManager1";
 const OBJECT_PATH = "/org/freedesktop/FileManager1";
@@ -70,18 +71,8 @@ function localPath(uri) {
   }
 }
 
-// The command that starts phil: this binary when compiled, `deno run` otherwise.
-// If phil was reinstalled while this service ran, the kernel reports our own
-// executable as "<path> (deleted)"; the path itself has the new build.
-function philCommand() {
-  const exe = Deno.execPath().replace(/ \(deleted\)$/, "");
-  if (!/(^|\/)deno$/.test(exe)) return [exe];
-  const main = new URL("./main.js", import.meta.url).pathname;
-  return [Deno.execPath(), "run", "--allow-read", "--allow-write", "--allow-env", "--allow-ffi", "--allow-net", "--allow-run", main];
-}
-
 function launch(args, startupId) {
-  const [cmd, ...base] = philCommand();
+  const [cmd, ...base] = [...engineCommand(), "phil"];
   const env = startupId ? { DESKTOP_STARTUP_ID: startupId, XDG_ACTIVATION_TOKEN: startupId } : {};
   try {
     new Deno.Command(cmd, { args: [...base, ...args], env, stdin: "null", stdout: "null", stderr: "null" }).spawn();

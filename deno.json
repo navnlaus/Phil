@@ -1,7 +1,8 @@
 {
   "tasks": {
-    "start": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run src/main.js --standalone",
-    "compile": "deno compile --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run --include src/server.js --include src/dbus.js --include src/shell-init.bash --include ui -o phil src/main.js",
+    "start": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run engine/main.js phil --standalone",
+    "jsonedit": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run engine/main.js jsonedit --standalone",
+    "compile": "deno compile --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run --include engine/server.js --include apps -o phil-engine engine/main.js",
     "install": "bash scripts/install.sh"
   },
   "imports": {

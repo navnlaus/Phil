@@ -1,12 +1,15 @@
-// One phil process ("instance") serves all windows of a kind; `phil ...`
-// first asks a running instance over a Unix socket to open a window and only
-// becomes the instance itself when there is none. Normal and incognito
-// windows never share one: they have separate sockets, so separate servers,
-// tokens and WebKit sessions. Instances started with non-default options
-// (--thumb-dir, --thumb-size, --jobs, --port) get their own socket as well.
+// One engine process ("instance") serves the windows of every app; an app's
+// command (`phil ...`) asks the running instance over a Unix socket to open a
+// window and only starts one in the background when there is none. An app's
+// command line picks a profile (engine/apps.js): normal and incognito windows
+// never share an instance, so they have separate servers, tokens and WebKit
+// sessions, and other non-default profile values (phil's --thumb-dir,
+// --thumb-size, --jobs, --port) get an instance of their own as well.
 //
 // Protocol: one JSON object per line, answered with one JSON line.
-//   {"open": {"dir": path|null, "select": [paths]}, "startupId": str}
+//   {"open": {"app": name, ...}, "startupId": str}
+//                      open a window of the app; the rest of "open" is the app's
+//   {"ping": true}     is anyone there?
 //   {"retire": true}   stop taking windows; exit once the open ones close
 //   {"quit": true}     close all windows and exit
 
@@ -16,11 +19,24 @@ export function socketDir() {
   return join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", "phil");
 }
 
-export function socketPath(config) {
-  const base = config.incognito ? "incognito" : "main";
-  const custom = { thumbDir: config.thumbDirOption, thumbSize: config.thumbSizeOption, jobs: config.jobsOption, port: config.portOption };
-  const variant = Object.values(custom).some((v) => v !== undefined) ? `-${hash(JSON.stringify(custom))}` : "";
+export function socketPath(profile = {}) {
+  const base = profile.incognito ? "incognito" : "main";
+  const custom = Object.entries(profile).filter(([key, value]) => key !== "incognito" && value !== undefined).sort();
+  const variant = custom.length ? `-${hash(JSON.stringify(custom))}` : "";
   return join(socketDir(), `${base}${variant}.sock`);
+}
+
+/**
+ * The command that runs phil-engine: this binary when compiled, `deno run`
+ * otherwise. If the engine was reinstalled while this process ran, the kernel
+ * reports our own executable as "<path> (deleted)"; the path itself has the
+ * new build.
+ */
+export function engineCommand() {
+  const exe = Deno.execPath().replace(/ \(deleted\)$/, "");
+  if (!/(^|\/)deno$/.test(exe)) return [exe];
+  const main = new URL("./main.js", import.meta.url).pathname;
+  return [exe, "run", "--allow-read", "--allow-write", "--allow-env", "--allow-ffi", "--allow-net", "--allow-run", main];
 }
 
 function hash(s) {
@@ -47,7 +63,7 @@ export async function ask(path, message, timeoutMs = 5000) {
     const timer = setTimeout(() => conn.close(), timeoutMs);
     const line = await readLine(conn);
     clearTimeout(timer);
-    if (line === null) throw new Error("the running phil didn't answer");
+    if (line === null) throw new Error("the running engine didn't answer");
     return JSON.parse(line);
   } finally {
     try {
@@ -82,7 +98,7 @@ export async function listen(path, onMessage) {
     if (err instanceof Deno.errors.AddrInUse) return false;
     throw err;
   }
-  // Retiring frees the socket for a newer phil, but only if it's still ours.
+  // Retiring frees the socket for a newer engine, but only if it's still ours.
   const ownInode = (await Deno.lstat(path)).ino;
   async function stopListening() {
     listener.close();
@@ -96,7 +112,7 @@ export async function listen(path, onMessage) {
           const reply = line ? await onMessage(JSON.parse(line), { stopListening }) : { error: "empty request" };
           await conn.write(new TextEncoder().encode(JSON.stringify(reply ?? { ok: true }) + "\n"));
         } catch (err) {
-          console.error(`phil: control request failed: ${err.message}`);
+          console.error(`phil-engine: control request failed: ${err.message}`);
         } finally {
           try {
             conn.close();
