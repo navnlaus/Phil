@@ -120,3 +120,31 @@ export function onCloseRequest(fn) {
   if (!embedded) return;
   addEventListener("message", (e) => e.source === parent && e.data?.engine === "close-request" && fn());
 }
+
+/**
+ * Asks for a password (to save with sudo, say), in a small box over the page.
+ * Resolves to it, or null when cancelled. It isn't kept anywhere.
+ */
+export function askPassword(message) {
+  return new Promise((resolve) => {
+    const form = document.createElement("form");
+    form.className = "kit-password";
+    form.innerHTML = `<label></label><div><input type="password" autocomplete="current-password" spellcheck="false"><button type="submit">Save</button><button type="button">Cancel</button></div>`;
+    form.querySelector("label").textContent = message;
+    const input = form.querySelector("input");
+    const back = document.activeElement;
+    const done = (value) => {
+      form.remove();
+      back?.focus?.({ preventScroll: true });
+      resolve(value);
+    };
+    form.onsubmit = (e) => (e.preventDefault(), done(input.value));
+    form.querySelector("button[type=button]").onclick = () => done(null);
+    form.onkeydown = (e) => {
+      e.stopPropagation(); // typing here isn't the page's
+      if (e.key === "Escape") e.preventDefault(), done(null);
+    };
+    document.body.append(form);
+    input.focus();
+  });
+}

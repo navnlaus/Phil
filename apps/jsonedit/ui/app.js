@@ -1,4 +1,4 @@
-import { clipboardKey, closeWindow, copyText, embedded, holdFocus, onCloseRequest, pasteText, ready } from "../engine/ui/kit.js";
+import { askPassword, clipboardKey, closeWindow, copyText, embedded, holdFocus, onCloseRequest, pasteText, ready } from "../engine/ui/kit.js";
 import { parse, position } from "./json.js";
 import { clone, displayPath, editText, follow, freshKey, fromParse, isContainer, literal, serialize, stepsTo } from "./model.js";
 
@@ -75,12 +75,12 @@ async function save({ as = false } = {}) {
   if (isDirty()) return write(doc.path, {});
 }
 
-async function write(path, { isNew = false, force = false }) {
+async function write(path, { isNew = false, force = false, sudo }) {
   const text = doc.root ? serialize(doc.root, indentUnit()) + "\n" : $("#fix-text").value;
   try {
     const { mtime } = await api("api/file", {
       method: "PUT",
-      body: JSON.stringify({ path, text, mtime: isNew ? null : doc.mtime, force }),
+      body: JSON.stringify({ path, text, mtime: isNew ? null : doc.mtime, force, sudo }),
     });
     Object.assign(doc, { path, mtime });
     savedId = stateId;
@@ -88,6 +88,11 @@ async function write(path, { isNew = false, force = false }) {
     showFile();
   } catch (err) {
     if (err.status === 409 && !force && confirm(`${err.message}\n\nOverwrite it with what's here?`)) return write(path, { isNew, force: true });
+    if (err.status === 401) { // a root file: sudo's password (engine/files.js)
+      const password = await askPassword(`${err.message}\nPassword for sudo:`);
+      if (password !== null) return write(path, { isNew, force, sudo: password });
+      return;
+    }
     if (err.status !== 409) alert(`Couldn't save: ${err.message}`);
   }
 }

@@ -47,8 +47,10 @@ async function read(path) {
 // Saves `text` to `path`. `mtime` is when the file was read (null for a new
 // one): if the file changed on disk since, nothing is written and the answer is
 // 409, unless `force`. Written to a temporary file then renamed over the old
-// one, keeping its permissions, so the file is never half-written.
-async function write({ path, text, mtime = null, force = false }) {
+// one, keeping its permissions, so the file is never half-written. A file you
+// can't write (root's) is saved with sudo (sudoWrite): 401 when that needs
+// the password, which comes back as `sudo`.
+async function write({ path, text, mtime = null, force = false, sudo }) {
   absolute(path);
   if (typeof text !== "string") throw httpError(400, "text required");
   const stat = await Deno.stat(path).catch(() => null);
@@ -68,10 +70,41 @@ async function write({ path, text, mtime = null, force = false }) {
     await Deno.rename(tmp, real);
   } catch (err) {
     await Deno.remove(tmp).catch(() => {});
-    if (err instanceof Deno.errors.PermissionDenied) {
-      throw httpError(403, `You can't write ${real}${real !== path ? ` (where ${basename(path)} links to)` : ""}: it belongs to ${stat?.uid === 0 ? "root" : "another user"} or its folder is read-only.`);
-    }
-    throw err;
+    if (!(err instanceof Deno.errors.PermissionDenied)) throw err;
+    await sudoWrite(real, text, sudo);
   }
   return { path, mtime: (await Deno.stat(path)).mtime?.getTime() ?? 0 };
+}
+
+/**
+ * Saves `text` to `real` as root: a private temporary copy, then `sudo cp`
+ * over the file (keeping its owner and permissions). sudo remembers a
+ * password for a while (by default 5 minutes, for this process), so it's
+ * tried without one first; then with `password`, if given. Throws 401 when a
+ * password is needed (or was wrong), so the page can ask for it.
+ */
+async function sudoWrite(real, text, password) {
+  const run = async (args, input) => {
+    const child = new Deno.Command("sudo", { args, stdin: input === undefined ? "null" : "piped", stdout: "null", stderr: "piped" }).spawn();
+    if (input !== undefined) {
+      const writer = child.stdin.getWriter();
+      await writer.write(new TextEncoder().encode(input));
+      await writer.close();
+    }
+    const out = await child.output();
+    return { ok: out.success, error: new TextDecoder().decode(out.stderr).trim() };
+  };
+  const tmp = join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-sudo-${crypto.randomUUID()}`);
+  await Deno.writeTextFile(tmp, text, { mode: 0o600 });
+  try {
+    if (!(await run(["-n", "true"])).ok) { // not remembered: the password, checked
+      const needs = `${basename(real)} belongs to root. Save it with sudo:`;
+      if (password === undefined || password === null) throw httpError(401, needs);
+      if (!(await run(["-S", "-p", "", "-v"], password + "\n")).ok) throw httpError(401, `That password didn't work. ${needs}`);
+    }
+    const copy = await run(["-n", "--", "cp", "--no-preserve=mode,ownership", "--", tmp, real]);
+    if (!copy.ok) throw httpError(403, `Couldn't save ${real} with sudo: ${copy.error || "sudo refused"}`);
+  } finally {
+    await Deno.remove(tmp).catch(() => {});
+  }
 }

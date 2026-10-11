@@ -343,6 +343,10 @@ file it starts a new one. Opened from phil, it shows in phil's window.
   temporary file and renames it over the old one, keeping its permissions; if
   the file changed on disk since it was opened, it asks first. A file that
   isn't valid JSON opens as text, with the error located, to fix first.
+- Through a link, the file it points to is saved. One you can't write (root's,
+  in /etc) is saved with sudo: it asks for your password, unless sudo still
+  remembers it (5 minutes by default, `timestamp_timeout` in sudoers). The
+  password isn't kept. textedit saves the same way.
 
 | | |
 |---|---|
