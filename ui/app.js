@@ -87,16 +87,19 @@ const thumbs = {
   outFolders: new Set(),
   outCancel: new Set(),
   scheduled: false,
+  watching: null, // the folder the server watches for us
 
   connect() {
     this.ws = new WebSocket(`ws://${location.host}/ws`);
     this.ws.onopen = () => {
       this.wanted.forEach((p) => (this.folders.has(p) ? this.outFolders : this.outWant).add(p));
+      if (this.watching) this.watch(this.watching);
       this.flush();
     };
     this.ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if ("theme" in msg) return setTheme(msg.theme);
+      if ("changed" in msg) return onFolderChanged(msg);
       const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
       this.folders.delete(path);
@@ -120,8 +123,9 @@ const thumbs = {
     if (!this.outWant.delete(path) && !this.outFolders.delete(path)) this.outCancel.add(path);
     this.schedule();
   },
-  cancelAll() {
-    [...this.wanted].forEach((p) => this.cancel(p));
+  watch(path) {
+    this.watching = path;
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ watch: path }));
   },
   schedule() {
     updateProgress();
@@ -173,7 +177,8 @@ const farObserver = observe(4000, (tile, entry, inRange) => {
 // is sorted differently (its previews are its first images in that order).
 function wantSummary(tile, entry) {
   const s = entry.summary;
-  if (entry.summaryFailed || (s && s.mtime === entry.mtime && s.sort === state.settings.sort && s.complete)) return;
+  const upToDate = s && s.mtime === entry.mtime && s.sort === state.settings.sort && s.complete && !changedFolders.has(entry.path);
+  if (entry.summaryFailed || upToDate) return;
   if (!s) tile.firstElementChild.classList.add("loading");
   thumbs.want(entry.path, { folder: true });
 }
@@ -185,6 +190,8 @@ function onFolderSummary(path, summary) {
   tile.firstElementChild.classList.remove("loading");
   if (!summary) return void (entry.summaryFailed = true); // e.g. no permission: don't ask again
   entry.summary = summary;
+  entry.mtime = summary.mtime;
+  changedFolders.delete(path);
   showFolderInfo(tile, entry);
 }
 
@@ -246,6 +253,8 @@ async function load(path) {
   state.path = listing.path;
   terminal.follow(listing.path);
   state.entries = listing.entries;
+  if (previous !== listing.path) changedFolders.clear();
+  thumbs.watch(listing.path);
   document.title = (listing.path === "/" ? "/" : listing.path.split("/").pop()) + (state.init.incognito ? " — phil (incognito)" : " — phil");
   renderCrumbs();
   renderPlaces();
@@ -275,6 +284,53 @@ async function load(path) {
   }
 }
 
+// ---------------------------------------------------------------- live updates
+
+// The server watches the shown folder (see watchFolder in src/server.js). When
+// something in it changes, the listing is read again and the grid updated in
+// place: scroll position, selection and unchanged tiles stay. Subfolders whose
+// contents changed get their tiles' summaries read again.
+const changedFolders = new Set();
+let refreshing = null;
+let refreshAgain = false;
+let refreshLater = null;
+
+function onFolderChanged({ changed, folders }) {
+  for (const path of folders) {
+    changedFolders.add(path);
+    const tile = tiles.get(path);
+    if (tile) wantSummary(tile, state.view[tile.dataset.index]);
+  }
+  if (changed === state.path) refresh();
+}
+
+async function refresh() {
+  if (refreshing) return void (refreshAgain = true);
+  // Not while renaming, dragging or viewing (the viewer goes by position in
+  // the list): try again in a moment.
+  if (renaming || band?.active || drag?.active || !viewerEl.hidden) {
+    refreshLater ??= setTimeout(() => (refreshLater = null, refresh()), 700);
+    return;
+  }
+  const path = state.path;
+  refreshing = api(`/api/list?path=${encodeURIComponent(path)}&sort=${state.settings.sort}`).catch(() => null);
+  const listing = await refreshing;
+  refreshing = null;
+  if (listing && state.path === path && !renaming) {
+    state.entries = listing.entries;
+    const top = grid.scrollTop;
+    render();
+    grid.scrollTop = top;
+    thumbs.watch(path); // new subfolders get watched too
+  } else if (!listing && state.path === path) {
+    showGridMessage(`${path} is gone.`);
+  }
+  if (refreshAgain) {
+    refreshAgain = false;
+    refresh();
+  }
+}
+
 function sortEntries(list) {
   const by = {
     name: (a, b) => collator.compare(a.name, b.name),
@@ -295,14 +351,24 @@ function render(selectPath = state.view[state.selected]?.path) {
 
   nearObserver.disconnect();
   farObserver.disconnect();
-  thumbs.cancelAll();
+  // Tiles of entries that haven't changed are kept, with their loaded images.
+  const old = new Map(tiles);
   tiles.clear();
   const frag = document.createDocumentFragment();
   state.view.forEach((entry, i) => {
-    const tile = makeTile(entry, i);
+    let tile = old.get(entry.path);
+    if (tile?.dataset.sig === tileSig(entry) && !tile.classList.contains("renaming")) {
+      tile.dataset.index = i;
+      tile.classList.remove("selected");
+      if (entry.kind === "dir") showFolderInfo(tile, entry);
+      old.delete(entry.path);
+    } else {
+      tile = makeTile(entry, i);
+    }
     tiles.set(entry.path, tile);
     frag.append(tile);
   });
+  for (const path of old.keys()) thumbs.cancel(path);
   grid.replaceChildren(frag);
   if (!state.view.length) showGridMessage(q ? "No matches" : "This folder is empty");
   for (const tile of tiles.values()) {
@@ -319,10 +385,14 @@ function render(selectPath = state.view[state.selected]?.path) {
   updateStatus();
 }
 
+// A tile is rebuilt when its file changed; a folder's tile is updated in place.
+const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime}`);
+
 function makeTile(entry, index) {
   const tile = document.createElement("div");
   tile.className = `tile ${entry.kind}${entry.name.startsWith(".") ? " hidden-file" : ""}`;
   tile.dataset.index = index;
+  tile.dataset.sig = tileSig(entry);
 
   const box = document.createElement("div");
   box.className = "thumb";
