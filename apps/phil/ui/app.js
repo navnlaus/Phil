@@ -1,4 +1,4 @@
-import { appUrl, closeWindow, ready } from "/engine/ui/kit.js";
+import { appUrl, clipboardKey, closeWindow, copyText, ready } from "/engine/ui/kit.js";
 import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -1023,18 +1023,6 @@ function hideContextMenu() {
   contextMenu.hidden = true;
 }
 
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const ta = Object.assign(document.createElement("textarea"), { value: text });
-    document.body.append(ta);
-    ta.select();
-    document.execCommand("copy");
-    ta.remove();
-  }
-}
-
 // ---------------------------------------------------------------- events
 
 const tileIndex = (target) => {
@@ -1455,6 +1443,8 @@ document.addEventListener("keydown", (e) => {
   if (e.shiftKey && e.key === "Delete") return deleteMarked(), handled();
   if (e.key === "F2") return startRename(cur), handled();
   if (ctrl && e.key === "a") return setMarked(state.view.map((v) => v.path)), updateStatus(), handled();
+  // Ctrl+C / Ctrl+Insert / Super+C: the selected files' paths, one per line.
+  if (clipboardKey(e) === "copy" && state.marked.size) return copyText(markedEntries().map((m) => m.path).join("\n")), handled();
   if (e.key === "Escape") return select(-1), handled();
   if (e.key === "Enter" || (e.key === " " && !typed)) return open(cur), handled();
   if (e.key.length === 1 && !ctrl && !e.altKey) return typeAhead(e.key), handled();

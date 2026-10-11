@@ -32,3 +32,46 @@ export async function appUrl(app, params = {}, { embed = true } = {}) {
   if (embed) url.searchParams.set("embedded", "1");
   return url.href;
 }
+
+/**
+ * Copies to the desktop's clipboard (and so Omarchy's clipboard history),
+ * through the engine; the browser's clipboard if that's not available.
+ */
+export async function copyText(text) {
+  try {
+    if ((await fetch("/engine/clipboard", { method: "PUT", body: text })).ok) return;
+  } catch { /* not served: --browser without wl-clipboard, say */ }
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = Object.assign(document.createElement("textarea"), { value: text });
+    document.body.append(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+}
+
+/** What's on the desktop's clipboard ("" if nothing); see copyText. */
+export async function pasteText() {
+  try {
+    const res = await fetch("/engine/clipboard");
+    if (res.ok) return await res.text();
+  } catch { /* see copyText */ }
+  return await navigator.clipboard.readText().catch(() => "");
+}
+
+/**
+ * The copy and paste keys, however they're pressed: Ctrl+C / Ctrl+V,
+ * Ctrl+Insert / Shift+Insert (what Omarchy's Super+C / Super+V send to windows
+ * tagged as terminals), and Super+C / Super+V themselves. Cut: Ctrl+X,
+ * Shift+Delete. Returns "copy", "cut", "paste" or null.
+ */
+export function clipboardKey(e) {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
+  if ((mod && !e.shiftKey && k === "c") || (e.ctrlKey && !e.shiftKey && k === "Insert")) return "copy";
+  if ((mod && !e.shiftKey && k === "x") || (e.shiftKey && !e.ctrlKey && k === "Delete")) return "cut";
+  if ((mod && !e.shiftKey && k === "v") || (e.shiftKey && !e.ctrlKey && k === "Insert")) return "paste";
+  return null;
+}

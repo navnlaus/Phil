@@ -21,7 +21,12 @@ share a look: a top (and bottom) bar that floats over the page and fades out
 until hovered, with an X at the right that closes the window
 (`engine/ui/kit.css`, `kit.js`). One app can show another inside its window:
 phil opens `.json` files in jsonedit that way, like images in its viewer, and
-jsonedit's X (or Esc) goes back to the folder.
+jsonedit's X (or Esc) goes back to the folder. Copying and pasting go through
+the desktop's clipboard (`wl-copy` / `wl-paste`), so they show up in Omarchy's
+clipboard history and take what was copied anywhere; every way of pressing
+them works the same: Ctrl+C / Ctrl+V, Super+C / Super+V, Ctrl+Insert /
+Shift+Insert (what Omarchy's Super+C / Super+V send to windows tagged as
+terminals, like phil's).
 
 - The engine finds the running one through `$XDG_RUNTIME_DIR/phil/main.sock`;
   its output goes to `main.log` next to it.
@@ -169,7 +174,7 @@ space → Inspect Element works too.
 
 ## Requirements
 
-`webkit2gtk-4.1`, `deno`, `libvips` (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
+`webkit2gtk-4.1`, `deno`, `wl-clipboard`, `libvips` (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
 and GStreamer plugins for in-app video (`gst-plugins-good`, `gst-libav`). `mpv`
 and `xdg-open` are used for "open externally".
 
@@ -253,6 +258,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | double-click / Enter | open folder, view image, play video in mpv, edit a `.json` file in jsonedit (in this window), or open the file with its default app (right-click a video → "Play here" for the built-in player) |
 | arrows, Home/End, PgUp/PgDn | move selection (with Shift: extend it) |
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; Esc clears |
+| Ctrl+C / Ctrl+Insert / Super+C | copy the selected files' paths, one per line |
 | drag (Ctrl/Shift+drag) | select everything the rectangle touches (add to the selection); scrolls at the edges |
 | type a name | jump to the next entry starting with it (repeat a letter to cycle) |
 | F2 | rename in place (Enter or clicking elsewhere renames, Esc cancels) |
@@ -285,8 +291,12 @@ file it starts a new one. Opened from phil, it shows in phil's window.
 - Rows select like lines in a text editor: Shift+arrows, Shift+click and
   dragging select several, and a selected object or array takes everything
   inside along. Dragging inside a key or value selects text there instead.
-  Delete, copy, cut, duplicate and move act on the whole selection; copied
-  lines paste back in as items.
+  Delete, copy, cut, duplicate and move act on the whole selection.
+- Copying a row copies its line: `"key": value` with everything inside it
+  (several rows: one per line, with commas between), so it pastes into another
+  editor as it is in the file. Pasted lines, from here or elsewhere, go in as
+  items keeping their keys (just the values in an array). Text dragged over
+  inside a key or value copies as just that text. Menu: Copy value, Copy path.
 - `+ key` / `+ item` on an object or array adds one inside; the right-click
   menu (or `⋯`) adds after, duplicates, moves, copies as JSON or path, changes
   the type (keeping what it can) and deletes. Pasting JSON inserts it.
@@ -304,7 +314,7 @@ file it starts a new one. Opened from phil, it shows in phil's window.
 | Enter / F2 / Space / typing | edit the value (open or close an object or array) / rename the key / toggle / replace the value |
 | Ctrl+Enter, Insert | add inside, add after |
 | Delete, Ctrl+D (Shift+Alt+↓), Alt+↑ ↓ (Ctrl+↑ ↓) | delete, duplicate, move |
-| Ctrl+C / Ctrl+X / Ctrl+V | copy, cut, paste |
+| Ctrl+C / Ctrl+X / Ctrl+V (also Ctrl+Insert / Shift+Delete / Shift+Insert, Super+C / Super+V) | copy, cut, paste |
 | `*` | open everything inside |
 | Ctrl+Z / Ctrl+Shift+Z | undo / redo |
 | Ctrl+F, Ctrl+S, Ctrl+Shift+S, Ctrl+O | find, save, save as, open |
