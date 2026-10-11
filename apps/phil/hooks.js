@@ -1,8 +1,10 @@
-// On-change hooks: a command set for a file in its Properties, run when the
-// file changes while a phil window shows its folder, and only then. Through a
-// link, it's the file the link points to that's watched. Kept with phil's
-// settings in metadata.json: {"<path>": {"onChange": "<command>"}}, which is
-// read again whenever it's needed, so editing it by hand works too.
+// phil's own metadata for files and folders, set in their Properties: a
+// description (shown on the tile) and, for files, an on-change hook: a command
+// run when the file changes while a phil window shows its folder, and only
+// then. Through a link, it's the file the link points to that's watched. Kept
+// with phil's settings in metadata.json:
+// {"<path>": {"description": "...", "onChange": "<command>"}}, which is read
+// again whenever it's needed, so editing it by hand works too.
 import { dirname, join } from "@std/path";
 
 const OUTPUT_LIMIT = 4000; // of a run's output, the end is kept

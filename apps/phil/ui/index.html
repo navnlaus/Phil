@@ -104,13 +104,17 @@
       <dl class="facts"></dl>
       <section class="phil">
         <h3>phil</h3>
-        <label for="props-hook">When it changes, run</label>
-        <div class="hook-row">
-          <input id="props-hook" type="text" spellcheck="false" autocomplete="off" placeholder="a command, e.g. sudo systemctl restart keyd">
-          <button type="button" class="run" title="Run it now, to try it">Run now</button>
+        <label for="props-desc">Description</label>
+        <input id="props-desc" type="text" autocomplete="off" placeholder="shown above the name">
+        <div class="hook">
+          <label for="props-hook">When it changes, run</label>
+          <div class="hook-row">
+            <input id="props-hook" type="text" spellcheck="false" autocomplete="off" placeholder="a command, e.g. sudo systemctl restart keyd">
+            <button type="button" class="run" title="Run it now, to try it">Run now</button>
+          </div>
+          <p class="hint">While a phil window shows this folder, when the file changes, the command runs in bash, in the folder, with the file as $1.</p>
+          <pre class="output" hidden></pre>
         </div>
-        <p class="hint">While a phil window shows this folder, when the file changes, the command runs in bash, in the folder, with the file as $1.</p>
-        <pre class="output" hidden></pre>
       </section>
       <div class="buttons">
         <button value="cancel">Cancel</button>
