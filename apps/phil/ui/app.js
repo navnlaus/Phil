@@ -1,4 +1,4 @@
-import { appUrl, clipboardKey, closeWindow, copyText, holdFocus, ready } from "/engine/ui/kit.js";
+import { appUrl, clipboardKey, closeWindow, copyText, embedOf, holdFocus, ready } from "/engine/ui/kit.js";
 import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -960,7 +960,9 @@ let focusBeforeApp = null; // where the keyboard goes back to: the grid, or the 
 
 function openInApp(app, params) {
   focusBeforeApp = document.activeElement;
-  const frame = Object.assign(document.createElement("iframe"), { src: appUrl(app, params), title: app, allow: "fullscreen" });
+  const src = appUrl(app, params);
+  const frame = Object.assign(document.createElement("iframe"), { src, title: app, allow: "fullscreen" });
+  frame.dataset.embed = embedOf(src);
   appView.replaceChildren(frame);
   appView.hidden = false;
   frame.focus();
@@ -983,9 +985,10 @@ function closeApp() {
 
 // The app in the frame says it's ready (kit.js ready()): give it the keyboard,
 // which it can't take itself; or it closes.
+// (Which frame it's from: by its id, not e.source; see kit.js.)
 addEventListener("message", (e) => {
   const frame = appView.querySelector("iframe");
-  if (!frame || e.source !== frame.contentWindow) return;
+  if (!frame || e.origin !== location.origin || e.data?.embed !== frame.dataset.embed) return;
   if (e.data?.engine === "ready") {
     frame.focus();
     frame.contentWindow.focus();
