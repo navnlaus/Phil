@@ -300,6 +300,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | F2 | rename in place (Enter or clicking elsewhere renames, Esc cancels) |
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
 | right-click a text or JSON file → Add to Config | a link to it in `Documents/Config`, for config files used often but kept all over (a name that's taken gets its folder's in front: `waybar-config`) |
+| right-click → Properties, Alt+Enter | type, size (a folder's: everything in it), dates, owner, permissions and what you can do with it; and, for a file, phil's **on-change hook**: a command run when the file changes (below) |
 | right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, places) |
 | middle-drag onto a folder | move there right away |
 | Backspace, Esc | parent folder |
@@ -313,6 +314,20 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Ctrl + / − / wheel | thumbnail size |
 | F5 | reload folder |
 | in viewer: ← → Esc, `f` | previous/next, close, fullscreen |
+
+**On-change hooks.** A file's Properties can name a command for phil to run
+when the file changes — but only while a phil window shows its folder; with
+the folder not shown, nothing runs. It runs in bash, in the folder, with the
+file as `$1` (and `$PHIL_FILE`), and the status bar says it ran or why it
+failed (the engine's log has the output). Through a link, it's the file the
+link points to that's watched, so a link in `Documents/Config` with
+`sudo systemctl restart keyd` restarts keyd whenever `/etc/keyd/default.conf`
+is saved. A plain command like that runs as phil's own child, so sudo goes
+without asking while it remembers the password you gave the editor to save
+the file (otherwise it fails with "a password is required"). Opening or
+touching the file doesn't count, nor do changes the command makes itself.
+A tile with a hook has a ⚡. They're kept in `~/.config/phil/metadata.json`,
+and follow the file when phil renames or moves it.
 
 ## jsonedit
 

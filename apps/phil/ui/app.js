@@ -102,6 +102,7 @@ const thumbs = {
       const msg = JSON.parse(e.data);
       if ("theme" in msg) return setTheme(msg.theme);
       if ("changed" in msg) return onFolderChanged(msg);
+      if (msg.hook) return onHookRan(msg.hook);
       const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
       this.folders.delete(path);
@@ -537,7 +538,7 @@ function fileType(name) {
 }
 
 // A tile is rebuilt when its file changed; a folder's tile is updated in place.
-const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime}`);
+const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime} ${e.onChange ?? ""}`);
 
 function makeTile(entry, index) {
   const tile = document.createElement("div");
@@ -548,7 +549,8 @@ function makeTile(entry, index) {
   const box = document.createElement("div");
   box.className = "thumb";
   if (entry.kind !== "dir") {
-    box.innerHTML = icon(KIND_ICON[entry.kind], "kind") + (entry.kind === "video" ? `<span class="badge">${icon("play")}</span>` : "");
+    box.innerHTML = icon(KIND_ICON[entry.kind], "kind") + (entry.kind === "video" ? `<span class="badge">${icon("play")}</span>` : "") +
+      (entry.onChange ? `<span class="badge hook">${icon("bolt")}</span>` : "");
     if ((entry.kind === "file" || entry.kind === "pdf") && fileType(entry.name)) { // under the icon, until text or a thumbnail covers it
       const ext = document.createElement("span");
       ext.className = "ext";
@@ -570,7 +572,7 @@ function makeTile(entry, index) {
   if (entry.kind === "dir") showFolderInfo(tile, entry);
   else {
     meta.textContent = [fileType(entry.name).toUpperCase(), formatSize(entry.size), formatShortDate(entry.mtime)].filter(Boolean).join(" · ");
-    tile.title = `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}`;
+    tile.title = `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}` + (entry.onChange ? `\nWhen it changes: ${entry.onChange}` : "");
   }
   return tile;
 }
@@ -828,6 +830,7 @@ function updateProgress() {
   const parts = [];
   if (files) parts.push(`Generating ${files} thumbnail${files === 1 ? "" : "s"}`);
   if (folders) parts.push(`${parts.length ? "reading" : "Reading"} ${folders} folder${folders === 1 ? "" : "s"}`);
+  if (flashStatus.until > Date.now()) return; // a message showing for a while (it updates this after)
   $("#status-progress").textContent = parts.length ? parts.join(", ") + "…" : "";
 }
 
@@ -1121,6 +1124,7 @@ function showContextMenu(x, y, entry) {
   items.push(["Open with default app", () => openExternal(entry.path)]);
   items.push(["Rename…", () => startRename(state.view.indexOf(entry))]);
   items.push(["Copy path", () => copyText(entry.path)]);
+  items.push(["Properties", () => showProperties(entry)]);
   items.push([state.marked.size > 1 ? `Delete ${state.marked.size} items permanently…` : "Delete permanently…", deleteMarked]);
   if (terminal.isRunning) {
     items.push(["Paste path in terminal", () => {
@@ -1151,6 +1155,127 @@ function showMenu(x, y, items) {
 
 function hideContextMenu() {
   contextMenu.hidden = true;
+}
+
+// ---------------------------------------------------------------- properties
+
+const propsDialog = $("#props");
+const dialogOpen = () => confirmDialog.open || propsDialog.open;
+
+// Right-click → Properties (Alt+Enter): what it is, size, dates, owner and
+// permissions, and phil's own: a command to run when the file changes (see
+// apps/phil/hooks.js).
+async function showProperties(entry) {
+  let p;
+  try {
+    p = await api(`/api/properties?path=${encodeURIComponent(entry.path)}`);
+  } catch (err) {
+    return alert(`Couldn't read “${entry.name}”: ${err.message}`);
+  }
+  const $p = (sel) => propsDialog.querySelector(sel);
+  $p(".title").textContent = p.name;
+  $p(".where").textContent = p.folder;
+  const facts = $p(".facts");
+  facts.replaceChildren();
+  const fact = (label, ...parts) => {
+    const dt = document.createElement("dt"), dd = document.createElement("dd");
+    dt.textContent = label;
+    for (const part of parts) {
+      if (part == null || part === "") continue;
+      if (typeof part === "string") dd.append(part);
+      else {
+        const span = document.createElement(part.code ? "code" : "span");
+        if (part.dim) span.className = "dim";
+        span.textContent = part.code ?? part.dim;
+        dd.append(span);
+      }
+    }
+    facts.append(dt, dd);
+    return dd;
+  };
+  const kind = p.kind === "folder" ? "Folder" : p.kind === "file" ? (p.description ?? "File") : p.kind === "broken link" ? "Link to nothing" : "Special file";
+  fact("Type", kind);
+  if (p.link) {
+    fact("Link to", { code: p.link.target ?? "?" }, p.link.real && p.link.real !== p.link.target ? { dim: `  → ${p.link.real}` } : null);
+  }
+  let contents = null;
+  if (p.kind === "folder") contents = fact("Contains", { dim: "counting…" });
+  else fact("Size", formatSize(p.size), p.size >= 1024 ? { dim: `  (${p.size.toLocaleString()} bytes)` } : null);
+  fact("Modified", formatDate(p.modified));
+  if (p.created) fact("Created", formatDate(p.created));
+  fact("Accessed", formatDate(p.accessed));
+  fact("Owner", p.owner, { dim: `  group ${p.group}` });
+  fact("Permissions", { code: permissionString(p) }, { dim: `  ${p.mode.toString(8).padStart(3, "0")}` });
+  if (p.access) fact("You", accessText(p));
+
+  const phil = $p(".phil"), input = $p("#props-hook"), output = $p(".output");
+  phil.hidden = p.kind !== "file"; // hooks are for files
+  input.value = p.meta?.onChange ?? "";
+  output.hidden = true;
+  $p(".run").onclick = async () => {
+    const command = input.value.trim();
+    if (!command) return input.focus();
+    output.hidden = false;
+    output.className = "output";
+    output.textContent = `Running…`;
+    const run = await api("/api/run-hook", { method: "POST", body: JSON.stringify({ path: p.path, command }) })
+      .catch((err) => ({ ok: false, code: -1, output: err.message }));
+    output.classList.toggle("failed", !run.ok);
+    output.textContent = (run.output || "(no output)") + (run.ok ? "" : `\n\nFailed (exit code ${run.code})`);
+  };
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") e.preventDefault(), propsDialog.close("save");
+  };
+
+  propsDialog.returnValue = "";
+  propsDialog.showModal();
+  (phil.hidden ? $p("[value=cancel]") : input).focus();
+  if (contents) {
+    api(`/api/folder-size?path=${encodeURIComponent(p.path)}`).then((t) => {
+      const count = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+      contents.replaceChildren(`${t.complete ? "" : "at least "}${count(t.files, "file")}, ${count(t.dirs, "folder")} · ${formatSize(t.bytes)}`);
+    }, () => contents.replaceChildren("?"));
+  }
+  propsDialog.addEventListener("close", async () => {
+    grid.focus({ preventScroll: true });
+    const onChange = input.value.trim();
+    if (propsDialog.returnValue !== "save" || onChange === (p.meta?.onChange ?? "")) return;
+    try {
+      await api("/api/meta", { method: "PUT", body: JSON.stringify({ path: p.path, onChange }) });
+      flashStatus(onChange ? `${p.name}: when it changes, phil runs ${onChange}` : `${p.name}: nothing runs when it changes`);
+      refresh();
+    } catch (err) {
+      alert(`Couldn't save: ${err.message}`);
+    }
+  }, { once: true });
+}
+
+// rwxr-xr-x, with a leading d for a folder, and setuid, setgid and sticky
+// shown as ls does. (Of what a link points to: a link's own are always rwx.)
+function permissionString({ mode, kind }) {
+  const type = kind === "folder" ? "d" : "-";
+  let out = "";
+  for (const [shift, special, letter] of [[6, 0o4000, "s"], [3, 0o2000, "s"], [0, 0o1000, "t"]]) {
+    const bits = (mode >> shift) & 7, x = bits & 1, sp = mode & special;
+    out += (bits & 4 ? "r" : "-") + (bits & 2 ? "w" : "-") + (sp ? (x ? letter : letter.toUpperCase()) : x ? "x" : "-");
+  }
+  return type + out;
+}
+
+function accessText({ access, owner, kind }) {
+  const folder = kind === "folder";
+  if (access.write) return folder ? "can change what's in it" : "can read and change it";
+  if (!access.read) return `can't ${folder ? "open" : "read"} it`;
+  if (folder) return "can look inside, not change what's in it";
+  return `can read it; saving it in the editors asks for your sudo password${owner === "root" ? " (it's root's)" : ""}`;
+}
+
+// A hook ran (the server sends it to the windows showing the folder).
+function onHookRan({ path, command, ok, code, output }) {
+  const name = path.split("/").pop();
+  if (ok) return flashStatus(`${name} changed: ran ${command}`);
+  const why = output.trim().split("\n").at(-1) || `exit code ${code}`;
+  flashStatus(`${name} changed: ${command} failed: ${why}`, 10000);
 }
 
 // ---------------------------------------------------------------- events
@@ -1360,15 +1485,16 @@ async function addToConfig(entry) {
 }
 
 // A message in the status bar, shown for a few seconds even if the bar is hidden.
-function flashStatus(text) {
+function flashStatus(text, ms = 3500) {
   const bar = $("#status"), el = $("#status-progress");
   el.textContent = text;
   bar.classList.add("show");
   clearTimeout(flashStatus.timer);
+  flashStatus.until = Date.now() + ms;
   flashStatus.timer = setTimeout(() => {
     bar.classList.remove("show");
     if (el.textContent === text) updateProgress();
-  }, 3500);
+  }, ms);
 }
 
 async function transfer(op, items, dest) {
@@ -1523,7 +1649,7 @@ function toggleTerminal() {
 // folder view.
 document.addEventListener("keydown", (e) => {
   if (!appView.hidden && e.key === "Escape") return askAppToClose(), e.preventDefault(), e.stopPropagation();
-  if (!viewerEl.hidden || !appView.hidden || confirmDialog.open) return;
+  if (!viewerEl.hidden || !appView.hidden || dialogOpen()) return;
   if (isToggleKey(e)) toggleTerminal();
   else if (isFocusKey(e) && e.key === "ArrowDown") setTerminalOpen(true);
   else if (isFocusKey(e)) grid.focus({ preventScroll: true });
@@ -1552,7 +1678,7 @@ document.addEventListener("keydown", (e) => {
   const ctrl = e.ctrlKey || e.metaKey;
   const handled = () => e.preventDefault();
 
-  if (confirmDialog.open) return; // the dialog handles its own keys
+  if (dialogOpen()) return; // a dialog handles its own keys
   if (!contextMenu.hidden && e.key === "Escape") return hideContextMenu(), handled();
   if (e.target.closest?.("#term-panel")) return; // keys typed into the shell are the shell's
 
@@ -1600,6 +1726,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.shiftKey && e.key === "Delete") return deleteMarked(), handled();
   if (e.key === "F2") return startRename(cur), handled();
+  if (e.altKey && e.key === "Enter" && cur !== -1) return showProperties(state.view[cur]), handled();
   if (ctrl && e.key === "a") return setMarked(state.view.map((v) => v.path)), updateStatus(), handled();
   // Ctrl+C / Ctrl+Insert / Super+C: the selected files' paths, one per line.
   if (clipboardKey(e) === "copy" && state.marked.size) return copyText(markedEntries().map((m) => m.path).join("\n")), handled();
