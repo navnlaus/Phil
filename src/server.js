@@ -4,7 +4,7 @@ import { home } from "./config.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
 import { listen } from "./instance.js";
 import { Pty } from "./pty.js";
-import { textHead } from "./texthead.js";
+import { textHead, textPreview } from "./texthead.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
 const UI_DIR = new URL("../ui/", import.meta.url);
@@ -140,7 +140,8 @@ function start(config) {
     const mtime = (await Deno.stat(dir)).mtime?.getTime() ?? 0; // before reading: a change while listing is caught next time
     const entries = await readEntries(dir);
     // While we're here, this folder's own summary, from thumbnails already cached.
-    makeSummary({ entries, mtime, sort, thumbOf: (e) => e.thumb ?? null })
+    const previewOf = (e) => (e.kind === "file" ? textPreviewOf(e) : typeof e.thumb === "string" ? { url: e.thumb } : e.thumb ?? null);
+    makeSummary({ entries, mtime, sort, previewOf })
       .then((summary) => folders.save(dir, summary))
       .catch((err) => console.error(`phil: can't save folder summary: ${err.message}`));
     return { path: dir, parent: dir === "/" ? null : dirname(dir), entries };
@@ -173,8 +174,11 @@ function start(config) {
     });
   }
 
+  // A text file's preview for its folder's tile, or false if it isn't text.
+  const textPreviewOf = (e) => textPreview(e.path).then((text) => text && { text }, () => false);
+
   // A folder tile came into view without an up-to-date summary: read the folder
-  // and make thumbnails for its first images/videos in the view's sort order.
+  // and make previews of its first files in the view's sort order.
   async function summarize(path, sort, signal) {
     const mtime = (await Deno.stat(path)).mtime?.getTime() ?? 0;
     const entries = await readEntries(path, { lookups: false });
@@ -183,11 +187,15 @@ function start(config) {
       entries,
       mtime,
       sort,
-      thumbOf: (e) =>
-        thumbs.get(e.path, signal).catch((err) => {
+      async previewOf(e) {
+        if (e.kind === "file") return await textPreviewOf(e);
+        try {
+          return { url: await thumbs.get(e.path, signal) };
+        } catch (err) {
           if (signal.aborted) throw err;
           return false; // can't be thumbnailed: skipped, not retried
-        }),
+        }
+      },
     });
     await folders.save(path, summary);
     return summary;

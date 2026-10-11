@@ -6,12 +6,12 @@ const MAX_CHARS = 200; // per line
 
 /**
  * The start of a text file, for drawing on its tile (ui/app.js): up to 400
- * lines, each [kind, text] where kind is "h1".."h6" for a Markdown heading,
+ * lines (`maxLines`, of up to `maxChars` characters), each [kind, text] where kind is "h1".."h6" for a Markdown heading,
  * "c" for a comment line and "" otherwise. `prose`: Markdown or plain text,
  * drawn in a proportional font. null for files that aren't text (binary, or
  * not UTF-8) or are empty.
  */
-export async function textHead(path) {
+export async function textHead(path, { maxLines = MAX_LINES, maxChars = MAX_CHARS } = {}) {
   const bytes = await head(path);
   if (!bytes.length || bytes.includes(0)) return null;
   let text;
@@ -28,8 +28,8 @@ export async function textHead(path) {
   const markdown = ext === ".md" || ext === ".markdown";
   const comment = markdown ? null : commentPrefix(ext);
   let fenced = false; // inside a Markdown ``` block, where # isn't a heading
-  const lines = text.split(/\r?\n/, MAX_LINES).map((line) => {
-    line = line.replace(/\x1b\[[0-9;]*m/g, "").replace(/\t/g, "    ").slice(0, MAX_CHARS); // colored logs, tabs
+  const lines = text.split(/\r?\n/, maxLines).map((line) => {
+    line = line.replace(/\x1b\[[0-9;]*m/g, "").replace(/\t/g, "    ").slice(0, maxChars); // colored logs, tabs
     const trimmed = line.trimStart();
     if (markdown && trimmed.startsWith("```")) fenced = !fenced;
     const heading = markdown && !fenced && /^(#{1,6})\s/.exec(trimmed);
@@ -66,3 +66,6 @@ function commentPrefix(ext) {
   if ([".vim"].includes(ext)) return /^"/;
   return /^#(?!!)/; // shell, Python, YAML, TOML, conf files, ... (not a #! line)
 }
+
+/** A shorter start, for a folder's preview: a quarter of a tile shows less. */
+export const textPreview = (path) => textHead(path, { maxLines: 40, maxChars: 100 });
