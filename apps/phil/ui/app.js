@@ -661,6 +661,15 @@ function renderCrumbs() {
   crumbs.scrollLeft = crumbs.scrollWidth;
 }
 
+// Drives and shares come and go (USB, mounts): the list is fetched again
+// whenever the window gets focus.
+addEventListener("focus", async () => {
+  const places = await api("/api/places").catch(() => null);
+  if (!places || JSON.stringify(places) === JSON.stringify(state.init.places)) return;
+  state.init.places = places;
+  renderPlaces();
+});
+
 function renderPlaces() {
   const nav = $("#places");
   nav.replaceChildren(...state.init.places.map((p) => {
