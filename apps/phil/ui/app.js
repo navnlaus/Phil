@@ -664,11 +664,51 @@ function renderCrumbs() {
 // Drives and shares come and go (USB, mounts): the list is fetched again
 // whenever the window gets focus.
 addEventListener("focus", async () => {
-  const places = await api("/api/places").catch(() => null);
-  if (!places || JSON.stringify(places) === JSON.stringify(state.init.places)) return;
-  state.init.places = places;
+  const fresh = await api("/api/places").catch(() => null);
+  if (!fresh) return;
+  state.init.mounts = fresh.mounts;
+  if (JSON.stringify(fresh.places) === JSON.stringify(state.init.places)) return;
+  state.init.places = fresh.places;
   renderPlaces();
 });
+
+// ---------------------------------------------------------------- ssh into network mounts
+
+// The machine and folder behind a local path on a network mount
+// (state.init.mounts: NFS and sshfs), or null.
+function remoteOf(path) {
+  const m = state.init.mounts.find((m) => path === m.target || path.startsWith(m.target + "/"));
+  if (!m) return null;
+  const rel = path.slice(m.target.length);
+  return { host: m.host, dir: m.root ? (m.root === "/" ? "" : m.root) + rel || "/" : rel.replace(/^\//, "") };
+}
+
+// The local path of a folder on another machine, if it's on a mount of it.
+function localOf(host, dir) {
+  const name = (h) => h.replace(/^.*@/, "").split(".")[0].toLowerCase();
+  for (const m of state.init.mounts) {
+    if (name(m.host) !== name(host) || !m.root.startsWith("/")) continue;
+    const root = m.root === "/" ? "" : m.root;
+    if (dir === m.root || dir.startsWith(root + "/")) return m.target + dir.slice(root.length);
+  }
+  return null;
+}
+
+// "SSH here": the terminal panel goes to `path` (on a network mount), then
+// runs phil's ssh there, which lands in the same folder on that machine.
+async function sshTo(path) {
+  if (!remoteOf(path)) return;
+  const until = async (ready) => {
+    for (let i = 0; i < 50 && !ready(); i++) await new Promise((r) => setTimeout(r, 100));
+  };
+  // The view first (a shell started before it would pull it back), then the
+  // shell, which follows it, at its prompt.
+  if (state.path !== path) navigate(path);
+  await until(() => state.path === path);
+  setTerminalOpen(true);
+  await until(() => terminal.cwd === path && terminal.atEmptyPrompt);
+  if (terminal.remote || !terminal.run("ssh")) alert("The terminal is busy: finish what's running there first.");
+}
 
 function renderPlaces() {
   const nav = $("#places");
@@ -680,6 +720,15 @@ function renderPlaces() {
     a.innerHTML = icon(p.icon);
     a.append(p.name);
     a.classList.toggle("active", p.path === state.path);
+    // A network share: double-click (or the menu) for a terminal on that machine.
+    if (remoteOf(p.path)) {
+      a.title += `\nDouble-click: SSH to ${remoteOf(p.path).host}`;
+      a.ondblclick = (e) => (e.preventDefault(), sshTo(p.path));
+      a.oncontextmenu = (e) => {
+        e.preventDefault();
+        showMenu(e.clientX, e.clientY, [["Open", () => navigate(p.path)], [`SSH here (${remoteOf(p.path).host})`, () => sshTo(p.path)]]);
+      };
+    }
     return a;
   }));
 }
@@ -1060,6 +1109,7 @@ const inRename = (e) => e.target.closest?.(".rename");
 function showContextMenu(x, y, entry) {
   const items = [];
   if (entry.kind === "dir") items.push(["Open", () => navigate(entry.path)]);
+  if (entry.kind === "dir" && remoteOf(entry.path)) items.push([`SSH here (${remoteOf(entry.path).host})`, () => sshTo(entry.path)]);
   if (entry.kind === "image") items.push(["View", () => open(state.view.indexOf(entry))]);
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
   if (entry.kind === "video") items.push(["Play here", () => viewer.open(state.view.indexOf(entry))]);
@@ -1416,7 +1466,11 @@ const terminal = new TerminalPanel({
   panel: termPanel,
   container: $("#term"),
   onCwd: (path) => path !== state.path && navigate(path),
+  onBack: () => terminal.follow(state.path),
   onOpen: ({ app, params }) => openInApp(app, params), // phil-editor (ed) typed in the panel
+  isLocal: (host) => ["localhost", state.init.hostname.toLowerCase()].includes(host.toLowerCase()),
+  toLocal: (host, dir) => localOf(host, dir),
+  toRemote: (path) => remoteOf(path),
 });
 
 // Reopen the panel on startup if it was open when phil last quit, and select
