@@ -96,8 +96,18 @@ export class TerminalPanel {
     this.term.onResize(({ cols, rows }) => {
       if (this.isRunning) this.ws.send(JSON.stringify({ resize: [cols, rows] }));
     });
-    // Let the panel shortcuts reach the app instead of the shell.
-    this.term.attachCustomKeyEventHandler((e) => !isToggleKey(e));
+    // Let the panel shortcuts reach the app instead of the shell. Copying is
+    // done here; pasting is left to the browser, whose paste event xterm.js
+    // sends to the shell.
+    this.term.attachCustomKeyEventHandler((e) => {
+      if (isToggleKey(e)) return false;
+      const action = clipboardAction(e);
+      if (action === "copy" && e.type === "keydown") {
+        e.preventDefault();
+        if (this.term.hasSelection()) navigator.clipboard.writeText(this.term.getSelection()).catch(() => {});
+      }
+      return !action;
+    });
     new ResizeObserver(() => !this.panel.hidden && this.fit.fit()).observe(this.container);
 
     this.connect(cwd);
@@ -159,6 +169,14 @@ export class TerminalPanel {
     this.send(text);
     this.term.focus();
   }
+}
+
+// Ctrl+Insert copies the selection, Shift+Insert pastes: what Omarchy's
+// universal Super+C / Super+V send a window tagged "terminal", as phil is (see
+// README). Plain Ctrl+C / Ctrl+V stay the shell's.
+function clipboardAction(e) {
+  if (e.key !== "Insert" || e.altKey || e.metaKey || e.ctrlKey === e.shiftKey) return null;
+  return e.ctrlKey ? "copy" : "paste";
 }
 
 export function isToggleKey(e) {

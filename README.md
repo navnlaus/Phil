@@ -143,6 +143,14 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
   involved.) If you're in the middle of typing or a command is running, it
   leaves the shell alone.
 - Right-click a file → "Paste path in terminal" inserts its quoted path.
+- Ctrl+Insert copies the selected text, Shift+Insert pastes; Ctrl+C and Ctrl+V
+  stay the shell's. On Omarchy, Super+C / Super+V do the same once Hyprland
+  counts phil as a terminal (it sends terminals Ctrl+Insert / Shift+Insert, and
+  everything else Ctrl+C / Ctrl+V). Add to `~/.config/hypr/hyprland.lua`:
+
+  ```lua
+  o.window("phil(-incognito)?", { tag = "+terminal" })
+  ```
 - Hiding the panel keeps the shell running; closing the window hangs it up.
 - Whether the panel is open is remembered: quit with it open and the next
   start opens it again (in the start folder, with the grid focused).
