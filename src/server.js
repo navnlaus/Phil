@@ -80,6 +80,9 @@ function start(config) {
         return serveFile(req, requirePath(path), { "content-security-policy": "sandbox" });
       case "GET /preview":
         return preview(requirePath(path), url.searchParams.get("size") ?? "2560");
+      case "POST /api/quit": // the close button in --browser mode (the window closes itself natively)
+        self.postMessage({ quit: true });
+        return json({ ok: true });
       case "POST /api/open":
         return openExternal(await req.json());
       case "POST /api/delete":

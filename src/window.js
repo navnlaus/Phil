@@ -31,6 +31,7 @@ const gtk = Deno.dlopen("libgtk-3.so.0", {
   gtk_window_set_default_size: { parameters: ["pointer", "i32", "i32"], result: "void" },
   gtk_container_add: { parameters: ["pointer", "pointer"], result: "void" },
   gtk_widget_show_all: { parameters: ["pointer"], result: "void" },
+  gtk_widget_destroy: { parameters: ["pointer"], result: "void" },
   gtk_main: { parameters: [], result: "void" },
   gtk_main_quit: { parameters: [], result: "void" },
 });
@@ -41,6 +42,8 @@ const webkit = Deno.dlopen("libwebkit2gtk-4.1.so.0", {
   webkit_web_view_load_uri: { parameters: ["pointer", "buffer"], result: "void" },
   webkit_web_view_get_title: { parameters: ["pointer"], result: "pointer" },
   webkit_web_view_get_settings: { parameters: ["pointer"], result: "pointer" },
+  webkit_web_view_get_user_content_manager: { parameters: ["pointer"], result: "pointer" },
+  webkit_user_content_manager_register_script_message_handler: { parameters: ["pointer", "buffer"], result: "i32" },
   webkit_settings_set_enable_developer_extras: { parameters: ["pointer", "i32"], result: "void" },
 });
 
@@ -74,6 +77,15 @@ export function openWindow({ title, url, width, height, ephemeral = false }) {
       gtk.symbols.gtk_window_set_title(win, cstr(pageTitle || title));
     },
   );
+  // The page's close button: window.webkit.messageHandlers.phil.postMessage("close").
+  // (Scripts may not window.close() a window they didn't open.)
+  const onMessage = new Deno.UnsafeCallback(
+    { parameters: ["pointer", "pointer", "pointer"], result: "void" },
+    () => gtk.symbols.gtk_widget_destroy(win),
+  );
+  const contentManager = webkit.symbols.webkit_web_view_get_user_content_manager(view);
+  webkit.symbols.webkit_user_content_manager_register_script_message_handler(contentManager, cstr("phil"));
+  gobject.symbols.g_signal_connect_data(contentManager, cstr("script-message-received::phil"), onMessage.pointer, null, null, 0);
   gobject.symbols.g_signal_connect_data(win, cstr("destroy"), onDestroy.pointer, null, null, 0);
   gobject.symbols.g_signal_connect_data(view, cstr("notify::title"), onTitle.pointer, null, null, 0);
 
@@ -83,4 +95,5 @@ export function openWindow({ title, url, width, height, ephemeral = false }) {
 
   onDestroy.close();
   onTitle.close();
+  onMessage.close();
 }

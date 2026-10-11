@@ -908,6 +908,11 @@ document.addEventListener("mousedown", (e) => {
 });
 
 $("#btn-back").onclick = () => history.back();
+$("#btn-close").onclick = () => {
+  const native = window.webkit?.messageHandlers?.phil; // phil's own window (src/window.js)
+  if (native) return native.postMessage("close");
+  fetch("/api/quit", { method: "POST" }).finally(() => window.close()); // --browser
+};
 $("#btn-forward").onclick = () => history.forward();
 $("#btn-up").onclick = () => parentOf(state.path) && navigate(parentOf(state.path));
 
