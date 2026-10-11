@@ -71,8 +71,11 @@ function localPath(uri) {
 }
 
 // The command that starts phil: this binary when compiled, `deno run` otherwise.
+// If phil was reinstalled while this service ran, the kernel reports our own
+// executable as "<path> (deleted)"; the path itself has the new build.
 function philCommand() {
-  if (!/(^|\/)deno$/.test(Deno.execPath())) return [Deno.execPath()];
+  const exe = Deno.execPath().replace(/ \(deleted\)$/, "");
+  if (!/(^|\/)deno$/.test(exe)) return [exe];
   const main = new URL("./main.js", import.meta.url).pathname;
   return [Deno.execPath(), "run", "--allow-read", "--allow-write", "--allow-env", "--allow-ffi", "--allow-net=127.0.0.1", "--allow-run", main];
 }
