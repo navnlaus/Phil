@@ -84,9 +84,10 @@ export function createServer({ profile, controlSocket }) {
         return json({ ...await properties(requirePath(path)), meta: await hooks.get(path) });
       case "GET /api/folder-size":
         return json(await folderSize(requirePath(path)));
-      case "PUT /api/meta": { // {path, onChange}: Properties' phil section
-        const { path, onChange = "" } = await req.json();
-        await hooks.set(requirePath(path), { onChange: String(onChange).trim() });
+      case "PUT /api/meta": { // {path, description, onChange}: Properties' phil section
+        const { path, ...changes } = await req.json();
+        const clean = (key) => key in changes ? { [key]: String(changes[key] ?? "").trim() } : {};
+        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange") });
         return json({ ok: true });
       }
       case "POST /api/run-hook": { // Properties' "Run now"
@@ -115,7 +116,10 @@ export function createServer({ profile, controlSocket }) {
     const mtime = (await Deno.stat(dir)).mtime?.getTime() ?? 0; // before reading: a change while listing is caught next time
     const entries = await readEntries(dir);
     const meta = await hooks.all();
-    for (const e of entries) if (meta[e.path]?.onChange) e.onChange = meta[e.path].onChange;
+    for (const e of entries) {
+      if (meta[e.path]?.onChange) e.onChange = meta[e.path].onChange;
+      if (meta[e.path]?.description) e.description = meta[e.path].description;
+    }
     // While we're here, this folder's own summary, from thumbnails already cached.
     const previewOf = (e) => (e.kind === "file" ? textPreviewOf(e) : typeof e.thumb === "string" ? { url: e.thumb } : e.thumb ?? null);
     makeSummary({ entries, mtime, sort, previewOf })

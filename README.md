@@ -300,7 +300,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | F2 | rename in place (Enter or clicking elsewhere renames, Esc cancels) |
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
 | right-click a text or JSON file → Add to Config | a link to it in `Documents/Config`, for config files used often but kept all over (a name that's taken gets its folder's in front: `waybar-config`) |
-| right-click → Properties, Alt+Enter | type, size (a folder's: everything in it), dates, owner, permissions and what you can do with it; and, for a file, phil's **on-change hook**: a command run when the file changes (below) |
+| right-click → Properties, Alt+Enter | type, size (a folder's: everything in it), dates, owner, permissions and what you can do with it; and, for a file, phil's own: a **description** shown above the name, and an **on-change hook**: a command run when the file changes (below) |
 | right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, places) |
 | middle-drag onto a folder | move there right away |
 | Backspace, Esc | parent folder |
@@ -328,10 +328,14 @@ the file (otherwise it fails with "a password is required"). Opening or
 touching the file doesn't count, nor do changes the command makes itself.
 A tile with a hook has a ⚡.
 
-**Tile marks.** In a tile's corner: a link icon on a link; a red lock on a
-file or folder you can't change without sudo (a file: also its folder, as
-saving replaces it there), and for a link, a red link icon when that's so of
-what it points to. Hovering says which. They're kept in `~/.config/phil/metadata.json`,
+**Descriptions.** Properties also takes a description, for a file or a
+folder, shown in italics above its name (kept in the same metadata.json).
+
+**Tile marks.** Before the name: a link icon on a link; a red lock on a file
+or folder you can't change without sudo (a file: also its folder, as saving
+replaces it there), and for a link, a red link icon when that's so of what it
+points to. Hovering says which. ▶ (videos) and ⚡ (hooks) are in the top
+corner. They're kept in `~/.config/phil/metadata.json`,
 and follow the file when phil renames or moves it.
 
 ## jsonedit

@@ -10,6 +10,7 @@
   --accent-bg: rgba(91, 157, 255, 0.18);
   --thumb-bg: #1b1d21;
   --folder: #7fb0ff;
+  --locked: #ff6b6b; /* can't change it without sudo */
   --tile: 224px;
   /* syntax colors for text tiles (as in textedit) */
   --s-comment: #6f7682;
@@ -38,6 +39,7 @@
     --accent: #2f6fe0;
     --accent-bg: rgba(47, 111, 224, 0.14);
     --thumb-bg: #eceef1;
+    --locked: #d33a3a;
     --folder: #3d7ee8;
     --s-comment: #8a909b;
     --s-string: #3d7a24;
@@ -402,6 +404,11 @@ main {
   text-overflow: ellipsis;
 }
 .label .name { font-size: 11px; font-weight: 600; }
+.label .desc { order: -2; font-size: 10px; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.9; }
+.label .desc:empty { display: none; }
+/* before the name: a link, a lock (showState in app.js) */
+.label .name svg.state { width: 11px; height: 11px; margin-right: 3px; vertical-align: -1.5px; stroke-width: 2.4; opacity: 0.8; }
+.label .name svg.state.locked { color: var(--locked); opacity: 1; }
 .label .meta { font-size: 10px; }
 .label .meta:empty { display: none; }
 .tile.renaming .label .name { display: none; }
@@ -428,6 +435,8 @@ main {
 /* strip: a solid strip under the thumbnail, the tile a card. */
 body[data-theme="strip"] .tile { --label-h: 34px; background: var(--bg-raised); }
 body[data-theme="strip"] .label { height: 34px; justify-content: center; padding: 0 8px; }
+body[data-theme="strip"] .tile.has-desc { --label-h: 46px; }
+body[data-theme="strip"] .tile.has-desc .label { height: 46px; }
 body[data-theme="strip"] .label .meta { color: var(--text-dim); }
 body[data-theme="strip"] .tile.dir { background: color-mix(in srgb, var(--folder) 9%, var(--bg-raised)); }
 body[data-theme="strip"] .tile.dir .thumb { background: none; }
@@ -454,6 +463,7 @@ body[data-theme="overlay"] .label {
 }
 body[data-theme="overlay"] .label .name { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
 body[data-theme="overlay"] .label .meta { color: rgba(255, 255, 255, 0.72); }
+body[data-theme="overlay"] .label, body[data-theme="chips"] .label { --locked: #ff6b6b; }
 body[data-theme="overlay"] .tile.dir { --face: 13% 0 0 0; }
 body[data-theme="overlay"] .tile.dir .thumb::before { left: 0; }
 body[data-theme="overlay"] .tile.dir .face { border-radius: 0 6px 0 0; }
@@ -461,7 +471,11 @@ body[data-theme="overlay"] .tile.dir .face { border-radius: 0 6px 0 0; }
 /* chips: the name in a frosted chip at the bottom; details in one at the top,
    shown on hover and for the selection. */
 body[data-theme="chips"] .label { inset: 0; padding: 6px; justify-content: space-between; align-items: flex-start; flex-direction: column-reverse; }
-body[data-theme="chips"] .label .name, body[data-theme="chips"] .label .meta {
+/* bottom up: the name, the description over it, the details at the top */
+body[data-theme="chips"] .label { justify-content: flex-start; gap: 3px; }
+body[data-theme="chips"] .label .desc { order: 1; align-self: flex-start; }
+body[data-theme="chips"] .label .meta { order: 2; margin-bottom: auto; }
+body[data-theme="chips"] .label .name, body[data-theme="chips"] .label .meta, body[data-theme="chips"] .label .desc {
   max-width: 100%;
   padding: 2px 7px;
   border-radius: 6px;
@@ -615,7 +629,18 @@ body[data-theme="chips"] .label .rename { align-self: stretch; }
 #props dd .dim { color: var(--text-dim); }
 #props dd code { font: 12px ui-monospace, monospace; }
 #props .phil { padding-top: 12px; border-top: 1px solid var(--border); }
-#props .phil[hidden] { display: none; }
+#props .phil[hidden], #props .hook[hidden] { display: none; }
+#props .hook { margin-top: 12px; }
+#props-desc {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+#props-desc:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 #props h3 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
 #props label { display: block; margin-bottom: 5px; }
 #props .hook-row { display: flex; gap: 6px; }

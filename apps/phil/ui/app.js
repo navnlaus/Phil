@@ -538,7 +538,7 @@ function fileType(name) {
 }
 
 // A tile is rebuilt when its file changed; a folder's tile is updated in place.
-const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime} ${e.onChange ?? ""} ${e.writable} ${e.target}`);
+const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime} ${e.onChange ?? ""} ${e.writable} ${e.target} ${e.description ?? ""}`);
 
 function makeTile(entry, index) {
   const tile = document.createElement("div");
@@ -566,7 +566,9 @@ function makeTile(entry, index) {
   name.textContent = entry.name;
   const meta = document.createElement("span");
   meta.className = "meta";
-  label.append(name, meta);
+  const desc = document.createElement("span");
+  desc.className = "desc";
+  label.append(desc, name, meta);
   tile.append(box, label);
   if (entry.kind === "dir") showFolderInfo(tile, entry);
   else {
@@ -577,15 +579,19 @@ function makeTile(entry, index) {
   return tile;
 }
 
-// Small marks at a tile's corner: ▶ a video, ⚡ an on-change hook (see
-// Properties), a link icon for a link; red (the link's, or a lock) when you
-// can't change it without sudo — through a link, what it points to.
+// What a tile shows besides its name and details: its description (from
+// Properties) over the name; before the name, a link icon for a link, red
+// (the link's, or a lock) when you can't change it without sudo (through a
+// link, what it points to); and marks in the top corner: ▶ a video, ⚡ an
+// on-change hook.
 function showMarks(tile, entry) {
-  const locked = entry.writable === false;
+  const desc = tile.querySelector(".label .desc");
+  desc.textContent = entry.description ?? "";
+  tile.classList.toggle("has-desc", !!entry.description);
+  showState(tile, entry);
   const marks = [
     entry.kind === "video" && ["play", ""],
     entry.onChange && ["bolt", "hook"],
-    entry.symlink ? ["link", `line${locked ? " locked" : ""}`] : locked && ["lock", "line locked"],
   ].filter(Boolean);
   const key = marks.flat().join(" ");
   let el = tile.querySelector(":scope > .marks");
@@ -599,9 +605,21 @@ function showMarks(tile, entry) {
   tile.append(el);
 }
 
-// The hover text's lines about links, permissions and hooks.
+function showState(tile, entry) {
+  const locked = entry.writable === false;
+  const which = entry.symlink ? `link${locked ? " locked" : ""}` : locked ? "lock locked" : "";
+  const name = tile.querySelector(".label .name");
+  const el = name.querySelector(".state");
+  if ((el?.dataset.which ?? "") === which) return;
+  el?.remove();
+  if (!which) return;
+  name.insertAdjacentHTML("afterbegin", icon(which.split(" ")[0], `state ${which}`));
+  name.firstChild.dataset.which = which;
+}
+
+// The hover text's lines about the description, links, permissions and hooks.
 function titleNotes(entry) {
-  const notes = [];
+  const notes = entry.description ? [entry.description] : [];
   if (entry.symlink) notes.push(`Link to ${entry.target ?? "?"}`);
   if (entry.writable === false) notes.push(entry.kind === "dir" ? "You can't change what's in it without sudo" : "You can't change it without sudo");
   if (entry.onChange) notes.push(`When it changes: ${entry.onChange}`);
@@ -1239,8 +1257,9 @@ async function showProperties(entry) {
   fact("Permissions", { code: permissionString(p) }, { dim: `  ${p.mode.toString(8).padStart(3, "0")}` });
   if (p.access) fact("You", accessText(p));
 
-  const phil = $p(".phil"), input = $p("#props-hook"), output = $p(".output");
-  phil.hidden = p.kind !== "file"; // hooks are for files
+  const input = $p("#props-hook"), output = $p(".output"), descInput = $p("#props-desc");
+  $p(".hook").hidden = p.kind !== "file"; // hooks are for files
+  descInput.value = p.meta?.description ?? "";
   input.value = p.meta?.onChange ?? "";
   output.hidden = true;
   $p(".run").onclick = async () => {
@@ -1254,13 +1273,13 @@ async function showProperties(entry) {
     output.classList.toggle("failed", !run.ok);
     output.textContent = (run.output || "(no output)") + (run.ok ? "" : `\n\nFailed (exit code ${run.code})`);
   };
-  input.onkeydown = (e) => {
+  input.onkeydown = descInput.onkeydown = (e) => {
     if (e.key === "Enter") e.preventDefault(), propsDialog.close("save");
   };
 
   propsDialog.returnValue = "";
   propsDialog.showModal();
-  (phil.hidden ? $p("[value=cancel]") : input).focus();
+  descInput.focus();
   if (contents) {
     api(`/api/folder-size?path=${encodeURIComponent(p.path)}`).then((t) => {
       const count = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
@@ -1269,11 +1288,15 @@ async function showProperties(entry) {
   }
   propsDialog.addEventListener("close", async () => {
     grid.focus({ preventScroll: true });
-    const onChange = input.value.trim();
-    if (propsDialog.returnValue !== "save" || onChange === (p.meta?.onChange ?? "")) return;
+    if (propsDialog.returnValue !== "save") return;
+    const changes = {};
+    const description = descInput.value.trim(), onChange = input.value.trim();
+    if (description !== (p.meta?.description ?? "")) changes.description = description;
+    if (p.kind === "file" && onChange !== (p.meta?.onChange ?? "")) changes.onChange = onChange;
+    if (!Object.keys(changes).length) return;
     try {
-      await api("/api/meta", { method: "PUT", body: JSON.stringify({ path: p.path, onChange }) });
-      flashStatus(onChange ? `${p.name}: when it changes, phil runs ${onChange}` : `${p.name}: nothing runs when it changes`);
+      await api("/api/meta", { method: "PUT", body: JSON.stringify({ path: p.path, ...changes }) });
+      if ("onChange" in changes) flashStatus(onChange ? `${p.name}: when it changes, phil runs ${onChange}` : `${p.name}: nothing runs when it changes`);
       refresh();
     } catch (err) {
       alert(`Couldn't save: ${err.message}`);
