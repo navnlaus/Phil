@@ -18,6 +18,12 @@ update-desktop-database "$data/applications" 2>/dev/null || true
 xdg-mime default phil.desktop inode/directory
 # Have the session bus pick up the new service file.
 busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig >/dev/null 2>&1 || true
+# A FileManager1 service still running the previous build: stop it, D-Bus
+# starts the new one on the next request.
+service=$(busctl --user status org.freedesktop.FileManager1 2>/dev/null || true)
+if [[ $(sed -n 's/^Comm=//p' <<<"$service") == phil ]]; then
+  kill "$(sed -n 's/^PID=//p' <<<"$service")" 2>/dev/null || true
+fi
 
 echo "Installed $bin"
 echo "Folders open with: $(xdg-mime query default inode/directory)"
