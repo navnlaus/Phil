@@ -278,7 +278,16 @@ main {
   stroke-width: 1.2;
   color: var(--text-dim);
 }
-.thumb.has-img > svg.kind { display: none; }
+.thumb.has-img > svg.kind, .thumb.has-text > svg.kind { display: none; }
+.thumb > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.thumb.has-text .ext { /* over the text: a badge in the corner */
+  top: 5px;
+  right: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
 .thumb .ext {
   position: absolute;
   top: 52%;
@@ -451,6 +460,7 @@ body[data-theme="chips"] .label .name, body[data-theme="chips"] .label .meta {
 body[data-theme="chips"] .label .meta { align-self: flex-end; font-size: 9.5px; color: rgba(255, 255, 255, 0.85); opacity: 0; transition: opacity 0.12s; }
 body[data-theme="chips"] .tile:is(:hover, .selected) .label .meta { opacity: 1; }
 body[data-theme="chips"] .thumb .badge { right: auto; left: 4px; }
+body[data-theme="chips"] .thumb.has-text .ext { right: auto; left: 6px; }
 body[data-theme="chips"] .tile.dir { --face: 13% 4% 4% 4%; }
 body[data-theme="chips"] .tile.dir .thumb::before { left: 4%; }
 body[data-theme="chips"] .tile.dir .label { padding: calc(13% + 5px) calc(4% + 5px) calc(4% + 5px); }

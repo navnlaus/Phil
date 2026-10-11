@@ -104,6 +104,7 @@ const thumbs = {
       if (!this.wanted.delete(path)) return;
       this.folders.delete(path);
       if (msg.folder) onFolderSummary(path, msg.summary);
+      else if ("text" in msg) onTextReady(path, msg.text);
       else onThumbReady(path, msg.url);
       updateProgress();
     };
@@ -158,12 +159,12 @@ const observe = (margin, fn) =>
   new IntersectionObserver((records) => {
     for (const { target, isIntersecting } of records) {
       const entry = state.view[target.dataset.index];
-      if (entry && (isMedia(entry) || entry.kind === "dir")) fn(target, entry, isIntersecting);
+      if (entry) fn(target, entry, isIntersecting);
     }
   }, { root: grid, rootMargin: `${margin}px 0px` });
 
 const nearObserver = observe(800, (tile, entry, near) => {
-  if (near) return entry.kind === "dir" ? wantSummary(tile, entry) : showThumb(tile, entry);
+  if (near) return entry.kind === "dir" ? wantSummary(tile, entry) : entry.kind === "file" ? showText(tile, entry) : showThumb(tile, entry);
   if (thumbs.wanted.has(entry.path)) {
     tile.firstElementChild.classList.remove("loading");
     thumbs.cancel(entry.path);
@@ -171,6 +172,7 @@ const nearObserver = observe(800, (tile, entry, near) => {
 });
 const farObserver = observe(4000, (tile, entry, inRange) => {
   if (!inRange && isMedia(entry)) unloadThumb(tile);
+  if (!inRange && entry.kind === "file") tile.firstElementChild.querySelector("canvas")?.remove(); // its pixels, not its text
 });
 
 // A folder's summary is out of date when the folder changed since, or the view
@@ -229,6 +231,101 @@ function onThumbReady(path, url) {
   box.classList.remove("loading");
   if (url) setThumbImage(box, url);
 }
+
+// ---------------------------------------------------------------- text files
+
+// Other files that turn out to be text show their text, scaled to the file:
+// a short file in readable type, a longer one smaller to fit more of it (down
+// to type too small to read, drawn as bars; the rest is cut off). Markdown
+// headings stay large enough to read either way. The text is kept on the tile's box; its canvas is dropped when far away
+// and redrawn when tiles change size.
+function showText(tile, entry) {
+  const box = tile.firstElementChild;
+  if (box.text) return box.querySelector("canvas") || drawText(box);
+  if (box.text === null) return; // not text
+  box.classList.add("loading");
+  thumbs.want(entry.path);
+}
+
+function onTextReady(path, text) {
+  const tile = tiles.get(path);
+  if (!tile) return;
+  const box = tile.firstElementChild;
+  box.classList.remove("loading");
+  box.text = text;
+  if (text) drawText(box);
+}
+
+const HEADING = { h1: [2.2, 9], h2: [1.8, 7.5], h3: [1.5, 6.5], h4: [1.3, 6], h5: [1.15, 6], h6: [1.1, 6] }; // [× body size, minimum px]
+const LINE_HEIGHT = 1.3;
+const MIN_BODY = 1.6; // px, and at least a third of full width size: smaller leaves long files a grey haze
+
+function drawText(box) {
+  const { lines, prose } = box.text;
+  const w = box.clientWidth, h = box.clientHeight;
+  if (!w || !h) return;
+  const dpr = devicePixelRatio || 1;
+  const canvas = box.querySelector("canvas") ?? box.insertAdjacentElement("afterbegin", document.createElement("canvas"));
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  box.classList.add("has-text");
+
+  const pad = Math.max(5, w * 0.04);
+  const charW = prose ? 0.5 : 0.6; // average character width, in ems
+  const sizeOf = (kind, body) => (HEADING[kind] ? Math.max(body * HEADING[kind][0], HEADING[kind][1]) : body);
+  const height = (body) => lines.reduce((sum, [kind]) => sum + sizeOf(kind, body) * LINE_HEIGHT, 0);
+  // As large as fits: at most 11px, and narrow enough for the typical line.
+  const widths = lines.map(([, t]) => t.trimEnd().length).filter(Boolean).sort((a, b) => a - b);
+  const cols = Math.max(30, Math.min(100, widths[Math.floor(widths.length * 0.9)] ?? 30));
+  let body = Math.min(11, (w - 2 * pad) / (cols * charW));
+  if (height(body) > h - pad) { // shrink to fit, down to the minimum
+    let lo = Math.min(Math.max(MIN_BODY, body / 3), body), hi = body;
+    for (let i = 0; i < 12; i++) {
+      const mid = (lo + hi) / 2;
+      if (height(mid) > h - pad) hi = mid;
+      else lo = mid;
+    }
+    body = lo;
+  }
+
+  const css = getComputedStyle(box);
+  const strong = css.getPropertyValue("--text").trim(), dim = css.getPropertyValue("--text-dim").trim();
+  const family = prose ? "system-ui, sans-serif" : "ui-monospace, monospace";
+  let y = pad * 0.6;
+  for (const [kind, text] of lines) {
+    const size = sizeOf(kind, body);
+    y += size * LINE_HEIGHT;
+    if (y - size > h) break;
+    if (!text.trim()) continue;
+    const heading = !!HEADING[kind];
+    ctx.fillStyle = heading ? strong : dim;
+    ctx.globalAlpha = kind === "c" ? 0.55 : heading ? 1 : 0.9;
+    if (size * dpr >= 3) {
+      ctx.font = `${heading ? 700 : 400} ${size}px ${family}`;
+      ctx.fillText(heading ? text.replace(/^\s*#+\s*/, "") : text, pad, y - size * 0.3);
+    } else { // too small for letters: a bar for each run of words
+      ctx.globalAlpha *= 0.8;
+      const cw = size * charW;
+      for (const m of text.matchAll(/\S+(?: \S+)*/g)) ctx.fillRect(pad + m.index * cw, y - size, m[0].length * cw, size * 0.75);
+    }
+  }
+}
+
+// Tiles change size with the window, and the zoom, theme and sidebar
+// (applySettings).
+let redrawTimer;
+function redrawTexts() {
+  clearTimeout(redrawTimer);
+  redrawTimer = setTimeout(() => {
+    for (const tile of tiles.values()) {
+      const box = tile.firstElementChild;
+      if (box.text && box.querySelector("canvas")) drawText(box);
+    }
+  }, 150);
+}
+new ResizeObserver(redrawTexts).observe(grid);
 
 // ---------------------------------------------------------------- navigation
 
@@ -621,6 +718,7 @@ function applySettings() {
   $("#btn-sidebar").setAttribute("aria-pressed", String(s.sidebar));
   document.body.classList.toggle("sidebar", s.sidebar);
   document.body.dataset.theme = THEMES.includes(s.theme) ? s.theme : "overlay";
+  redrawTexts();
   termPanel.style.height = `${s.termHeight}px`;
 }
 

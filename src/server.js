@@ -4,6 +4,7 @@ import { home } from "./config.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
 import { listen } from "./instance.js";
 import { Pty } from "./pty.js";
+import { textHead } from "./texthead.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
 const UI_DIR = new URL("../ui/", import.meta.url);
@@ -193,7 +194,7 @@ function start(config) {
   }
 
   // One WebSocket per page. The page sends {want: [paths]} for tiles entering the
-  // viewport, {folders: [paths], sort} for folder tiles that need a summary,
+  // viewport (thumbnails for images and videos, the start of the text for other files), {folders: [paths], sort} for folder tiles that need a summary,
   // {cancel: [paths]} for tiles that scrolled away before loading, and
   // {watch: path} for the folder it shows. Unlike <img> requests this isn't
   // capped at ~6 connections per host. The server sends the answers, {changed}
@@ -213,6 +214,10 @@ function start(config) {
       for (const path of msg.cancel ?? []) pending.get(path)?.abort();
       for (const path of msg.want ?? []) {
         if (pending.has(path)) continue;
+        if (mediaKind(path) === "file") { // other files: the start of their text, if they're text
+          textHead(path).then((text) => send({ path, text }), () => send({ path, text: null }));
+          continue;
+        }
         const ctrl = new AbortController();
         pending.set(path, ctrl);
         thumbs.get(path, ctrl.signal)

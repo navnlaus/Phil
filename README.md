@@ -113,6 +113,15 @@ counts the folders being read. Summaries live next to the thumbnails
 (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for the
 session.
 
+### Text files
+
+Files that turn out to be text (anything UTF-8 without NUL bytes: notes,
+Markdown, JSON, config files, code, CSV, logs...) show their own text on the
+tile, scaled to the file: a short one in readable type, a long one smaller to
+fit more of it, down to lines drawn as bars. Markdown headings stay large
+enough to read even in long documents. Only the start of a file is read (32 KB,
+up to 400 lines), when its tile comes into view.
+
 ### Themes
 
 How names and details sit on the tiles is a theme, set by hand in
@@ -150,6 +159,7 @@ src/window.js   GTK3 + WebKitGTK window via Deno FFI (blocks in gtk_main)
 src/server.js   127.0.0.1 HTTP server (worker): listing, files with Range, thumbnails
 src/thumbs.js   thumbnail cache + LIFO job pool (vipsthumbnail / ffmpegthumbnailer)
 src/folders.js  folder summaries for the folder tiles (counts, size, previews)
+src/texthead.js the start of text files, drawn on their tiles
 src/pty.js      pseudo-terminals via libc FFI (Deno has no PTY API)
 src/dbus.js     org.freedesktop.FileManager1 D-Bus service via GDBus FFI
 data/, scripts/install.sh  desktop entry, D-Bus service file, installer
