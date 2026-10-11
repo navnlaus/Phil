@@ -443,3 +443,44 @@ main {
 #confirm .buttons button.danger { background: #c94b4b; border-color: #c94b4b; color: #fff; }
 #confirm .buttons button.danger:hover { background: #b03c3c; }
 #confirm button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Drag and drop */
+
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.drag-ghost img { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; flex: none; }
+.drag-ghost svg { width: 28px; height: 28px; margin: 4px; color: var(--text-dim); }
+.drag-ghost span { overflow: hidden; text-overflow: ellipsis; }
+body.dragging, body.dragging * { cursor: grabbing !important; }
+
+.tile.drop-target::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 3px var(--accent);
+  pointer-events: none;
+}
+#crumbs button.drop-target, #places a.drop-target {
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
