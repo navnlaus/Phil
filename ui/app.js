@@ -285,6 +285,7 @@ function makeTile(entry, index) {
   tile.className = `tile ${entry.kind}${entry.name.startsWith(".") ? " hidden-file" : ""}`;
   tile.dataset.index = index;
   tile.title = entry.kind === "dir" ? entry.name : `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}`;
+  if (entry.kind === "dir") return fillFolderTile(tile, entry);
 
   const box = document.createElement("div");
   box.className = "thumb";
@@ -303,6 +304,51 @@ function makeTile(entry, index) {
   name.textContent = entry.name;
   tile.append(box, name);
   return tile;
+}
+
+// A folder is a card: a tab, a few of its thumbnails (or an icon for what it
+// holds) and its name with what it held. Contents come from the summary saved when the folder
+// was last opened (src/folders.js); folders never opened show just the icon.
+function fillFolderTile(tile, entry) {
+  const s = entry.summary;
+  const box = document.createElement("div");
+  box.className = "thumb";
+  const face = document.createElement("div");
+  face.className = "face";
+  const previews = s?.previews ?? [];
+  if (previews.length) {
+    face.classList.add(`previews`, `n${previews.length}`);
+    for (const url of previews) {
+      const img = Object.assign(new Image(), { src: url, alt: "", draggable: false, loading: "lazy", decoding: "async" });
+      img.onerror = () => img.remove(); // the thumbnail cache was cleared since
+      face.append(img);
+    }
+  } else if (s?.files || s?.dirs) {
+    face.innerHTML = icon(s.files ? "file" : "folder", "kind");
+  }
+  box.append(face);
+
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = entry.name;
+  if (s) {
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = folderContents(s);
+    name.append(meta);
+    tile.title += `\n${meta.textContent}\n(when opened ${formatDate(s.seen)})`;
+    if (!s.files && !s.dirs) tile.classList.add("empty-dir");
+  }
+  tile.append(box, name);
+  return tile;
+}
+
+function folderContents({ files, dirs, size }) {
+  const count = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+  const parts = [];
+  if (dirs) parts.push(count(dirs, "folder"));
+  if (files) parts.push(count(files, "file"), formatSize(size));
+  return parts.join(" · ") || "Empty";
 }
 
 function showGridMessage(message) {

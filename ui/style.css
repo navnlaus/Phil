@@ -276,11 +276,75 @@ main {
   color: var(--text-dim);
 }
 .thumb.has-img > svg.kind { display: none; }
-.tile.dir .thumb > svg.kind {
-  width: 70%;
-  height: 70%;
-  color: var(--folder);
-  fill: color-mix(in srgb, var(--folder) 22%, transparent);
+/* Folders: a card in the folder color with a tab, holding a few of the
+   folder's thumbnails (or an icon for what it holds), the name and contents
+   underneath. */
+.tile.dir { --card: color-mix(in srgb, var(--folder) 34%, var(--thumb-bg)); }
+.tile.dir .thumb {
+  display: block;
+  background: linear-gradient(170deg,
+    color-mix(in srgb, var(--folder) 14%, var(--thumb-bg)),
+    color-mix(in srgb, var(--folder) 5%, var(--thumb-bg)));
+}
+.tile.dir .thumb::before {
+  content: "";
+  position: absolute;
+  left: 8%;
+  top: calc(11% - 6px);
+  width: 30%;
+  height: 7px;
+  border-radius: 5px 5px 0 0;
+  background: var(--card);
+}
+.tile.dir .face {
+  position: absolute;
+  inset: 11% 8% 32px 8%;
+  display: grid;
+  place-items: center;
+  border-radius: 1px 6px 6px 6px;
+  background: var(--card);
+  overflow: hidden;
+}
+.tile.dir .face > svg.kind {
+  width: 60%;
+  height: 62%;
+  stroke-width: 1.2;
+  color: color-mix(in srgb, var(--folder) 70%, var(--text));
+  opacity: 0.7;
+}
+.tile.dir .face.previews {
+  gap: 2px;
+  padding: 3px;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  place-items: stretch;
+}
+.tile.dir .face.previews img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+  border-radius: 3px;
+  background: var(--thumb-bg);
+}
+.tile.dir .face.n1 img { grid-area: 1 / 1 / 3 / 3; }
+.tile.dir .face.n2 img { grid-row: 1 / 3; }
+.tile.dir .face.n3 { grid-template-columns: 2fr 1fr; }
+.tile.dir .face.n3 img:first-child { grid-row: 1 / 3; }
+.tile.empty-dir .face { opacity: 0.45; }
+.tile.dir .name {
+  height: 32px;
+  padding: 3px 8px 0;
+  color: var(--text);
+  background: none;
+}
+.tile.dir .meta {
+  display: block;
+  font-size: 10px;
+  font-weight: normal;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .thumb .ext {
   position: absolute;

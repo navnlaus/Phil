@@ -1,6 +1,7 @@
 // Local HTTP server for the UI. Runs in a worker; posts { url } once listening.
 import { basename, dirname, extname, join, normalize } from "@std/path";
 import { home } from "./config.js";
+import { FolderSummaries } from "./folders.js";
 import { listen } from "./instance.js";
 import { Pty } from "./pty.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
@@ -25,6 +26,8 @@ self.onmessage = (e) => start(e.data);
 function start(config) {
   const token = crypto.randomUUID();
   const thumbs = new Thumbnailer(config);
+  // Incognito leaves no traces, so its folder summaries last for the session only.
+  const folders = new FolderSummaries(thumbs.dir && !config.incognito ? join(thumbs.dir, "folders") : null);
   let host, cookie;
 
   // Tell the main thread we're up, after taking over the instance's control
@@ -147,8 +150,10 @@ function start(config) {
         symlink: d.isSymlink,
       };
       if (stat && (kind === "image" || kind === "video")) entry.thumb = await thumbs.lookup(path, stat);
+      if (kind === "dir") entry.summary = await folders.get(path);
       return entry;
     });
+    folders.update(dir, entries).catch((err) => console.error(`phil: can't save folder summary: ${err.message}`));
     return { path: dir, parent: dir === "/" ? null : dirname(dir), entries };
   }
 
@@ -169,7 +174,10 @@ function start(config) {
         const ctrl = new AbortController();
         pending.set(path, ctrl);
         thumbs.get(path, ctrl.signal)
-          .then((url) => send({ path, url }))
+          .then((url) => {
+            send({ path, url });
+            if (!basename(path).startsWith(".")) folders.addPreview(dirname(path), url).catch(() => {});
+          })
           .catch((err) => {
             if (ctrl.signal.aborted) return;
             console.error(`phil: ${err.message}`);
