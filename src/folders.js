@@ -5,10 +5,11 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "bas
 
 /**
  * What a folder holds, for its tile in the parent folder: how many files and
- * folders, the files' total size, and the thumbnails of its first four images
- * or videos in the view's sort order. Saved with the folder's modification time
- * and that sort order; when either has changed, the summary is out of date and
- * the page asks for a new one (see `summarize` in server.js).
+ * folders, the files' total size, and previews of its first four files in the
+ * view's sort order that have one (image and video thumbnails, text). Saved
+ * with the folder's modification time and that sort order; when either has
+ * changed, the summary is out of date and the page asks for a new one (see
+ * `summarize` in server.js).
  *
  * Stored next to the thumbnails they point at, <thumbs>/folders/<hash>.json,
  * so clearing the thumbnail cache clears these too. Without a directory
@@ -52,29 +53,40 @@ export class FolderSummaries {
 }
 
 /**
- * A summary of a folder's `entries` (read at `mtime`). `thumbOf(entry)` gives
- * the thumbnail URL of one of the first four images/videos in `sort` order:
- * a string, or null/false when there is none (yet). `complete` is false when a
- * thumbnail wasn't generated yet, so the page asks again later.
+ * A summary of a folder's `entries` (read at `mtime`), with previews of its
+ * first files in `sort` order that have one. `previewOf(entry)` resolves to
+ * {url} (an image or video thumbnail) or {text} (see texthead.js), false when
+ * the file has none (binary, can't be thumbnailed; the next file is tried), or
+ * null when a thumbnail doesn't exist yet: then `complete` is false and the page
+ * asks again later.
  */
-export async function makeSummary({ entries, mtime, sort, thumbOf }) {
+export async function makeSummary({ entries, mtime, sort, previewOf }) {
   const files = entries.filter((e) => e.kind !== "dir");
-  const first = firstMedia(files, sort);
-  const thumbs = await Promise.all(first.map(thumbOf));
+  const candidates = sortFiles(files.filter((e) => !e.name.startsWith(".")), sort);
+  const previews = [];
+  let complete = true, next = 0;
+  // A few at a time, in order, until there are enough or a dozen were tried.
+  while (previews.length < PREVIEWS && next < Math.min(candidates.length, 12)) {
+    const batch = candidates.slice(next, next + PREVIEWS - previews.length);
+    next += batch.length;
+    for (const preview of await Promise.all(batch.map(previewOf))) {
+      if (preview === null) complete = false;
+      else if (preview) previews.push(preview);
+    }
+  }
   return {
     mtime,
     sort,
     files: files.length,
     dirs: entries.length - files.length,
     size: files.reduce((sum, e) => sum + e.size, 0),
-    previews: thumbs.filter((t) => typeof t === "string"),
-    complete: !thumbs.includes(null),
+    previews: previews.slice(0, PREVIEWS),
+    complete,
   };
 }
 
-// The first images/videos as the page would list them (see sortEntries in
-// ui/app.js), hidden files left out.
-function firstMedia(files, sort) {
+// Files as the page would list them (see sortEntries in ui/app.js).
+function sortFiles(files, sort) {
   const ext = (e) => extname(e.name).toLowerCase();
   const by = {
     name: (a, b) => collator.compare(a.name, b.name),
@@ -82,8 +94,5 @@ function firstMedia(files, sort) {
     size: (a, b) => b.size - a.size,
     kind: (a, b) => collator.compare(a.kind, b.kind) || collator.compare(ext(a), ext(b)),
   }[sort] ?? (() => 0);
-  return files
-    .filter((e) => (e.kind === "image" || e.kind === "video") && !e.name.startsWith("."))
-    .sort((a, b) => by(a, b) || collator.compare(a.name, b.name))
-    .slice(0, PREVIEWS);
+  return files.sort((a, b) => by(a, b) || collator.compare(a.name, b.name));
 }

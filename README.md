@@ -104,11 +104,12 @@ changes inside it. F5 still reloads by hand.
 ### Folder tiles
 
 A folder's tile shows what it holds: how many folders and files, the files'
-total size (not counting subfolders), and thumbnails of its first four images
-or videos in the current sort order. When a folder tile scrolls into view
+total size (not counting subfolders), and previews of its first four files in
+the current sort order that have one: images, videos and text files (files
+without one, like archives, are skipped). When a folder tile scrolls into view
 without that information, or the folder changed since (say a file was deleted
 in the terminal), or the view is sorted differently, phil reads the folder in
-the background, makes those thumbnails and saves the result. The status bar
+the background, makes those previews and saves the result. The status bar
 counts the folders being read. Summaries live next to the thumbnails
 (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for the
 session.

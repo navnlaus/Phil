@@ -164,7 +164,8 @@ const observe = (margin, fn) =>
   }, { root: grid, rootMargin: `${margin}px 0px` });
 
 const nearObserver = observe(800, (tile, entry, near) => {
-  if (near) return entry.kind === "dir" ? wantSummary(tile, entry) : entry.kind === "file" ? showText(tile, entry) : showThumb(tile, entry);
+  if (near && entry.kind === "dir") return drawFolderTexts(tile), wantSummary(tile, entry);
+  if (near) return entry.kind === "file" ? showText(tile, entry) : showThumb(tile, entry);
   if (thumbs.wanted.has(entry.path)) {
     tile.firstElementChild.classList.remove("loading");
     thumbs.cancel(entry.path);
@@ -195,6 +196,7 @@ function onFolderSummary(path, summary) {
   entry.mtime = summary.mtime;
   changedFolders.delete(path);
   showFolderInfo(tile, entry);
+  drawFolderTexts(tile);
 }
 
 function showThumb(tile, entry) {
@@ -241,7 +243,7 @@ function onThumbReady(path, url) {
 // and redrawn when tiles change size.
 function showText(tile, entry) {
   const box = tile.firstElementChild;
-  if (box.text) return box.querySelector("canvas") || drawText(box);
+  if (box.text) return box.querySelector(":scope > canvas") || drawText(box);
   if (box.text === null) return; // not text
   box.classList.add("loading");
   thumbs.want(entry.path);
@@ -260,19 +262,21 @@ const HEADING = { h1: [2.2, 9], h2: [1.8, 7.5], h3: [1.5, 6.5], h4: [1.3, 6], h5
 const LINE_HEIGHT = 1.3;
 const MIN_BODY = 1.6; // px, and at least a third of full width size: smaller leaves long files a grey haze
 
+// Draws `box.text` on a canvas filling `box`: a file tile's thumbnail box, or
+// a cell of a folder's face.
 function drawText(box) {
   const { lines, prose } = box.text;
   const w = box.clientWidth, h = box.clientHeight;
   if (!w || !h) return;
   const dpr = devicePixelRatio || 1;
-  const canvas = box.querySelector("canvas") ?? box.insertAdjacentElement("afterbegin", document.createElement("canvas"));
+  const canvas = box.querySelector(":scope > canvas") ?? box.insertAdjacentElement("afterbegin", document.createElement("canvas"));
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
   const ctx = canvas.getContext("2d");
   ctx.scale(dpr, dpr);
   box.classList.add("has-text");
 
-  const pad = Math.max(5, w * 0.04);
+  const pad = Math.max(3, w * 0.04);
   const charW = prose ? 0.5 : 0.6; // average character width, in ems
   const sizeOf = (kind, body) => (HEADING[kind] ? Math.max(body * HEADING[kind][0], HEADING[kind][1]) : body);
   const height = (body) => lines.reduce((sum, [kind]) => sum + sizeOf(kind, body) * LINE_HEIGHT, 0);
@@ -320,8 +324,9 @@ function redrawTexts() {
   clearTimeout(redrawTimer);
   redrawTimer = setTimeout(() => {
     for (const tile of tiles.values()) {
-      const box = tile.firstElementChild;
-      if (box.text && box.querySelector("canvas")) drawText(box);
+      for (const box of [tile.firstElementChild, ...tile.querySelectorAll(".face > .cell")]) {
+        if (box.text && box.querySelector(":scope > canvas")) drawText(box);
+      }
     }
   }, 150);
 }
@@ -529,8 +534,10 @@ function makeTile(entry, index) {
 function showFolderInfo(tile, entry) {
   const summary = entry.summary;
   const box = tile.firstElementChild;
-  const previews = summary?.previews ?? [];
-  const look = previews.join(" ") || (summary?.files ? "file" : summary?.dirs ? "folder" : "");
+  // {url} for an image or video thumbnail, {text} for a text file; a bare URL in older summaries.
+  const previews = (summary?.previews ?? []).map((p) => (typeof p === "string" ? { url: p } : p));
+  const look = previews.map((p) => p.url ?? `text:${p.text.lines.slice(0, 4).join("|")}`).join(" ") ||
+    (summary?.files ? "file" : summary?.dirs ? "folder" : "");
   if (box.dataset.look !== look || !box.firstChild) fillFolderFace(box, summary, previews);
   box.dataset.look = look;
   const meta = tile.querySelector(".meta");
@@ -544,7 +551,12 @@ function fillFolderFace(box, summary, previews) {
   face.className = "face";
   if (previews.length) {
     face.classList.add("previews", `n${previews.length}`);
-    for (const url of previews) {
+    for (const { url, text } of previews) {
+      if (text) { // drawn once the tile is laid out (drawFolderTexts)
+        const cell = Object.assign(document.createElement("div"), { className: "cell", text });
+        face.append(cell);
+        continue;
+      }
       const img = Object.assign(new Image(), { src: url, alt: "", draggable: false, loading: "lazy", decoding: "async" });
       img.onerror = () => img.remove(); // the thumbnail cache was cleared since
       face.append(img);
@@ -553,6 +565,10 @@ function fillFolderFace(box, summary, previews) {
     face.innerHTML = icon(summary.files ? "file" : "folder", "kind");
   }
   box.replaceChildren(face);
+}
+
+function drawFolderTexts(tile) {
+  for (const cell of tile.querySelectorAll(".face > .cell")) if (!cell.querySelector("canvas")) drawText(cell);
 }
 
 function formatShortDate(ms) {
