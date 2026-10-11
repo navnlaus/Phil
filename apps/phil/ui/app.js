@@ -1,4 +1,4 @@
-import { appUrl, clipboardKey, closeWindow, copyText, ready } from "/engine/ui/kit.js";
+import { appUrl, clipboardKey, closeWindow, copyText, holdFocus, ready } from "/engine/ui/kit.js";
 import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -1471,3 +1471,4 @@ if (location.search) history.replaceState(null, "", location.pathname + location
 document.body.classList.toggle("incognito", state.init.incognito);
 if (location.hash.length > 1) load(decodeURIComponent(location.hash.slice(1)));
 else navigate(state.init.start);
+holdFocus(grid);
