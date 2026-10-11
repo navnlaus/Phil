@@ -299,6 +299,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | type a name | jump to the next entry starting with it (repeat a letter to cycle) |
 | F2 | rename in place (Enter or clicking elsewhere renames, Esc cancels) |
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
+| right-click a text or JSON file → Add to Config | a link to it in `Documents/Config`, for config files used often but kept all over (a name that's taken gets its folder's in front: `waybar-config`) |
 | right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, places) |
 | middle-drag onto a folder | move there right away |
 | Backspace, Esc | parent folder |

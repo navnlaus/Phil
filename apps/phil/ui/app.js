@@ -1117,6 +1117,7 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "video") items.push(["Play here", () => viewer.open(state.view.indexOf(entry))]);
   if (isJson(entry)) items.push(["Edit in jsonedit", () => openInApp("jsonedit", { file: entry.path })]);
   if (entry.kind === "file") items.push(["Edit as text", () => openInApp("textedit", { file: entry.path })]);
+  if (isJson(entry) || tiles.get(entry.path)?.firstElementChild.text) items.push(["Add to Config", () => addToConfig(entry)]);
   items.push(["Open with default app", () => openExternal(entry.path)]);
   items.push(["Rename…", () => startRename(state.view.indexOf(entry))]);
   items.push(["Copy path", () => copyText(entry.path)]);
@@ -1346,6 +1347,28 @@ function endDrag(e) {
     [`Move to “${name}”`, () => transfer("move", d.items, d.target.path)],
     [`Copy to “${name}”`, () => transfer("copy", d.items, d.target.path)],
   ]);
+}
+
+// A link to the file in Documents/Config (see addToConfig in server.js).
+async function addToConfig(entry) {
+  try {
+    const { name, existed } = await api("/api/add-to-config", { method: "POST", body: JSON.stringify({ path: entry.path }) });
+    flashStatus(existed ? `${entry.name} is already in Documents/Config (as ${name})` : `Added to Documents/Config as ${name}`);
+  } catch (err) {
+    alert(`Couldn't add ${entry.name} to Config: ${err.message}`);
+  }
+}
+
+// A message in the status bar, shown for a few seconds even if the bar is hidden.
+function flashStatus(text) {
+  const bar = $("#status"), el = $("#status-progress");
+  el.textContent = text;
+  bar.classList.add("show");
+  clearTimeout(flashStatus.timer);
+  flashStatus.timer = setTimeout(() => {
+    bar.classList.remove("show");
+    if (el.textContent === text) updateProgress();
+  }, 3500);
 }
 
 async function transfer(op, items, dest) {

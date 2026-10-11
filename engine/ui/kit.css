@@ -12,7 +12,7 @@
   opacity: 0;
   transition: opacity 0.2s ease 0.25s;
 }
-.overlay-bar:hover, .overlay-bar:focus-within {
+.overlay-bar:hover, .overlay-bar:focus-within, .overlay-bar.show {
   opacity: 1;
   transition: opacity 0.08s ease;
 }
