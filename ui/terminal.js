@@ -19,6 +19,7 @@ export class TerminalPanel {
     this.cwd = null; // last directory the shell reported
     this.idle = false; // at a prompt with nothing typed since
     this.promptRow = null; // buffer line where the current prompt began, if at column 0
+    this.dropEcho = false; // swallow the newline bash echoes for a silent cd's Enter
     this.exited = false;
   }
 
@@ -109,7 +110,14 @@ export class TerminalPanel {
     const params = new URLSearchParams({ cwd, cols: this.term.cols, rows: this.term.rows });
     const ws = new WebSocket(`ws://${location.host}/term?${params}`);
     ws.binaryType = "arraybuffer";
-    ws.onmessage = (e) => this.term.write(new Uint8Array(e.data));
+    ws.onmessage = (e) => {
+      let data = new Uint8Array(e.data);
+      if (this.dropEcho) {
+        this.dropEcho = false;
+        if (data[0] === 13 && data[1] === 10) data = data.subarray(2);
+      }
+      this.term.write(data);
+    };
     ws.onclose = () => {
       if (this.ws !== ws) return;
       this.exited = true;
@@ -131,16 +139,17 @@ export class TerminalPanel {
     this.ws.send(JSON.stringify({ cd: path }));
   }
 
-  // Clears the idle prompt and parks the cursor at the end of the line above,
-  // so the newline bash prints for the empty Enter lands where the prompt
-  // began and the redrawn prompt takes its exact place. Display-only: nothing
-  // is sent to the shell. Skipped when the prompt's start isn't on screen.
+  // Clears the idle prompt and leaves the cursor where it began; the newline
+  // bash echoes for the empty Enter is dropped, so the redrawn prompt takes
+  // its exact place (even on the top row). Display-only: nothing is sent to
+  // the shell. Skipped when the prompt's start isn't on screen.
   erasePrompt() {
     const buf = this.term.buffer.active;
     const promptLine = this.promptRow - buf.baseY; // viewport row
-    if (this.promptRow === null || promptLine < 1) return;
+    if (this.promptRow === null || promptLine < 0) return;
     const up = buf.cursorY - promptLine;
-    this.term.write(`${up > 0 ? `\x1b[${up}A` : ""}\r\x1b[J\x1b[A`);
+    this.term.write(`${up > 0 ? `\x1b[${up}A` : ""}\r\x1b[J`);
+    this.dropEcho = true;
   }
 
   /** Types text at the prompt (e.g. a quoted file path) and focuses the terminal. */
