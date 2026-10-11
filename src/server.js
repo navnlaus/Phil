@@ -61,15 +61,19 @@ function start(config) {
         return staticFile("index.html");
       case "GET /api/init":
         return json({
-          start: config.startDir,
+          start: config.startDirGiven ? config.startDir : (await lastDir()) ?? config.startDir,
           home: home(),
           places: await places(),
-          thumbDir: config.thumbDir,
+          incognito: config.incognito,
+          thumbDir: config.thumbDir ?? "a .thumbnails folder in each folder",
           thumbSize: thumbs.name,
           settings: await readSettings(),
         });
-      case "GET /api/list":
-        return json(await listDir(requirePath(path)));
+      case "GET /api/list": {
+        const listing = await listDir(requirePath(path));
+        rememberDir(listing.path);
+        return json(listing);
+      }
       case "GET /file":
       case "HEAD /file":
         return serveFile(req, requirePath(path), { "content-security-policy": "sandbox" });
@@ -82,7 +86,7 @@ function start(config) {
       case "POST /api/transfer":
         return json(await transfer(await req.json()));
       case "PUT /api/settings":
-        await writeSettings(await req.json());
+        if (!config.incognito) await writeSettings(await req.json()); // incognito: this session only
         return json({ ok: true });
       case "GET /ws":
         return thumbSocket(req);
@@ -92,7 +96,7 @@ function start(config) {
     if (req.method === "GET" && url.pathname.startsWith("/ui/")) return staticFile(url.pathname.slice(4));
     const thumb = /^\/thumbs\/([^/]+)\/([^/]+)$/.exec(url.pathname);
     if (req.method === "GET" && thumb && thumb[1] === thumbs.name) {
-      const file = thumbs.fileFor(thumb[2]);
+      const file = thumbs.fileFor(thumb[2], url.searchParams.get("dir"));
       if (file) return serveFile(req, file, { "cache-control": "private, max-age=31536000, immutable" });
     }
     return text(404, "Not found");
@@ -168,7 +172,7 @@ function start(config) {
       cwd,
       cols: size("cols", 80),
       rows: size("rows", 24),
-      env: { PHIL_CD_FILE: cdFile },
+      env: { PHIL_CD_FILE: cdFile, ...(config.incognito ? { PHIL_INCOGNITO: "1" } : {}) },
     });
     const { socket, response } = Deno.upgradeWebSocket(req);
     socket.binaryType = "arraybuffer";
@@ -211,6 +215,26 @@ function start(config) {
   async function writeSettings(settings) {
     await Deno.mkdir(dirname(config.settingsFile), { recursive: true });
     await Deno.writeTextFile(config.settingsFile, JSON.stringify(settings, null, 2) + "\n");
+  }
+
+  // The folder shown last, so phil reopens there. Written on every folder
+  // change (not on exit) so it survives however phil is closed.
+  let remembered = null;
+  function rememberDir(dir) {
+    if (config.incognito || dir === remembered) return;
+    remembered = dir;
+    Deno.mkdir(dirname(config.stateFile), { recursive: true })
+      .then(() => Deno.writeTextFile(config.stateFile, JSON.stringify({ lastDir: dir }, null, 2) + "\n"))
+      .catch((err) => console.error(`phil: can't save last folder: ${err.message}`));
+  }
+
+  async function lastDir() {
+    try {
+      const { lastDir } = JSON.parse(await Deno.readTextFile(config.stateFile));
+      return typeof lastDir === "string" && await isDir(lastDir) ? lastDir : null;
+    } catch {
+      return null;
+    }
   }
 }
 

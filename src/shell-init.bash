@@ -3,6 +3,14 @@
 # every command using OSC 7, the escape sequence terminals use for this.
 [ -f ~/.bashrc ] && . ~/.bashrc
 
+# phil --incognito: keep your existing history available (up arrow, Ctrl+R),
+# but write nothing from this session. /dev/null rather than unsetting
+# HISTFILE also covers bashrc setups that run `history -a` at every prompt.
+if [[ -n $PHIL_INCOGNITO ]]; then
+  history -r
+  HISTFILE=/dev/null
+fi
+
 __phil_report_cwd() {
   local LC_ALL=C path=$PWD url="" c i
   for ((i = 0; i < ${#path}; i++)); do

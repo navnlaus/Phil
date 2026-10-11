@@ -19,6 +19,7 @@ Options:
 | `--thumb-size N` | `PHIL_THUMB_SIZE` | `384` (width; thumbnails are 16:9 center crops) |
 | `--jobs N` | | CPU count |
 | `--port N` | | random |
+| `--incognito` | | off (see below) |
 | `--browser` | | open a native window |
 
 The thumbnail directory is per process, so you can run e.g. one instance with
@@ -26,6 +27,29 @@ The thumbnail directory is per process, so you can run e.g. one instance with
 Thumbnails are stored as `<thumb-dir>/<W>x<H>/<hash>.jpg`. The hash covers path,
 size and mtime, so edited files get new thumbnails. Clearing the cache means
 deleting the folder.
+
+Long options can be shortened to any unique prefix (`--incog`, `--thumb-s 256`).
+
+Started without a folder, phil reopens the folder it showed last (saved in
+`$XDG_STATE_HOME/phil/state.json` on every folder change, so it doesn't matter
+how phil was closed). A folder argument always wins.
+
+### Incognito
+
+`--incognito` leaves no traces:
+
+- the last folder isn't saved, and settings changes (zoom, sort, terminal
+  panel...) last for this session only;
+- the terminal's bash still has your existing history, but nothing from this
+  session is written to it (`HISTFILE=/dev/null` after your bashrc ran, which
+  also covers `history -a` prompt hooks; other recorders like atuin aren't
+  covered);
+- thumbnails go to a `.thumbnails/<W>x<H>/` folder inside each folder that gets
+  any, instead of the shared cache (unless `--thumb-dir` is given). Folders
+  that can't be written to use a temporary folder that's deleted on exit;
+- WebKit runs a private session: no disk cache, cookies or storage.
+
+Files inside `.thumbnails` folders are shown as their own thumbnails.
 
 `--browser` prints a URL instead of opening a window. That's handy for using
 Chromium's devtools while working on the UI. In the window, right-click on empty
