@@ -832,7 +832,10 @@ async function openFile(entry) {
 // viewer. Its close button (or Esc) comes back here.
 const appView = $("#app-view");
 
+let focusBeforeApp = null; // where the keyboard goes back to: the grid, or the terminal it was opened from
+
 function openInApp(app, params) {
+  focusBeforeApp = document.activeElement;
   const frame = Object.assign(document.createElement("iframe"), { src: appUrl(app, params), title: app });
   appView.replaceChildren(frame);
   appView.hidden = false;
@@ -850,7 +853,8 @@ function askAppToClose() {
 function closeApp() {
   appView.hidden = true;
   appView.replaceChildren();
-  grid.focus({ preventScroll: true });
+  const back = focusBeforeApp?.isConnected && focusBeforeApp !== document.body ? focusBeforeApp : grid;
+  back.focus({ preventScroll: true });
 }
 
 // The app in the frame says it's ready (kit.js ready()): give it the keyboard,
@@ -1403,6 +1407,7 @@ const terminal = new TerminalPanel({
   panel: termPanel,
   container: $("#term"),
   onCwd: (path) => path !== state.path && navigate(path),
+  onOpen: ({ app, params }) => openInApp(app, params), // phil-editor (ed) typed in the panel
 });
 
 // Reopen the panel on startup if it was open when phil last quit, and select

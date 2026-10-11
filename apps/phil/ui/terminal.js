@@ -13,10 +13,11 @@ export const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
  *    The prompt counts as empty again when what was typed is erased.
  */
 export class TerminalPanel {
-  constructor({ panel, container, onCwd }) {
+  constructor({ panel, container, onCwd, onOpen }) {
     this.panel = panel;
     this.container = container;
     this.onCwd = onCwd;
+    this.onOpen = onOpen; // phil-editor in the shell asks for an app in this window
     this.term = null;
     this.ws = null;
     this.cwd = null; // last directory the shell reported
@@ -129,6 +130,11 @@ export class TerminalPanel {
     const ws = new WebSocket(`ws://${location.host}/term?${params}`);
     ws.binaryType = "arraybuffer";
     ws.onmessage = (e) => {
+      if (typeof e.data === "string") { // not terminal output: {open: {app, params}}
+        const { open } = JSON.parse(e.data);
+        if (open) this.onOpen?.(open);
+        return;
+      }
       let data = new Uint8Array(e.data);
       if (this.dropEcho) {
         this.dropEcho = false;
