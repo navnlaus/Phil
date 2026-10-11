@@ -95,16 +95,34 @@ Files inside `.thumbnails` folders are shown as their own thumbnails.
 
 ### Folder tiles
 
-Opening a folder saves a summary of it: how many folders and files it holds,
-the files' total size (not counting subfolders), and up to four of its
-thumbnails, spread over the folder in name order. Its tile in the parent folder
-then shows these. Thumbnails generated while the folder is open fill in its
-previews, so a first visit is enough. If the folder changed since (say a file
-was deleted in the terminal), it's read again when its tile is shown, so the
-counts stay true.
-Folders never opened show a plain folder card. Summaries live next to the
-thumbnails (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for
-the session.
+A folder's tile shows what it holds: how many folders and files, the files'
+total size (not counting subfolders), and thumbnails of its first four images
+or videos in the current sort order. When a folder tile scrolls into view
+without that information, or the folder changed since (say a file was deleted
+in the terminal), or the view is sorted differently, phil reads the folder in
+the background, makes those thumbnails and saves the result. The status bar
+counts the folders being read. Summaries live next to the thumbnails
+(`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for the
+session.
+
+### Themes
+
+How names and details sit on the tiles is a theme, set by hand in
+`~/.config/phil/settings.json`:
+
+```json
+{ "theme": "overlay", ... }
+```
+
+| theme | |
+|---|---|
+| `overlay` (default) | on the picture, over a shadow fading up from the bottom |
+| `strip` | in a solid strip under the picture, each tile a card |
+| `below` | centered under rounded pictures, on the page (taller tiles) |
+| `chips` | the name in a small chip; details in another, on hover and for the selection |
+
+phil never changes the theme itself (it writes the rest of the file around
+it), and open windows pick up an edit right away.
 
 `--browser` prints a URL instead of opening a window. That's handy for using
 Chromium's devtools while working on the UI. In the window, right-click on empty
