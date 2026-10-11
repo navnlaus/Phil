@@ -93,6 +93,17 @@ how phil was closed). A folder argument always wins.
 
 Files inside `.thumbnails` folders are shown as their own thumbnails.
 
+### Folder tiles
+
+Opening a folder saves a summary of it: how many folders and files it holds,
+the files' total size (not counting subfolders), and up to four of its
+thumbnails, spread over the folder in name order. Its tile in the parent folder
+then shows these, as they were when it was last opened. Thumbnails generated
+while the folder is open fill in its previews, so a first visit is enough.
+Folders never opened show a plain folder card. Summaries live next to the
+thumbnails (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for
+the session.
+
 `--browser` prints a URL instead of opening a window. That's handy for using
 Chromium's devtools while working on the UI. In the window, right-click on empty
 space → Inspect Element works too.
@@ -110,6 +121,7 @@ src/main.js     parse options, start the server worker, open the window
 src/window.js   GTK3 + WebKitGTK window via Deno FFI (blocks in gtk_main)
 src/server.js   127.0.0.1 HTTP server (worker): listing, files with Range, thumbnails
 src/thumbs.js   thumbnail cache + LIFO job pool (vipsthumbnail / ffmpegthumbnailer)
+src/folders.js  folder summaries for the folder tiles (counts, size, previews)
 src/pty.js      pseudo-terminals via libc FFI (Deno has no PTY API)
 src/dbus.js     org.freedesktop.FileManager1 D-Bus service via GDBus FFI
 data/, scripts/install.sh  desktop entry, D-Bus service file, installer
