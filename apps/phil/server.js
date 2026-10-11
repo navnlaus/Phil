@@ -410,12 +410,16 @@ export function createServer({ profile, controlSocket }) {
 }
 
 // bash --rcfile needs a real file, and under `deno compile` ours lives in the
-// binary, so copy it out once per run.
+// binary, so copy it out once per run. Named after its contents, so a phil of
+// another version (running alongside, say a development one) never overwrites
+// it with its own.
 const shellInit = (async () => {
-  const dir = Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp";
-  const path = join(dir, "phil-shell-init.bash");
+  const text = await Deno.readTextFile(new URL("./shell-init.bash", import.meta.url));
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  const id = Array.from(hash.subarray(0, 6), (b) => b.toString(16).padStart(2, "0")).join("");
+  const path = join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-shell-init-${id}.bash`);
   const tmp = `${path}.${Deno.pid}`;
-  await Deno.writeTextFile(tmp, await Deno.readTextFile(new URL("./shell-init.bash", import.meta.url)));
+  await Deno.writeTextFile(tmp, text);
   await Deno.rename(tmp, path); // atomic, so a concurrently starting shell never reads half a file
   return path;
 })();
