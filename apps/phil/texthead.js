@@ -12,17 +12,8 @@ const MAX_CHARS = 200; // per line
  * not UTF-8) or are empty.
  */
 export async function textHead(path, { maxLines = MAX_LINES, maxChars = MAX_CHARS } = {}) {
-  const bytes = await head(path);
-  if (!bytes.length || bytes.includes(0)) return null;
-  let text;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes, { stream: true }); // stream: a character cut off at the end is fine
-  } catch {
-    return null;
-  }
-  // Text has few control characters besides tab, newline, carriage return, form feed and escape.
-  const controls = text.match(/[\x01-\x08\x0e-\x1a\x1c-\x1f\x7f]/g)?.length ?? 0;
-  if (controls > text.length / 100) return null;
+  const text = decodeText(await head(path));
+  if (!text) return null;
 
   const ext = extname(path).toLowerCase();
   const markdown = ext === ".md" || ext === ".markdown";
@@ -38,6 +29,27 @@ export async function textHead(path, { maxLines = MAX_LINES, maxChars = MAX_CHAR
   });
   if (!lines.some(([, l]) => l.trim())) return null;
   return { lines, prose: markdown || ext === ".txt" || ext === "" };
+}
+
+/** Whether the file is text (an empty one counts), for opening it in an editor. */
+export async function isTextFile(path) {
+  const bytes = await head(path);
+  return !bytes.length || decodeText(bytes) !== null;
+}
+
+// The bytes as text, or null if they aren't: binary (NUL bytes, many control
+// characters) or not UTF-8.
+function decodeText(bytes) {
+  if (!bytes.length || bytes.includes(0)) return null;
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes, { stream: true }); // stream: a character cut off at the end is fine
+  } catch {
+    return null;
+  }
+  // Text has few control characters besides tab, newline, carriage return, form feed and escape.
+  const controls = text.match(/[\x01-\x08\x0e-\x1a\x1c-\x1f\x7f]/g)?.length ?? 0;
+  return controls > text.length / 100 ? null : text;
 }
 
 async function head(path) {

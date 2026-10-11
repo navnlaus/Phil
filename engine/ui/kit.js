@@ -81,13 +81,15 @@ export function clipboardKey(e) {
 }
 
 /**
- * Keeps keyboard focus on `el` (a page's main view): now, and whenever the
- * window or embedded view gets focus back with nothing in particular focused.
+ * Keeps keyboard focus on `el` (a page's main view, or a function giving it):
+ * now, and whenever the window or embedded view gets focus back with nothing
+ * in particular focused.
  */
 export function holdFocus(el) {
   const take = () => {
     const active = document.activeElement;
-    if (!active || active === document.body || active === document.documentElement) el.focus({ preventScroll: true });
+    const target = typeof el === "function" ? el() : el;
+    if (!active || active === document.body || active === document.documentElement) target.focus({ preventScroll: true });
   };
   addEventListener("focus", take);
   // Shown inside another app: WebKit ignores focus() here until that app has

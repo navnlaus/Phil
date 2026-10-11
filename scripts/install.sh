@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Builds phil-engine and installs it with its apps to ~/.local/bin:
-#  - phil-engine, the engine, and a small command per app (phil, jsonedit)
+#  - phil-engine, the engine, and a small command per app (phil, jsonedit, textedit)
 #  - phil as the default file manager: folders opened with xdg-open and most
 #    apps (the inode/directory MIME default), and "Show in folder" from
 #    browsers, file pickers and portals, which use the
 #    org.freedesktop.FileManager1 D-Bus service instead
-#  - a desktop entry for jsonedit (offered for JSON files, not made the default)
+#  - desktop entries for jsonedit and textedit (offered for JSON and text
+#    files, not made their default)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,14 +17,14 @@ engine=$bindir/phil-engine
 deno task compile
 install -Dm755 phil-engine "$engine"
 # An app's command runs the engine with the app's name.
-for app in phil jsonedit; do
+for app in phil jsonedit textedit; do
   printf '#!/bin/sh\nexec "%s" %s "$@"\n' "$engine" "$app" > "$bindir/$app.tmp"
   chmod 755 "$bindir/$app.tmp"
   mv -f "$bindir/$app.tmp" "$bindir/$app"
 done
 
 install -d "$data/applications" "$data/dbus-1/services"
-for entry in phil jsonedit; do
+for entry in phil jsonedit textedit; do
   sed "s|@BIN@|$bindir/$entry|g" "data/$entry.desktop" > "$data/applications/$entry.desktop"
 done
 sed "s|@BIN@|$bindir/phil|g" data/org.freedesktop.FileManager1.service > "$data/dbus-1/services/org.freedesktop.FileManager1.service"
@@ -42,7 +43,7 @@ if [[ $(sed -n 's/^Comm=//p' <<<"$service") =~ ^phil(-engine)?$ ]]; then
   kill "$(sed -n 's/^PID=//p' <<<"$service")" 2>/dev/null || true
 fi
 
-echo "Installed $engine with phil and jsonedit in $bindir"
+echo "Installed $engine with phil, jsonedit and textedit in $bindir"
 echo "Folders open with: $(xdg-mime query default inode/directory)"
 owner=$(busctl --user status org.freedesktop.FileManager1 2>/dev/null | sed -n 's/^Comm=//p' || true)
 if [[ -n $owner && ! $owner =~ ^phil(-engine)?$ ]]; then

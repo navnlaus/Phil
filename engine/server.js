@@ -72,7 +72,7 @@ function serve(name, apps, { token, quit }) {
     return res;
   });
 
-  async function handle(req) {
+  function handle(req) {
     const url = new URL(req.url);
     // Only answer requests addressed to us (blocks DNS rebinding) that carry the session cookie.
     if (req.headers.get("host") !== host) return text(403, "Forbidden");

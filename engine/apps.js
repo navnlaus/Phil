@@ -29,4 +29,8 @@ export const APPS = {
     launch: () => import("../apps/jsonedit/launch.js"),
     server: () => import("../apps/jsonedit/server.js"),
   },
+  textedit: {
+    launch: () => import("../apps/textedit/launch.js"),
+    server: () => import("../apps/textedit/server.js"),
+  },
 };

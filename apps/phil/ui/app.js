@@ -771,10 +771,21 @@ function open(index) {
   // mpv plays everything; WebKit's player stalls on some files (NVIDIA decoding).
   else if (entry.kind === "video") openExternal(entry.path, "mpv");
   else if (isJson(entry)) openInApp("jsonedit", { file: entry.path });
-  else openExternal(entry.path);
+  else openFile(entry);
 }
 
 const isJson = (entry) => entry.kind === "file" && /\.json$/i.test(entry.name);
+
+// Text files (anything that reads as text: notes, code, configs, logs) open in
+// textedit in this window, other files with their default app. A tile that
+// drew the file's text knows; otherwise (not drawn yet, or empty) the server
+// checks.
+async function openFile(entry) {
+  const isText = !!tiles.get(entry.path)?.firstElementChild.text ||
+    await api(`/api/is-text?path=${encodeURIComponent(entry.path)}`).then((r) => r.text, () => false);
+  if (isText) openInApp("textedit", { file: entry.path });
+  else openExternal(entry.path);
+}
 
 // Another app (jsonedit) shown in this window, over the folder, like the
 // viewer. Its close button (or Esc) comes back here.
@@ -999,6 +1010,7 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
   if (entry.kind === "video") items.push(["Play here", () => viewer.open(state.view.indexOf(entry))]);
   if (isJson(entry)) items.push(["Edit in jsonedit", () => openInApp("jsonedit", { file: entry.path })]);
+  if (entry.kind === "file") items.push(["Edit as text", () => openInApp("textedit", { file: entry.path })]);
   items.push(["Open with default app", () => openExternal(entry.path)]);
   items.push(["Rename…", () => startRename(state.view.indexOf(entry))]);
   items.push(["Copy path", () => copyText(entry.path)]);

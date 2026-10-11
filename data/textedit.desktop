@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=textedit
+GenericName=Text Editor
+Comment=Edit text and code with syntax highlighting; Markdown as it reads
+Exec=@BIN@ %f
+Icon=accessories-text-editor
+Terminal=false
+Categories=Utility;TextEditor;Development;
+Keywords=text;editor;code;markdown;config;
+MimeType=text/plain;text/markdown;text/x-markdown;text/x-shellscript;application/x-shellscript;text/x-python;text/x-csrc;text/x-chdr;text/x-c++src;text/javascript;application/javascript;text/css;text/html;application/xml;text/xml;application/x-yaml;application/toml;text/x-log;
+StartupWMClass=textedit
