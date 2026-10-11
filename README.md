@@ -16,6 +16,8 @@ quickly. The engine keeps running after its last window closes.
 - **jsonedit**, a JSON editor: `jsonedit file.json` (see [jsonedit](#jsonedit)).
 - **textedit**, a text editor with syntax highlighting and Markdown that can be
   edited as it reads: `textedit file` (see [textedit](#textedit)).
+- **imageview**, an image viewer: `imageview picture.jpg`, and the other images
+  in its folder (see [imageview](#imageview)).
 - **phil-editor** (`ed` with `alias ed=phil-editor`): the right editor for a
   file, jsonedit for JSON and textedit for other text. Typed in phil's terminal
   panel, it opens the editor in that phil window (the panel's shell has
@@ -27,9 +29,8 @@ windows get its own Wayland app id (`phil`, `jsonedit`) for window rules. Apps
 share a look: a top (and bottom) bar that floats over the page and fades out
 until hovered, with an X at the right that closes the window
 (`engine/ui/kit.css`, `kit.js`). One app can show another inside its window:
-phil opens `.json` files in jsonedit and other text files in textedit that
-way, like images in its viewer, and the editor's X (or Esc) goes back to the
-folder. Copying and pasting go through
+phil opens `.json` files in jsonedit, other text files in textedit and images
+in imageview that way, and the app's X (or Esc) goes back to the folder. Copying and pasting go through
 the desktop's clipboard (`wl-copy` / `wl-paste`), so they show up in Omarchy's
 clipboard history and take what was copied anywhere; every way of pressing
 them works the same: Ctrl+C / Ctrl+V, Super+C / Super+V, Ctrl+Insert /
@@ -292,7 +293,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 
 | | |
 |---|---|
-| double-click / Enter | open folder, view image, play video in mpv, edit a `.json` file in jsonedit or any other text file (notes, code, configs, logs; whatever reads as text) in textedit, both in this window, or open the file with its default app (right-click a video → "Play here" for the built-in player; any file → "Edit as text") |
+| double-click / Enter | open folder, view image in imageview, play video in mpv, edit a `.json` file in jsonedit or any other text file (notes, code, configs, logs; whatever reads as text) in textedit, both in this window, or open the file with its default app (right-click a video → "Play here" for the built-in player; any file → "Edit as text") |
 | arrows, Home/End, PgUp/PgDn | move selection (with Shift: extend it) |
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; click empty space to clear |
 | Ctrl+C / Ctrl+Insert / Super+C | copy the selected files' paths, one per line |
@@ -314,7 +315,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
 | Ctrl + / − / wheel | thumbnail size |
 | F5 | reload folder |
-| in viewer: ← → Esc, `f` | previous/next, close, fullscreen |
+| in the video player ("Play here"): ← → Esc, `f` | previous/next video, close, fullscreen |
 
 **On-change hooks.** A file's Properties can name a command for phil to run
 when the file changes — but only while a phil window shows its folder; with
@@ -418,3 +419,26 @@ small edit doesn't reformat the file. Front matter and raw HTML show as they
 are and can be edited in the code. Images show from the file's folder.
 
 `deno task textedit [file]` runs it from the source.
+
+## imageview
+
+`imageview [file or folder]` shows an image and lets you go through the
+others in its folder (a folder: from its first), in name order, or in phil's
+order when phil opens it (in its own window; Esc goes back to the folder, with
+the image you were on selected). Typed in phil's terminal panel, it opens in
+that phil window. It's the default app for images (`deno task install`;
+`xdg-mime default imv.desktop image/jpeg ...` gives them back to imv).
+Formats the webview can't show (HEIC, TIFF, JPEG XL...) are converted by vips.
+
+| | |
+|---|---|
+| Z / Shift+Z | how the image meets the window: its height or its width fills it — first the one that shows the whole image, then the other, cropping what sticks out — or its original size (one image pixel to a screen pixel). Kept for the next images and windows |
+| + / − (Ctrl too, Ctrl+wheel at the pointer), 0 | zoom in and out, back to the fit |
+| arrow keys (Shift: a screenful), drag, wheel | scroll an image larger than the window; ← → when it's no wider: previous / next |
+| Page Down / Space, Page Up / Backspace, Home, End | next, previous, first, last |
+| double-click | original size at that spot, and back |
+| F | fullscreen |
+| Ctrl+C | copy the file's path |
+| Esc / Q | leave fullscreen, close |
+
+`deno task imageview [file]` runs it from the source.

@@ -1,21 +1,7 @@
-import { extname, join } from "@std/path";
+import { join } from "@std/path";
+import { mediaKind } from "../../engine/media.js";
 
-const IMAGE_EXT = new Set([
-  "jpg", "jpeg", "jpe", "jfif", "png", "gif", "webp", "avif", "heic", "heif",
-  "jxl", "tif", "tiff", "bmp", "svg", "ico", "jp2",
-]);
-const VIDEO_EXT = new Set([
-  "mp4", "m4v", "mkv", "webm", "mov", "avi", "wmv", "flv", "mpg", "mpeg",
-  "m2ts", "mts", "ts", "3gp", "ogv", "vob",
-]);
-
-export function mediaKind(name) {
-  const ext = extname(name).slice(1).toLowerCase();
-  if (IMAGE_EXT.has(ext)) return "image";
-  if (VIDEO_EXT.has(ext)) return "video";
-  if (ext === "pdf") return "pdf"; // thumbnailed: its first page
-  return "file";
-}
+export { mediaKind };
 
 async function exists(path) {
   try {

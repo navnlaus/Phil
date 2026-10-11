@@ -2,6 +2,7 @@
 // panel's shells. Runs in the engine's server worker (engine/server.js).
 import { basename, dirname, join, normalize } from "@std/path";
 import { httpError, json, serveFile, text } from "../../engine/http.js";
+import { imagePreview } from "../../engine/media.js";
 import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
 import { Hooks, metadataFile, runHook } from "./hooks.js";
@@ -59,7 +60,7 @@ export function createServer({ profile, controlSocket }) {
       case "GET /api/is-text": // opening a file: in the text editor?
         return json({ text: await isTextFile(requirePath(path)) });
       case "GET /preview":
-        return preview(requirePath(path), url.searchParams.get("size") ?? "2560");
+        return imagePreview(requirePath(path), url.searchParams.get("size") ?? "2560");
       case "POST /api/open":
         return openExternal(await req.json());
       case "POST /api/delete": {
@@ -638,17 +639,6 @@ async function isDir(path) {
 }
 
 // Full-size preview for formats the webview can't decode itself (HEIC, TIFF, ...).
-async function preview(path, size) {
-  if (!/^\d{2,5}$/.test(size)) return text(400, "Bad size");
-  const child = new Deno.Command("vips", {
-    args: ["thumbnail", path, ".jpg[Q=88]", size, "--size", "down"],
-    stdin: "null", stdout: "piped", stderr: "null",
-  }).spawn();
-  const out = await child.output();
-  if (!out.success) return text(415, "Can't decode image");
-  return new Response(out.stdout, { headers: { "content-type": "image/jpeg", "cache-control": "no-cache" } });
-}
-
 // Permanent delete (Shift+Delete). Folders go recursively; symlinks are
 // removed themselves, never what they point to.
 async function deletePaths(paths) {
