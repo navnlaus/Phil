@@ -527,6 +527,11 @@ const viewer = {
       video.autoplay = true;
       video.onerror = () =>
         failed("This video can't be played here — GStreamer is probably missing a codec\n(gst-plugins-good / gst-libav). Use mpv instead.");
+      // WebKit's player waits forever on some files instead of failing, e.g.
+      // Matroska files with embedded subtitles.
+      setTimeout(() => {
+        if (video.isConnected && video.readyState === 0) failed("This video doesn't load in the built-in player (files with embedded\nsubtitles don't). Use mpv instead.");
+      }, 6000);
       video.src = fileUrl(entry.path);
       stage.append(video);
       video.focus();

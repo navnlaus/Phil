@@ -126,7 +126,11 @@ ui/             the frontend (ui/vendor: xterm.js 6, MIT)
 - On NVIDIA, `__NV_DISABLE_EXPLICIT_SYNC=1` is set automatically. Without it,
   WebKitGTK crashes on Wayland with "Error 71 (Protocol error)". The other common
   fix, `WEBKIT_DISABLE_DMABUF_RENDERER=1`, also works but switches WebKit to CPU
-  rendering, which makes scrolling sluggish.
+  rendering, which makes scrolling sluggish. The NVDEC hardware video decoders
+  are also ranked out (`GST_PLUGIN_FEATURE_RANK`): WebKit's player can't take
+  their frames and freezes, so the built-in player decodes in software.
+- WebKit's player never loads Matroska files with embedded subtitles; after six
+  seconds the viewer says so. Double-click plays videos in mpv anyway.
 
 ## Terminal panel
 

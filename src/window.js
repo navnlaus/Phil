@@ -6,14 +6,26 @@
 // proprietary NVIDIA driver under Wayland because of explicit sync. Turning off
 // explicit sync keeps GPU rendering; WEBKIT_DISABLE_DMABUF_RENDERER=1 also
 // avoids the crash but drops WebKit to CPU rendering, which makes scrolling slow.
-// Must be set before WebKit loads. (Checked through libc because Deno refuses
-// /proc and /sys without --allow-all.)
-if (Deno.env.get("WEBKIT_DISABLE_DMABUF_RENDERER") === undefined && Deno.env.get("__NV_DISABLE_EXPLICIT_SYNC") === undefined) {
+//
+// Also on NVIDIA, the video player (GStreamer) picks the NVDEC hardware
+// decoders, whose frames come in CUDA memory that WebKit's video sink can't
+// take: playback freezes on the first frame or never starts. Ranking them out
+// leaves video to the software decoders. Your own GST_PLUGIN_FEATURE_RANK
+// entries come after these, so they still win.
+//
+// Both must be set before WebKit loads. (Checked through libc because Deno
+// refuses /proc and /sys without --allow-all.)
+{
   const libc = Deno.dlopen("libc.so.6", { access: { parameters: ["buffer", "i32"], result: "i32" } });
-  if (libc.symbols.access(new TextEncoder().encode("/proc/driver/nvidia\0"), 0) === 0) {
-    Deno.env.set("__NV_DISABLE_EXPLICIT_SYNC", "1");
-  }
+  const nvidia = libc.symbols.access(new TextEncoder().encode("/proc/driver/nvidia\0"), 0) === 0;
   libc.close();
+  if (nvidia) {
+    if (Deno.env.get("WEBKIT_DISABLE_DMABUF_RENDERER") === undefined && Deno.env.get("__NV_DISABLE_EXPLICIT_SYNC") === undefined) {
+      Deno.env.set("__NV_DISABLE_EXPLICIT_SYNC", "1");
+    }
+    const nvdec = ["h264", "h265", "vp8", "vp9", "av1", "mpeg2video", "mpeg4video", "mpegvideo", "jpeg"].map((c) => `nv${c}dec:NONE`);
+    Deno.env.set("GST_PLUGIN_FEATURE_RANK", [...nvdec, Deno.env.get("GST_PLUGIN_FEATURE_RANK")].filter(Boolean).join(","));
+  }
 }
 
 const libc = Deno.dlopen("libc.so.6", {
