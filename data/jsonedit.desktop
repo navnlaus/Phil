@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=jsonedit
+GenericName=JSON Editor
+Comment=Edit JSON files with a live tree and error checking
+Exec=@BIN@ %f
+Icon=text-x-generic
+Terminal=false
+Categories=Development;TextEditor;
+Keywords=json;editor;
+MimeType=application/json;
+StartupWMClass=jsonedit

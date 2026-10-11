@@ -1,0 +1,165 @@
+// phil's command line and window URL (engine/apps.js), and its server's settings.
+import { dirname, join, resolve } from "@std/path";
+
+export const appId = "phil";
+
+export const HELP = `phil — a small media-oriented file manager
+
+Usage: phil [options] [directory | file...]
+
+Without a directory, phil opens the folder it was showing when it last closed.
+Given files, it opens their folder with them selected.
+
+phil runs on phil-engine, which keeps running in the background so windows
+open quickly; the first app to run starts it. Incognito windows get an engine
+of their own, which exits with its last window.
+
+Options:
+  --thumb-dir PATH   Where thumbnails are stored
+                     (env PHIL_THUMB_DIR, default $XDG_CACHE_HOME/phil/thumbnails)
+  --thumb-size N     Thumbnail width in pixels; thumbnails are 16:9 crops
+                     (env PHIL_THUMB_SIZE, default 384)
+  --jobs N           Max parallel thumbnail jobs (default: CPU count)
+  --port N           Port for phil's local server (default: random)
+  --incognito        Leave no traces: don't remember the folder or settings,
+                     don't save the terminal's bash history, keep thumbnails in a
+                     .thumbnails folder inside each folder instead of the cache
+                     (unless --thumb-dir is given), no WebKit disk cache
+  --file-manager-service
+                     Run the org.freedesktop.FileManager1 D-Bus service that
+                     "Show in folder" uses; started by D-Bus, see scripts/install.sh
+  -h, --help         Show this help
+
+The first four (and --incognito) run a separate engine when not the default.
+Long options can be shortened to any unique prefix, e.g. --incog.
+
+Engine options, for every app (exact names):
+  --browser          Don't open a window; print the URL to open in a browser
+  --standalone       Don't use or start the background engine: a process of its
+                     own that exits when its window closes (handy for development)
+  --quit             Stop the background engine (with --incognito: that one)
+  --retire           Ask every running engine to stop taking new windows and exit
+                     once its windows are closed, so the next launch runs a new build
+`;
+
+// name -> takes a value?
+const OPTIONS = {
+  "--thumb-dir": true,
+  "--thumb-size": true,
+  "--jobs": true,
+  "--port": true,
+  "--incognito": false,
+  "--file-manager-service": false,
+  "--help": false,
+};
+
+const env = (name) => Deno.env.get(name) || undefined;
+
+export function home() {
+  return env("HOME") ?? "/";
+}
+
+function longOption(arg) {
+  if (arg in OPTIONS) return arg;
+  const matches = Object.keys(OPTIONS).filter((name) => name.startsWith(arg));
+  if (matches.length === 1) return matches[0];
+  throw new Error(matches.length ? `Ambiguous option ${arg} (${matches.join(", ")})` : `Unknown option ${arg}`);
+}
+
+/** phil's command line: which engine (`profile`) and what window (`open`). */
+export function parse(args, { cwd }) {
+  const opts = {};
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    let arg = args[i];
+    if (arg === "-h") return { help: HELP };
+    if (!arg.startsWith("--")) {
+      positional.push(arg);
+      continue;
+    }
+    let value;
+    const eq = arg.indexOf("=");
+    if (eq !== -1) {
+      value = arg.slice(eq + 1);
+      arg = arg.slice(0, eq);
+    }
+    const name = longOption(arg);
+    if (name === "--help") return { help: HELP };
+    if (OPTIONS[name]) {
+      value ??= args[++i];
+      if (value === undefined) throw new Error(`${name} needs a value`);
+    } else if (value !== undefined) {
+      throw new Error(`${name} doesn't take a value`);
+    }
+    opts[name.slice(2)] = value ?? true;
+  }
+  if (opts["file-manager-service"]) {
+    return { run: async () => (await import("./dbus.js")).runFileManagerService() };
+  }
+
+  const thumbDir = opts["thumb-dir"] ?? env("PHIL_THUMB_DIR");
+  const thumbSize = opts["thumb-size"] ?? env("PHIL_THUMB_SIZE");
+  // Non-default values make an engine of their own (see engine/instance.js).
+  const profile = {
+    incognito: opts.incognito ? true : undefined,
+    thumbDir: thumbDir ? resolve(cwd, thumbDir) : undefined,
+    thumbSize: thumbSize === undefined ? undefined : positiveInt("thumb size", thumbSize),
+    jobs: opts.jobs === undefined ? undefined : positiveInt("jobs", opts.jobs),
+    port: opts.port === undefined ? undefined : positiveInt("port", opts.port),
+  };
+
+  // A folder to open, or files to show selected in their folder.
+  const paths = positional.map((p) => resolve(cwd, p));
+  const isFile = (p) => {
+    try {
+      return !Deno.statSync(p).isDirectory;
+    } catch {
+      return false;
+    }
+  };
+  const dir = paths.length && isFile(paths[0]) ? dirname(paths[0]) : paths[0] ?? null;
+  return { profile, open: { dir, select: paths.filter((p) => dirname(p) === dir && isFile(p)) } };
+}
+
+/** The page URL: files to select in ?select=, the folder in the fragment. */
+export function windowUrl(base, { dir, select = [] }) {
+  for (const path of select) base.searchParams.append("select", path);
+  if (dir) base.hash = dir.split("/").map(encodeURIComponent).join("/");
+  return base;
+}
+
+// Incognito: thumbnails for folders that can't hold a .thumbnails folder.
+const scratchDir = () => join(env("XDG_RUNTIME_DIR") ?? "/tmp", `phil-incognito-${Deno.pid}`);
+
+export function cleanUp(profile) {
+  if (!profile.incognito) return;
+  try {
+    Deno.removeSync(scratchDir(), { recursive: true });
+  } catch { /* never created */ }
+}
+
+/** The server's settings for an engine `profile`, defaults filled in. */
+export function serverConfig(profile) {
+  const cacheHome = env("XDG_CACHE_HOME") ?? join(home(), ".cache");
+  const configHome = env("XDG_CONFIG_HOME") ?? join(home(), ".config");
+  const stateHome = env("XDG_STATE_HOME") ?? join(home(), ".local", "state");
+  const incognito = !!profile.incognito;
+  return {
+    incognito,
+    // null: per-folder .thumbnails (incognito without an explicit thumbnail dir)
+    thumbDir: profile.thumbDir ?? (incognito ? null : join(cacheHome, "phil", "thumbnails")),
+    scratchDir: scratchDir(), // deleted on exit (cleanUp)
+    thumbSize: profile.thumbSize ?? 384,
+    jobs: profile.jobs ?? navigator.hardwareConcurrency ?? 4,
+    port: profile.port ?? 0,
+    startDir: home(), // the first window's folder when there's no last one
+    settingsFile: join(configHome, "phil", "settings.json"),
+    stateFile: join(stateHome, "phil", "state.json"),
+  };
+}
+
+function positiveInt(name, value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) throw new Error(`Invalid ${name}: ${value}`);
+  return n;
+}

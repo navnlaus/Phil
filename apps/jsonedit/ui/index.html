@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jsonedit</title>
+  <link rel="stylesheet" href="/ui/style.css">
+  <script type="module" src="/ui/app.js"></script>
+</head>
+<body>
+  <header id="bar">
+    <div id="file">
+      <span id="file-name">Untitled</span><span id="dirty" title="Unsaved changes" hidden>●</span>
+      <span id="file-dir"></span>
+    </div>
+    <button id="btn-open" title="Open a file (Ctrl+O)">Open…</button>
+    <button id="btn-save" title="Save (Ctrl+S); Save as: Ctrl+Shift+S">Save</button>
+    <span class="sep"></span>
+    <button id="btn-format" title="Format (Ctrl+Shift+F)">Format</button>
+    <button id="btn-minify" title="All on one line">Minify</button>
+    <button id="btn-sort" title="Sort object keys, at every level">Sort keys</button>
+    <select id="indent" title="Indentation for Format and Sort keys">
+      <option value="2">2 spaces</option>
+      <option value="4">4 spaces</option>
+      <option value="tab">Tabs</option>
+    </select>
+  </header>
+
+  <form id="path-form" hidden>
+    <label for="path-input" id="path-label">Open</label>
+    <input id="path-input" type="text" spellcheck="false" autocomplete="off">
+    <button type="submit" id="path-ok">Open</button>
+    <button type="button" id="path-cancel">Cancel</button>
+  </form>
+
+  <main>
+    <section id="editor">
+      <div id="gutter" aria-hidden="true"><div id="lines"></div></div>
+      <textarea id="text" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="JSON text"></textarea>
+    </section>
+    <div id="split" title="Drag to resize"></div>
+    <section id="tree" aria-label="Structure" tabindex="0"></section>
+  </main>
+
+  <footer id="status">
+    <span id="state"></span>
+    <span id="caret"></span>
+  </footer>
+</body>
+</html>
