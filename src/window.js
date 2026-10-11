@@ -17,6 +17,11 @@ if (Deno.env.get("WEBKIT_DISABLE_DMABUF_RENDERER") === undefined && Deno.env.get
 
 const glib = Deno.dlopen("libglib-2.0.so.0", {
   g_set_prgname: { parameters: ["buffer"], result: "void" },
+  g_timeout_add: { parameters: ["u32", "function", "pointer"], result: "u32" },
+  g_free: { parameters: ["pointer"], result: "void" },
+});
+const jsc = Deno.dlopen("libjavascriptcoregtk-4.1.so.0", {
+  jsc_value_to_string: { parameters: ["pointer"], result: "pointer" },
 });
 const gobject = Deno.dlopen("libgobject-2.0.so.0", {
   g_signal_connect_data: {
@@ -44,13 +49,23 @@ const webkit = Deno.dlopen("libwebkit2gtk-4.1.so.0", {
   webkit_web_view_get_settings: { parameters: ["pointer"], result: "pointer" },
   webkit_web_view_get_user_content_manager: { parameters: ["pointer"], result: "pointer" },
   webkit_user_content_manager_register_script_message_handler: { parameters: ["pointer", "buffer"], result: "i32" },
+  webkit_javascript_result_get_js_value: { parameters: ["pointer"], result: "pointer" },
   webkit_settings_set_enable_developer_extras: { parameters: ["pointer", "i32"], result: "void" },
 });
 
 const cstr = (s) => new TextEncoder().encode(s + "\0");
 
-/** `ephemeral`: a private WebKit session that writes nothing to disk (no cache, cookies, storage). */
-export function openWindow({ title, url, width, height, ephemeral = false }) {
+// How long to wait for the page's "ready" before showing the window anyway.
+const SHOW_TIMEOUT_MS = 2000;
+
+/**
+ * Sets up the (still hidden) window, so that happens while the server is
+ * starting; `run(url)` then loads the page and blocks in the GTK main loop
+ * until the window is closed.
+ * `ephemeral`: a private WebKit session that writes nothing to disk (no cache, cookies, storage).
+ * `trace(label)`: called with startup milestones (PHIL_TRACE).
+ */
+export function createWindow({ title, width, height, ephemeral = false, trace = () => {} }) {
   glib.symbols.g_set_prgname(cstr(title)); // app-id / WM class, e.g. for Hyprland window rules
   gtk.symbols.gtk_init(null, null);
 
@@ -77,11 +92,37 @@ export function openWindow({ title, url, width, height, ephemeral = false }) {
       gtk.symbols.gtk_window_set_title(win, cstr(pageTitle || title));
     },
   );
-  // The page's close button: window.webkit.messageHandlers.phil.postMessage("close").
-  // (Scripts may not window.close() a window they didn't open.)
+  // The window is shown only once the page is styled and its script runs
+  // ("ready"). Mapped earlier, it shows a buffer WebKit hasn't drawn yet (noise
+  // on NVIDIA), then a white page and a black frame at the redirect. The folder
+  // itself renders a few ms later, while the compositor's open animation runs.
+  let shown = false;
+  const show = (why) => {
+    if (shown) return;
+    shown = true;
+    trace(`window shown (${why})`);
+    gtk.symbols.gtk_widget_show_all(win);
+  };
+  const onShowTimeout = new Deno.UnsafeCallback({ parameters: ["pointer"], result: "i32" }, () => {
+    show("timeout");
+    return 0;
+  });
+
+  // Messages from the page: window.webkit.messageHandlers.phil.postMessage(...)
+  //   "ready[:timings]"  page styled and running
+  //   "close"            the close button (scripts may not window.close() a window they didn't open)
   const onMessage = new Deno.UnsafeCallback(
     { parameters: ["pointer", "pointer", "pointer"], result: "void" },
-    () => gtk.symbols.gtk_widget_destroy(win),
+    (_manager, result) => {
+      const str = jsc.symbols.jsc_value_to_string(webkit.symbols.webkit_javascript_result_get_js_value(result));
+      const message = str ? Deno.UnsafePointerView.getCString(str) : "";
+      glib.symbols.g_free(str);
+      if (message === "close") gtk.symbols.gtk_widget_destroy(win);
+      else if (message.startsWith("ready")) {
+        if (message.length > 6) trace(`page ready ${message.slice(6)}`);
+        show("page ready");
+      }
+    },
   );
   const contentManager = webkit.symbols.webkit_web_view_get_user_content_manager(view);
   webkit.symbols.webkit_user_content_manager_register_script_message_handler(contentManager, cstr("phil"));
@@ -89,11 +130,19 @@ export function openWindow({ title, url, width, height, ephemeral = false }) {
   gobject.symbols.g_signal_connect_data(win, cstr("destroy"), onDestroy.pointer, null, null, 0);
   gobject.symbols.g_signal_connect_data(view, cstr("notify::title"), onTitle.pointer, null, null, 0);
 
-  webkit.symbols.webkit_web_view_load_uri(view, cstr(url));
-  gtk.symbols.gtk_widget_show_all(win);
-  gtk.symbols.gtk_main();
+  trace("window created");
 
-  onDestroy.close();
-  onTitle.close();
-  onMessage.close();
+  return {
+    run(url) {
+      webkit.symbols.webkit_web_view_load_uri(view, cstr(url));
+      trace("loading page");
+      glib.symbols.g_timeout_add(SHOW_TIMEOUT_MS, onShowTimeout.pointer, null);
+      gtk.symbols.gtk_main();
+
+      onDestroy.close();
+      onTitle.close();
+      onMessage.close();
+      onShowTimeout.close();
+    },
+  };
 }

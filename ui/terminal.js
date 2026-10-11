@@ -1,6 +1,3 @@
-import { Terminal } from "/ui/vendor/xterm.mjs";
-import { FitAddon } from "/ui/vendor/addon-fit.mjs";
-
 export const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
 
 /**
@@ -33,9 +30,9 @@ export class TerminalPanel {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  show(cwd, { focus = true } = {}) {
+  async show(cwd, { focus = true } = {}) {
     this.panel.hidden = false;
-    if (!this.term) this.start(cwd);
+    await (this.starting ??= this.start(cwd));
     requestAnimationFrame(() => {
       this.fit.fit();
       if (focus) this.term.focus();
@@ -46,7 +43,12 @@ export class TerminalPanel {
     this.panel.hidden = true;
   }
 
-  start(cwd) {
+  async start(cwd) {
+    // xterm.js is big; it's only loaded once the panel is first opened.
+    const [{ Terminal }, { FitAddon }] = await Promise.all([
+      import("/ui/vendor/xterm.mjs"),
+      import("/ui/vendor/addon-fit.mjs"),
+    ]);
     const css = getComputedStyle(document.documentElement);
     const color = (name) => css.getPropertyValue(name).trim();
     this.term = new Terminal({

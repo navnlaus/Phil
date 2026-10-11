@@ -1074,6 +1074,8 @@ document.addEventListener("keydown", (e) => {
 
 // ---------------------------------------------------------------- start
 
+// phil keeps its window hidden until the page is styled and running (src/window.js).
+window.webkit?.messageHandlers?.phil?.postMessage(`ready:${JSON.stringify({ script: Math.round(performance.now()) })}`);
 state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
 applySettings();
