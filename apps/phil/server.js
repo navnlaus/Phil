@@ -19,7 +19,7 @@ export function createServer({ profile, controlSocket }) {
   // Incognito leaves no traces, so its folder summaries last for the session only.
   const sockets = new Set(); // every page's WebSocket, for {theme}
   const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
-  const folders = new FolderSummaries(thumbs.dir && !config.incognito ? join(thumbs.dir, "folders") : null);
+  const folders = new FolderSummaries(config.incognito ? null : join(thumbs.dir, "folders"));
   const shown = new Map(); // page WebSocket -> the folder it shows
   // A hook ran: the windows showing its folder say so.
   const hooks = new Hooks(metadataFile(config.settingsFile), {
@@ -28,7 +28,7 @@ export function createServer({ profile, controlSocket }) {
       for (const [socket, dir] of shown) if (dir === dirname(run.path) && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ hook: run }));
     },
   });
-  console.log(`phil: thumbnails in ${config.thumbDir ?? "a .thumbnails folder in each folder"}`);
+  console.log(`phil: thumbnails in ${config.thumbDir}`);
 
   async function handle(req, url) {
     const path = url.searchParams.get("path");
@@ -44,7 +44,7 @@ export function createServer({ profile, controlSocket }) {
           mounts: await networkMounts(),
           hostname: await hostname(),
           incognito: config.incognito,
-          thumbDir: config.thumbDir ?? "a .thumbnails folder in each folder",
+          thumbDir: config.thumbsInMemory ? "in memory" : config.thumbDir,
           thumbSize: thumbs.name,
           settings: await readSettings(),
         });
@@ -106,7 +106,7 @@ export function createServer({ profile, controlSocket }) {
     }
     const thumb = /^\/thumbs\/([^/]+)\/([^/]+)$/.exec(url.pathname);
     if (req.method === "GET" && thumb && thumb[1] === thumbs.name) {
-      const file = thumbs.fileFor(thumb[2], url.searchParams.get("dir"));
+      const file = thumbs.fileFor(thumb[2]);
       if (file) return serveFile(req, file, { "cache-control": "private, max-age=31536000, immutable" });
     }
     return null;

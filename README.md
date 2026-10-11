@@ -122,9 +122,10 @@ how phil was closed). A folder argument always wins.
   session is written to it (`HISTFILE=/dev/null` after your bashrc ran, which
   also covers `history -a` prompt hooks; other recorders like atuin aren't
   covered);
-- thumbnails go to a `.thumbnails/<W>x<H>/` folder inside each folder that gets
-  any, instead of the shared cache (unless `--thumb-dir` is given). Folders
-  that can't be written to use a temporary folder that's deleted on exit;
+- caches are kept in memory only: thumbnails in a temporary folder in
+  `$XDG_RUNTIME_DIR` (a tmpfs, i.e. RAM; `/dev/shm` without it), deleted when
+  the incognito engine exits, unless `--thumb-dir` is given; folder summaries
+  and descriptions or hooks set in Properties in the process itself;
 - WebKit runs a private session: no disk cache, cookies or storage.
 
 Files inside `.thumbnails` folders are shown as their own thumbnails.
