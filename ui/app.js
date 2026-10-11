@@ -224,6 +224,16 @@ async function load(path) {
     restoreTerminal = false;
     setTerminalOpen(true, { focus: false });
   }
+  if (initialSelect) { // files given on the command line, e.g. from "Show in folder"
+    const indexes = initialSelect.map((p) => state.view.findIndex((e) => e.path === p)).filter((i) => i !== -1);
+    initialSelect = null;
+    if (indexes.length) {
+      select(indexes[0], { scroll: false });
+      setMarked(indexes.map((i) => state.view[i].path));
+      updateStatus();
+      tiles.get(state.view[indexes[0]].path).scrollIntoView({ block: "center" });
+    }
+  }
 }
 
 function sortEntries(list) {
@@ -954,8 +964,10 @@ const terminal = new TerminalPanel({
   onCwd: (path) => path !== state.path && navigate(path),
 });
 
-// Reopen the panel on startup if it was open when phil last quit (set below).
+// Reopen the panel on startup if it was open when phil last quit, and select
+// files phil was started with (both set at startup, applied after the first load).
 let restoreTerminal = false;
+let initialSelect = null;
 
 function setTerminalOpen(open, { focus = true } = {}) {
   if (open) terminal.show(state.path, { focus });
@@ -1066,5 +1078,6 @@ thumbDirEl.title = `${state.init.thumbDir} (${state.init.thumbSize})`;
 thumbs.connect();
 
 restoreTerminal = state.settings.termOpen;
+initialSelect = state.init.select.length ? state.init.select : null;
 if (location.hash.length > 1) load(decodeURIComponent(location.hash.slice(1)));
 else navigate(state.init.start);

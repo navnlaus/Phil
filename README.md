@@ -4,6 +4,29 @@ A small file manager for folders full of pictures and videos. The UI is plain
 HTML/CSS/JS rendered by the system WebKitGTK; the backend is a few hundred lines
 of JavaScript running on Deno. No bundled browser, no npm dependencies.
 
+## Install as the default file manager
+
+```sh
+deno task install
+```
+
+Builds `phil`, installs it to `~/.local/bin/phil` and makes it the default
+file manager. Rerun it after changing the code.
+
+- `~/.local/share/applications/phil.desktop` (with a "New Incognito Window"
+  action) and `inode/directory=phil.desktop` in `~/.config/mimeapps.list`:
+  folders opened with `xdg-open` and by most apps.
+- `~/.local/share/dbus-1/services/org.freedesktop.FileManager1.service`:
+  "Show in folder" in Brave/Chromium/Firefox, file pickers and portals goes
+  through the [FileManager1](https://www.freedesktop.org/wiki/Specifications/file-manager-interface/)
+  D-Bus interface, not the MIME default. The user service file takes
+  precedence over Nautilus's, so D-Bus starts `phil --file-manager-service`
+  (`src/dbus.js`), which opens a phil window per request with the items
+  selected, and exits after 10 idle minutes. While Nautilus is running it
+  holds that D-Bus name itself, so those requests go to Nautilus until it quits.
+
+`phil file...` opens the files' folder with them selected.
+
 ## Run
 
 ```sh
@@ -69,6 +92,8 @@ src/window.js   GTK3 + WebKitGTK window via Deno FFI (blocks in gtk_main)
 src/server.js   127.0.0.1 HTTP server (worker): listing, files with Range, thumbnails
 src/thumbs.js   thumbnail cache + LIFO job pool (vipsthumbnail / ffmpegthumbnailer)
 src/pty.js      pseudo-terminals via libc FFI (Deno has no PTY API)
+src/dbus.js     org.freedesktop.FileManager1 D-Bus service via GDBus FFI
+data/, scripts/install.sh  desktop entry, D-Bus service file, installer
 src/shell-init.bash  rc file for the terminal panel's bash
 ui/             the frontend (ui/vendor: xterm.js 6, MIT)
 ```

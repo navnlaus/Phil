@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=phil
+GenericName=File Manager
+Comment=Browse folders of pictures and videos
+Exec=@BIN@ %F
+Icon=system-file-manager
+Terminal=false
+Categories=System;FileTools;FileManager;
+Keywords=files;folders;pictures;videos;
+MimeType=inode/directory;
+StartupWMClass=phil
+Actions=incognito;
+
+[Desktop Action incognito]
+Name=New Incognito Window
+Exec=@BIN@ --incognito

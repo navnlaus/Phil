@@ -11,6 +11,11 @@ if (config.help) {
   console.log(HELP);
   Deno.exit(0);
 }
+if (config.fileManagerService) {
+  const { runFileManagerService } = await import("./dbus.js");
+  runFileManagerService();
+  Deno.exit(0);
+}
 
 // The HTTP server lives in a worker because the GTK main loop blocks this thread.
 const server = new Worker(new URL("./server.js", import.meta.url), { type: "module" });
