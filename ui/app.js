@@ -470,7 +470,9 @@ function open(index) {
   const entry = state.view[index];
   if (!entry) return;
   if (entry.kind === "dir") navigate(entry.path);
-  else if (isMedia(entry)) viewer.open(index);
+  else if (entry.kind === "image") viewer.open(index);
+  // mpv plays everything; WebKit's player stalls on some files (NVIDIA decoding).
+  else if (entry.kind === "video") openExternal(entry.path, "mpv");
   else openExternal(entry.path);
 }
 
@@ -600,8 +602,9 @@ async function deleteMarked() {
 function showContextMenu(x, y, entry) {
   const items = [];
   if (entry.kind === "dir") items.push(["Open", () => navigate(entry.path)]);
-  if (isMedia(entry)) items.push(["View", () => open(state.view.indexOf(entry))]);
+  if (entry.kind === "image") items.push(["View", () => open(state.view.indexOf(entry))]);
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
+  if (entry.kind === "video") items.push(["Play here", () => viewer.open(state.view.indexOf(entry))]);
   items.push(["Open with default app", () => openExternal(entry.path)]);
   items.push(["Copy path", () => copyText(entry.path)]);
   items.push([state.marked.size > 1 ? `Delete ${state.marked.size} items permanently…` : "Delete permanently…", deleteMarked]);
