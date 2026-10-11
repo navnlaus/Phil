@@ -780,17 +780,19 @@ const isJson = (entry) => entry.kind === "file" && /\.json$/i.test(entry.name);
 // viewer. Its close button (or Esc) comes back here.
 const appView = $("#app-view");
 
-async function openInApp(app, params) {
-  let src;
-  try {
-    src = await appUrl(app, params);
-  } catch (err) {
-    return alert(err.message);
-  }
-  const frame = Object.assign(document.createElement("iframe"), { src, title: app });
+function openInApp(app, params) {
+  const frame = Object.assign(document.createElement("iframe"), { src: appUrl(app, params), title: app });
   appView.replaceChildren(frame);
   appView.hidden = false;
-  frame.addEventListener("load", () => frame.focus(), { once: true });
+  frame.focus();
+}
+
+// Esc while the keyboard is still here: the app closes itself (it may ask
+// about unsaved changes first).
+function askAppToClose() {
+  const frame = appView.querySelector("iframe");
+  frame?.contentWindow.postMessage({ engine: "close-request" }, "*");
+  frame?.focus();
 }
 
 function closeApp() {
@@ -799,9 +801,18 @@ function closeApp() {
   grid.focus({ preventScroll: true });
 }
 
+// The app in the frame says it's ready (kit.js ready()): give it the keyboard,
+// which it can't take itself; or it closes.
 addEventListener("message", (e) => {
   const frame = appView.querySelector("iframe");
-  if (frame && e.source === frame.contentWindow && e.data?.engine === "close") closeApp();
+  if (!frame || e.source !== frame.contentWindow) return;
+  if (e.data?.engine === "ready") {
+    frame.focus();
+    frame.contentWindow.focus();
+    frame.contentWindow.postMessage({ engine: "focus" }, "*"); // now it can focus its view (kit.js holdFocus)
+  } else if (e.data?.engine === "close") {
+    closeApp();
+  }
 });
 
 const viewer = {
@@ -1365,6 +1376,7 @@ function toggleTerminal() {
 // toggle the panel, Alt+↓ / Alt+↑ move focus to the terminal (opening it) / the
 // folder view.
 document.addEventListener("keydown", (e) => {
+  if (!appView.hidden && e.key === "Escape") return askAppToClose(), e.preventDefault(), e.stopPropagation();
   if (!viewerEl.hidden || !appView.hidden || confirmDialog.open) return;
   if (isToggleKey(e)) toggleTerminal();
   else if (isFocusKey(e) && e.key === "ArrowDown") setTerminalOpen(true);
