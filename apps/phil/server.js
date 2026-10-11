@@ -58,6 +58,8 @@ export function createServer({ profile, controlSocket }) {
         return json(await transfer(await req.json()));
       case "POST /api/rename":
         return json(await rename(await req.json()));
+      case "POST /api/add-to-config":
+        return json(await addToConfig(requirePath((await req.json()).path)));
       case "PUT /api/settings":
         if (!config.incognito) await writeSettings(await req.json()); // incognito: this session only
         return json({ ok: true });
@@ -429,15 +431,44 @@ function requirePath(path) {
   return path;
 }
 
-async function places() {
+// The XDG user folders (DOCUMENTS, DOWNLOAD, ...) from user-dirs.dirs.
+async function userDirs() {
   const h = home();
-  const userDirs = {};
+  const dirs = {};
   try {
     const file = await Deno.readTextFile(join(Deno.env.get("XDG_CONFIG_HOME") ?? join(h, ".config"), "user-dirs.dirs"));
-    for (const [, name, value] of file.matchAll(/^XDG_(\w+)_DIR="(.*)"$/gm)) {
-      userDirs[name] = value.replace(/^\$HOME/, h);
-    }
+    for (const [, name, value] of file.matchAll(/^XDG_(\w+)_DIR="(.*)"$/gm)) dirs[name] = value.replace(/^\$HOME/, h);
   } catch { /* use defaults */ }
+  return dirs;
+}
+
+/**
+ * "Add to Config": a link to the file in Documents/Config, a place for config
+ * files used often but kept who knows where. Named like the file; if that's
+ * taken by another file, with its folder's name in front ("waybar-config"),
+ * then numbered. Returns { name, existed }.
+ */
+async function addToConfig(path) {
+  const docs = (await userDirs()).DOCUMENTS ?? join(home(), "Documents");
+  const dir = join(docs, "Config");
+  await Deno.mkdir(dir, { recursive: true });
+  const name = basename(path);
+  const candidates = [name, `${basename(dirname(path)).replace(/^\./, "")}-${name}`];
+  for (let i = 2; i < 100; i++) candidates.push(`${basename(dirname(path)).replace(/^\./, "")}-${name} ${i}`);
+  for (const candidate of candidates) {
+    const link = join(dir, candidate);
+    const target = await Deno.readLink(link).catch(() => null);
+    if (target === path) return { name: candidate, existed: true };
+    if (target !== null || await Deno.lstat(link).then(() => true, () => false)) continue; // taken
+    await Deno.symlink(path, link);
+    return { name: candidate, existed: false };
+  }
+  throw httpError(409, "too many files with this name in Config");
+}
+
+async function places() {
+  const h = home();
+  const dirs = await userDirs();
   const candidates = [
     ["Home", h, "home"],
     ...[
@@ -447,7 +478,7 @@ async function places() {
       ["Pictures", "PICTURES", "image"],
       ["Videos", "VIDEOS", "video"],
       ["Music", "MUSIC", "music"],
-    ].map(([name, key, icon]) => [name, (userDirs[key] ?? join(h, name)).replace(/\/$/, ""), icon]),
+    ].map(([name, key, icon]) => [name, (dirs[key] ?? join(h, name)).replace(/\/$/, ""), icon]),
   ];
   const out = [];
   const seen = new Set();
