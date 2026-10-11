@@ -96,11 +96,11 @@ export class TerminalPanel {
     this.term.onResize(({ cols, rows }) => {
       if (this.isRunning) this.ws.send(JSON.stringify({ resize: [cols, rows] }));
     });
-    // Let the panel shortcuts reach the app instead of the shell. Copying is
+    // Let the panel and focus shortcuts reach the app instead of the shell. Copying is
     // done here; pasting is left to the browser, whose paste event xterm.js
     // sends to the shell.
     this.term.attachCustomKeyEventHandler((e) => {
-      if (isToggleKey(e)) return false;
+      if (isToggleKey(e) || isFocusKey(e)) return false;
       const action = clipboardAction(e);
       if (action === "copy" && e.type === "keydown") {
         e.preventDefault();
@@ -181,4 +181,10 @@ function clipboardAction(e) {
 
 export function isToggleKey(e) {
   return e.type === "keydown" && (e.key === "F4" || (e.ctrlKey && e.key === "`"));
+}
+
+/** Alt+↑ / Alt+↓: focus the folder view / the terminal (Tab belongs to the shell). */
+export function isFocusKey(e) {
+  return e.type === "keydown" && e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey &&
+    (e.key === "ArrowUp" || e.key === "ArrowDown");
 }

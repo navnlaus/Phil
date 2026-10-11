@@ -1,4 +1,4 @@
-import { isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
+import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
 
 const $ = (sel) => document.querySelector(sel);
 const grid = $("#grid");
@@ -989,12 +989,17 @@ function toggleTerminal() {
   setTerminalOpen(!terminal.isOpen);
 }
 
-// Capture phase, so F4 / Ctrl+` work while the terminal has focus too.
+// Capture phase, so these work while the terminal has focus too: F4 / Ctrl+`
+// toggle the panel, Alt+↓ / Alt+↑ move focus to the terminal (opening it) / the
+// folder view.
 document.addEventListener("keydown", (e) => {
-  if (!isToggleKey(e) || !viewerEl.hidden) return;
+  if (!viewerEl.hidden || confirmDialog.open) return;
+  if (isToggleKey(e)) toggleTerminal();
+  else if (isFocusKey(e) && e.key === "ArrowDown") setTerminalOpen(true);
+  else if (isFocusKey(e)) grid.focus({ preventScroll: true });
+  else return;
   e.preventDefault();
   e.stopPropagation();
-  toggleTerminal();
 }, true);
 
 $("#term-resize").addEventListener("pointerdown", (e) => {
@@ -1035,9 +1040,7 @@ document.addEventListener("keydown", (e) => {
 
   if (e.altKey && e.key === "ArrowLeft") return history.back(), handled();
   if (e.altKey && e.key === "ArrowRight") return history.forward(), handled();
-  if ((e.altKey && e.key === "ArrowUp") || (e.key === "Backspace" && e.target === grid)) {
-    return $("#btn-up").click(), handled();
-  }
+  if (e.key === "Backspace" && e.target === grid) return $("#btn-up").click(), handled();
   if (ctrl && e.key === "l") return editLocation(), handled();
   if ((ctrl && e.key === "f") || (e.key === "/" && e.target === grid)) return filterInput.focus(), filterInput.select(), handled();
   if (ctrl && e.key === "h") return toggleHidden(), handled();

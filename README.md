@@ -167,13 +167,14 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
 | right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, places) |
 | middle-drag onto a folder | move there right away |
-| Backspace / Alt+↑ | parent folder |
+| Backspace | parent folder |
 | Alt+← / Alt+→ | back / forward |
 | Ctrl+L | type a path (`~` works) |
 | `/` or Ctrl+F | filter |
 | Ctrl+H | show hidden files |
 | F9 | toggle the places sidebar |
 | F4 / Ctrl+` | toggle the terminal panel |
+| Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
 | Ctrl + / − / wheel | thumbnail size |
 | F5 | reload folder |
 | in viewer: ← → Esc, `f` | previous/next, close, fullscreen |
