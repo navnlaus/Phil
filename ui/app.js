@@ -13,6 +13,9 @@ const stage = viewerEl.querySelector(".stage");
 const contextMenu = $("#context");
 
 const KIND_ICON = { dir: "folder", image: "image", video: "video", file: "file" };
+// How names and details sit on the tiles (ui/style.css). Chosen with "theme" in
+// ~/.config/phil/settings.json; phil only reads it.
+const THEMES = ["overlay", "strip", "below", "chips"];
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 const state = {
@@ -23,7 +26,7 @@ const state = {
   selected: -1, // index into view: the keyboard cursor
   marked: new Set(), // paths of the selected entries (one or more)
   anchor: -1, // where Shift+click / Shift+arrow ranges start
-  settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, labels: "overlay" },
+  settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, theme: "overlay" },
 };
 const tiles = new Map(); // path -> tile element
 const scrollPositions = new Map(); // path -> scrollTop, restored on back/up
@@ -73,38 +76,48 @@ function saveSettings(delay = 400) {
 
 // Thumbnails that aren't cached yet are requested over one WebSocket, so the
 // browser's per-host connection limit doesn't cap how many generate in parallel.
-// Tiles scrolling out of view cancel their request.
+// So are summaries for folder tiles (see src/folders.js). Tiles scrolling out
+// of view cancel their request. The server also sends {theme} when the theme
+// in the settings file changes.
 const thumbs = {
   ws: null,
-  wanted: new Set(),
+  wanted: new Set(), // files and folders waiting for an answer
+  folders: new Set(), // the folders among them
   outWant: new Set(),
+  outFolders: new Set(),
   outCancel: new Set(),
   scheduled: false,
 
   connect() {
     this.ws = new WebSocket(`ws://${location.host}/ws`);
     this.ws.onopen = () => {
-      this.wanted.forEach((p) => this.outWant.add(p));
+      this.wanted.forEach((p) => (this.folders.has(p) ? this.outFolders : this.outWant).add(p));
       this.flush();
     };
     this.ws.onmessage = (e) => {
-      const { path, url } = JSON.parse(e.data);
+      const msg = JSON.parse(e.data);
+      if ("theme" in msg) return setTheme(msg.theme);
+      const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
-      onThumbReady(path, url);
+      this.folders.delete(path);
+      if (msg.folder) onFolderSummary(path, msg.summary);
+      else onThumbReady(path, msg.url);
       updateProgress();
     };
     this.ws.onclose = () => setTimeout(() => this.connect(), 1000);
   },
-  want(path) {
+  want(path, { folder = false } = {}) {
     if (this.wanted.has(path)) return;
     this.wanted.add(path);
+    if (folder) this.folders.add(path);
     this.outCancel.delete(path);
-    this.outWant.add(path);
+    (folder ? this.outFolders : this.outWant).add(path);
     this.schedule();
   },
   cancel(path) {
     if (!this.wanted.delete(path)) return;
-    if (!this.outWant.delete(path)) this.outCancel.add(path);
+    this.folders.delete(path);
+    if (!this.outWant.delete(path) && !this.outFolders.delete(path)) this.outCancel.add(path);
     this.schedule();
   },
   cancelAll() {
@@ -119,35 +132,61 @@ const thumbs = {
   flush() {
     this.scheduled = false;
     if (this.ws?.readyState !== WebSocket.OPEN) return;
-    if (!this.outWant.size && !this.outCancel.size) return;
+    if (!this.outWant.size && !this.outFolders.size && !this.outCancel.size) return;
     // The server works through requests last-in-first-out, so send the top of the screen last.
-    this.ws.send(JSON.stringify({ cancel: [...this.outCancel], want: [...this.outWant].reverse() }));
+    this.ws.send(JSON.stringify({
+      cancel: [...this.outCancel],
+      want: [...this.outWant].reverse(),
+      folders: [...this.outFolders],
+      sort: state.settings.sort,
+    }));
     this.outWant.clear();
+    this.outFolders.clear();
     this.outCancel.clear();
   },
 };
 
-// Thumbnails load a bit ahead of the viewport. Pending requests are cancelled
-// as soon as a tile leaves that zone, but loaded images are only dropped once
-// they are far away, so scrolling back and forth doesn't re-decode them.
+// Thumbnails and folder summaries load a bit ahead of the viewport. Pending
+// requests are cancelled as soon as a tile leaves that zone, but loaded images
+// are only dropped once they are far away, so scrolling back and forth doesn't
+// re-decode them.
 const observe = (margin, fn) =>
   new IntersectionObserver((records) => {
     for (const { target, isIntersecting } of records) {
       const entry = state.view[target.dataset.index];
-      if (entry && isMedia(entry)) fn(target, entry, isIntersecting);
+      if (entry && (isMedia(entry) || entry.kind === "dir")) fn(target, entry, isIntersecting);
     }
   }, { root: grid, rootMargin: `${margin}px 0px` });
 
 const nearObserver = observe(800, (tile, entry, near) => {
-  if (near) showThumb(tile, entry);
-  else if (entry.thumb === null) {
+  if (near) return entry.kind === "dir" ? wantSummary(tile, entry) : showThumb(tile, entry);
+  if (thumbs.wanted.has(entry.path)) {
     tile.firstElementChild.classList.remove("loading");
     thumbs.cancel(entry.path);
   }
 });
-const farObserver = observe(4000, (tile, _entry, inRange) => {
-  if (!inRange) unloadThumb(tile);
+const farObserver = observe(4000, (tile, entry, inRange) => {
+  if (!inRange && isMedia(entry)) unloadThumb(tile);
 });
+
+// A folder's summary is out of date when the folder changed since, or the view
+// is sorted differently (its previews are its first images in that order).
+function wantSummary(tile, entry) {
+  const s = entry.summary;
+  if (entry.summaryFailed || (s && s.mtime === entry.mtime && s.sort === state.settings.sort && s.complete)) return;
+  if (!s) tile.firstElementChild.classList.add("loading");
+  thumbs.want(entry.path, { folder: true });
+}
+
+function onFolderSummary(path, summary) {
+  const tile = tiles.get(path);
+  if (!tile) return;
+  const entry = state.view[tile.dataset.index];
+  tile.firstElementChild.classList.remove("loading");
+  if (!summary) return void (entry.summaryFailed = true); // e.g. no permission: don't ask again
+  entry.summary = summary;
+  showFolderInfo(tile, entry);
+}
 
 function showThumb(tile, entry) {
   const box = tile.firstElementChild;
@@ -199,7 +238,7 @@ async function load(path) {
   const previous = state.path;
   let listing;
   try {
-    listing = await api(`/api/list?path=${encodeURIComponent(path)}`);
+    listing = await api(`/api/list?path=${encodeURIComponent(path)}&sort=${state.settings.sort}`);
   } catch (err) {
     showGridMessage(`Can't open ${path}: ${err.message}`);
     return;
@@ -287,8 +326,7 @@ function makeTile(entry, index) {
 
   const box = document.createElement("div");
   box.className = "thumb";
-  if (entry.kind === "dir") fillFolderThumb(box, entry.summary);
-  else {
+  if (entry.kind !== "dir") {
     box.innerHTML = icon(KIND_ICON[entry.kind], "kind") + (entry.kind === "video" ? `<span class="badge">${icon("play")}</span>` : "");
     const dot = entry.name.lastIndexOf(".");
     if (entry.kind === "file" && dot > 0 && entry.name.length - dot <= 6) {
@@ -307,25 +345,36 @@ function makeTile(entry, index) {
   name.textContent = entry.name;
   const meta = document.createElement("span");
   meta.className = "meta";
-  if (entry.kind !== "dir") meta.textContent = `${formatSize(entry.size)} · ${formatShortDate(entry.mtime)}`;
-  else if (entry.summary) meta.textContent = folderContents(entry.summary);
   label.append(name, meta);
-  tile.title = entry.kind === "dir"
-    ? entry.name + (meta.textContent ? `\n${meta.textContent}` : "")
-    : `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}`;
-  if (entry.summary && !entry.summary.files && !entry.summary.dirs) tile.classList.add("empty-dir");
   tile.append(box, label);
+  if (entry.kind === "dir") showFolderInfo(tile, entry);
+  else {
+    meta.textContent = `${formatSize(entry.size)} · ${formatShortDate(entry.mtime)}`;
+    tile.title = `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}`;
+  }
   return tile;
 }
 
-// A folder looks like one: a tab over a face that holds a few of its
-// thumbnails, or an icon for what it holds. Contents come from the summary saved
-// when the folder was last opened (src/folders.js); folders never opened are
-// plain.
-function fillFolderThumb(box, summary) {
+// A folder looks like one: a tab over a face that holds its first few
+// thumbnails, or an icon for what it holds, and its label says what it holds.
+// All from its summary (src/folders.js), which is fetched when the tile comes
+// into view; until then the folder is plain.
+function showFolderInfo(tile, entry) {
+  const summary = entry.summary;
+  const box = tile.firstElementChild;
+  const previews = summary?.previews ?? [];
+  const look = previews.join(" ") || (summary?.files ? "file" : summary?.dirs ? "folder" : "");
+  if (box.dataset.look !== look || !box.firstChild) fillFolderFace(box, summary, previews);
+  box.dataset.look = look;
+  const meta = tile.querySelector(".meta");
+  meta.textContent = summary ? folderContents(summary) : "";
+  tile.title = entry.name + (meta.textContent ? `\n${meta.textContent}` : "");
+  tile.classList.toggle("empty-dir", !!summary && !summary.files && !summary.dirs);
+}
+
+function fillFolderFace(box, summary, previews) {
   const face = document.createElement("div");
   face.className = "face";
-  const previews = summary?.previews ?? [];
   if (previews.length) {
     face.classList.add("previews", `n${previews.length}`);
     for (const url of previews) {
@@ -336,7 +385,7 @@ function fillFolderThumb(box, summary) {
   } else if (summary?.files || summary?.dirs) {
     face.innerHTML = icon(summary.files ? "file" : "folder", "kind");
   }
-  box.append(face);
+  box.replaceChildren(face);
 }
 
 function formatShortDate(ms) {
@@ -486,8 +535,11 @@ function updateStatus() {
 }
 
 function updateProgress() {
-  const n = thumbs.wanted.size;
-  $("#status-progress").textContent = n ? `Generating ${n} thumbnail${n === 1 ? "" : "s"}…` : "";
+  const folders = thumbs.folders.size, files = thumbs.wanted.size - folders;
+  const parts = [];
+  if (files) parts.push(`Generating ${files} thumbnail${files === 1 ? "" : "s"}`);
+  if (folders) parts.push(`${parts.length ? "reading" : "Reading"} ${folders} folder${folders === 1 ? "" : "s"}`);
+  $("#status-progress").textContent = parts.length ? parts.join(", ") + "…" : "";
 }
 
 function applySettings() {
@@ -498,8 +550,13 @@ function applySettings() {
   hiddenButton.setAttribute("aria-pressed", String(s.showHidden));
   $("#btn-sidebar").setAttribute("aria-pressed", String(s.sidebar));
   document.body.classList.toggle("sidebar", s.sidebar);
-  document.body.dataset.labels = s.labels;
+  document.body.dataset.theme = THEMES.includes(s.theme) ? s.theme : "overlay";
   termPanel.style.height = `${s.termHeight}px`;
+}
+
+function setTheme(theme) {
+  state.settings.theme = theme;
+  applySettings();
 }
 
 function toggleSidebar() {

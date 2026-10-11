@@ -1,12 +1,13 @@
 // Local HTTP server for the UI. Runs in a worker; posts { url } once listening.
 import { basename, dirname, extname, join, normalize } from "@std/path";
 import { home } from "./config.js";
-import { FolderSummaries } from "./folders.js";
+import { FolderSummaries, makeSummary } from "./folders.js";
 import { listen } from "./instance.js";
 import { Pty } from "./pty.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
 const UI_DIR = new URL("../ui/", import.meta.url);
+const DEFAULT_THEME = "overlay"; // see the themes in ui/style.css
 
 const CONTENT_TYPES = {
   html: "text/html; charset=utf-8", js: "text/javascript; charset=utf-8", mjs: "text/javascript; charset=utf-8",
@@ -27,6 +28,7 @@ function start(config) {
   const token = crypto.randomUUID();
   const thumbs = new Thumbnailer(config);
   // Incognito leaves no traces, so its folder summaries last for the session only.
+  const sockets = new Set(); // every page's WebSocket, for {theme}
   const folders = new FolderSummaries(thumbs.dir && !config.incognito ? join(thumbs.dir, "folders") : null);
   let host, cookie;
 
@@ -96,7 +98,7 @@ function start(config) {
           settings: await readSettings(),
         });
       case "GET /api/list": {
-        const listing = await listDir(requirePath(path));
+        const listing = await listDir(requirePath(path), url.searchParams.get("sort") ?? "name");
         rememberDir(listing.path);
         return json(listing);
       }
@@ -133,16 +135,19 @@ function start(config) {
     return text(404, "Not found");
   }
 
-  async function listDir(dir) {
+  async function listDir(dir, sort) {
     const mtime = (await Deno.stat(dir)).mtime?.getTime() ?? 0; // before reading: a change while listing is caught next time
-    const entries = await readEntries(dir, { summaries: true });
-    folders.update(dir, mtime, entries).catch((err) => console.error(`phil: can't save folder summary: ${err.message}`));
+    const entries = await readEntries(dir);
+    // While we're here, this folder's own summary, from thumbnails already cached.
+    makeSummary({ entries, mtime, sort, thumbOf: (e) => e.thumb ?? null })
+      .then((summary) => folders.save(dir, summary))
+      .catch((err) => console.error(`phil: can't save folder summary: ${err.message}`));
     return { path: dir, parent: dir === "/" ? null : dirname(dir), entries };
   }
 
-  // The folder's entries with size, date and cached thumbnail; `summaries`:
-  // subfolders also get what they held when last opened.
-  async function readEntries(dir, { summaries = false } = {}) {
+  // The folder's entries with size and date; with `lookups`, also each media
+  // file's cached thumbnail and each subfolder's saved summary.
+  async function readEntries(dir, { lookups = true } = {}) {
     const dirents = [];
     for await (const d of Deno.readDir(dir)) dirents.push(d);
     return await mapLimit(dirents, 64, async (d) => {
@@ -160,28 +165,38 @@ function start(config) {
         mtime: stat?.mtime?.getTime() ?? 0,
         symlink: d.isSymlink,
       };
+      if (!lookups) return entry;
       if (stat && (kind === "image" || kind === "video")) entry.thumb = await thumbs.lookup(path, stat);
-      if (kind === "dir" && summaries) entry.summary = await summaryOf(path, entry.mtime);
+      if (kind === "dir") entry.summary = await folders.get(path);
       return entry;
     });
   }
 
-  // A subfolder's saved summary. If the folder changed since (something added
-  // or removed there by the terminal or another program), it's read again so
-  // the counts stay true; previews come from the thumbnails already cached.
-  async function summaryOf(path, mtime) {
-    const summary = await folders.get(path);
-    if (!summary || summary.mtime === mtime) return summary;
-    try {
-      return await folders.update(path, mtime, await readEntries(path));
-    } catch {
-      return null;
-    }
+  // A folder tile came into view without an up-to-date summary: read the folder
+  // and make thumbnails for its first images/videos in the view's sort order.
+  async function summarize(path, sort, signal) {
+    const mtime = (await Deno.stat(path)).mtime?.getTime() ?? 0;
+    const entries = await readEntries(path, { lookups: false });
+    signal.throwIfAborted();
+    const summary = await makeSummary({
+      entries,
+      mtime,
+      sort,
+      thumbOf: (e) =>
+        thumbs.get(e.path, signal).catch((err) => {
+          if (signal.aborted) throw err;
+          return false; // can't be thumbnailed: skipped, not retried
+        }),
+    });
+    await folders.save(path, summary);
+    return summary;
   }
 
   // One WebSocket per page. The page sends {want: [paths]} for tiles entering the
-  // viewport and {cancel: [paths]} for tiles that scrolled away before loading.
-  // Unlike <img> requests this isn't capped at ~6 connections per host.
+  // viewport, {folders: [paths], sort} for folder tiles that need a summary, and
+  // {cancel: [paths]} for tiles that scrolled away before loading. Unlike <img>
+  // requests this isn't capped at ~6 connections per host. It also carries
+  // {theme} when the theme in the settings file changes.
   function thumbSocket(req) {
     if (req.headers.get("upgrade") !== "websocket" || req.headers.get("origin") !== `http://${host}`) {
       return text(400, "Bad request");
@@ -196,10 +211,7 @@ function start(config) {
         const ctrl = new AbortController();
         pending.set(path, ctrl);
         thumbs.get(path, ctrl.signal)
-          .then((url) => {
-            send({ path, url });
-            if (!basename(path).startsWith(".")) folders.addPreview(dirname(path), url).catch(() => {});
-          })
+          .then((url) => send({ path, url }))
           .catch((err) => {
             if (ctrl.signal.aborted) return;
             console.error(`phil: ${err.message}`);
@@ -207,8 +219,21 @@ function start(config) {
           })
           .finally(() => pending.delete(path));
       }
+      for (const path of msg.folders ?? []) {
+        if (pending.has(path)) continue;
+        const ctrl = new AbortController();
+        pending.set(path, ctrl);
+        summarize(path, msg.sort, ctrl.signal)
+          .then((summary) => send({ folder: path, summary }))
+          .catch(() => ctrl.signal.aborted || send({ folder: path, summary: null }))
+          .finally(() => pending.delete(path));
+      }
     };
-    socket.onclose = () => pending.forEach((c) => c.abort());
+    sockets.add(socket);
+    socket.onclose = () => {
+      sockets.delete(socket);
+      pending.forEach((c) => c.abort());
+    };
     const send = (msg) => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(msg));
     return response;
   }
@@ -279,16 +304,48 @@ function start(config) {
 
   async function readSettings() {
     try {
-      return JSON.parse(await Deno.readTextFile(config.settingsFile));
+      const settings = JSON.parse(await Deno.readTextFile(config.settingsFile));
+      settings.theme ??= settings.labels; // its name in an earlier build
+      delete settings.labels;
+      return settings;
     } catch {
       return {};
     }
   }
 
+  // The theme is chosen by editing the settings file, never by the page: the
+  // page's settings are saved around it. It's written out even when unset, so
+  // the file shows where it goes.
   async function writeSettings(settings) {
+    const { theme = DEFAULT_THEME } = await readSettings();
+    delete settings.theme;
     await Deno.mkdir(dirname(config.settingsFile), { recursive: true });
-    await Deno.writeTextFile(config.settingsFile, JSON.stringify(settings, null, 2) + "\n");
+    const tmp = `${config.settingsFile}.${crypto.randomUUID().slice(0, 8)}.tmp`;
+    await Deno.writeTextFile(tmp, JSON.stringify({ theme, ...settings }, null, 2) + "\n");
+    await Deno.rename(tmp, config.settingsFile); // atomic, for the watcher and other phils
   }
+
+  // Editing the theme in the settings file restyles open windows right away.
+  async function watchTheme() {
+    let theme = (await readSettings()).theme;
+    let timer;
+    for await (const event of Deno.watchFs(dirname(config.settingsFile), { recursive: false })) {
+      if (!event.paths.includes(config.settingsFile)) continue;
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        let next;
+        try {
+          next = JSON.parse(await Deno.readTextFile(config.settingsFile)).theme;
+        } catch {
+          return; // gone, or half-written by an editor: wait for the next change
+        }
+        if (next === theme) return;
+        theme = next;
+        for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ theme }));
+      }, 150);
+    }
+  }
+  watchTheme().catch(() => {}); // no settings folder yet: nothing to watch
 
   // The folder shown last, so phil reopens there. Written on every folder
   // change (not on exit) so it survives however phil is closed.
