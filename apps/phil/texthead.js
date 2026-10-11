@@ -1,4 +1,4 @@
-import { extname } from "@std/path";
+import { basename, extname } from "@std/path";
 
 const HEAD = 32 * 1024; // bytes read from the start of a file
 const MAX_LINES = 400;
@@ -8,7 +8,7 @@ const MAX_CHARS = 200; // per line
  * The start of a text file, for drawing on its tile (ui/app.js): up to 400
  * lines (`maxLines`, of up to `maxChars` characters), each [kind, text] where kind is "h1".."h6" for a Markdown heading,
  * "c" for a comment line and "" otherwise. `prose`: Markdown or plain text,
- * drawn in a proportional font. null for files that aren't text (binary, or
+ * drawn in a proportional font. `name`: the file's, for its highlighting. null for files that aren't text (binary, or
  * not UTF-8) or are empty.
  */
 export async function textHead(path, { maxLines = MAX_LINES, maxChars = MAX_CHARS } = {}) {
@@ -28,7 +28,7 @@ export async function textHead(path, { maxLines = MAX_LINES, maxChars = MAX_CHAR
     return [kind, line];
   });
   if (!lines.some(([, l]) => l.trim())) return null;
-  return { lines, prose: markdown || ext === ".txt" || ext === "" };
+  return { lines, prose: markdown || ext === ".txt" || ext === "", name: basename(path) }; // the name picks the highlighting
 }
 
 /** Whether the file is text (an empty one counts), for opening it in an editor. */

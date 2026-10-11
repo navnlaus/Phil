@@ -1,6 +1,6 @@
 import { clipboardKey, closeWindow, copyText, embedded, holdFocus, onCloseRequest, pasteText, ready } from "../engine/ui/kit.js";
 import { render as renderMarkdown, toMarkdown } from "./markdown.js";
-import { commentOf, detectLanguage, escape, LANGUAGES } from "./syntax.js";
+import { commentOf, detectLanguage, escape, LANGUAGES } from "../engine/ui/syntax.js";
 
 const $ = (sel) => document.querySelector(sel);
 const ta = $("#text");
@@ -164,7 +164,7 @@ function guessIndent(text) {
 let lines = [""];
 let hl = { lines: [], html: [] };
 let same = { top: 0, bottom: 0 };
-const worker = new Worker(new URL("./highlight-worker.js", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("../engine/ui/syntax-worker.js", import.meta.url), { type: "module" });
 let sent = null, hlTimer;
 
 worker.onmessage = (e) => {

@@ -1,5 +1,7 @@
-// Syntax highlighting with highlight.js (vendor/, BSD-3-Clause): which
-// language a file is, and its text as highlighted HTML, a line at a time.
+// Syntax highlighting with highlight.js (vendor/, BSD-3-Clause), for every
+// app's pages: which language a file is, and its text highlighted a line at a
+// time, as HTML (textedit) or as colored runs to draw (phil's text tiles).
+// syntax-worker.js does it in the background.
 import hljs from "./vendor/highlight.min.mjs";
 import dockerfile from "./vendor/hljs-dockerfile.min.mjs";
 import nginx from "./vendor/hljs-nginx.min.mjs";
@@ -96,4 +98,45 @@ export function highlightLines(text, lang) {
   }
   lines.push(line);
   return lines;
+}
+
+// What a token is, by its highlight.js classes: the color roles apps style
+// (--s-comment, --s-string, ...; see textedit's style.css).
+const ROLES = [
+  ["comment", /\bhljs-(comment|quote)\b/],
+  ["string", /\bhljs-(string|regexp|addition|char)\b/],
+  ["number", /\bhljs-(number|symbol|bullet|link)\b/],
+  ["keyword", /\bhljs-(keyword|selector-tag|doctag)\b/],
+  ["literal", /\bhljs-literal\b/],
+  ["type", /\bhljs-(type|built_in|selector-class)\b|\btitle class_/],
+  ["heading", /\bhljs-(section|strong|emphasis|code)\b/],
+  ["fn", /\bhljs-(title|selector-id)\b/],
+  ["attr", /\bhljs-(attr|attribute|property|name|tag)\b/],
+  ["variable", /\bhljs-(variable|template-variable|deletion)\b/],
+  ["meta", /\bhljs-(meta|subst|selector-attr|selector-pseudo)\b/],
+];
+const roleOf = (classes) => ROLES.find(([, re]) => re.test(classes))?.[0] ?? null;
+
+const unescape = (s) => s.replace(/&(amp|lt|gt|quot|#x27);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#x27": "'" })[e]);
+
+/**
+ * `text` highlighted as `lang`, as runs per line: [[text, role], ...], role
+ * one of the ROLES names or null (plain).
+ */
+export function highlightRuns(text, lang) {
+  return highlightLines(text, lang).map((html) => {
+    const runs = [];
+    const open = [];
+    for (const [tok] of html.matchAll(/<span class="([^"]*)">|<\/span>|[^<]+/g)) {
+      if (tok.startsWith("<span")) open.push(/class="([^"]*)"/.exec(tok)[1]);
+      else if (tok === "</span>") open.pop();
+      else {
+        // The innermost span with a role decides.
+        let role = null;
+        for (let i = open.length - 1; i >= 0 && !role; i--) role = roleOf(open[i]);
+        runs.push([unescape(tok), role]);
+      }
+    }
+    return runs;
+  });
 }
