@@ -36,6 +36,8 @@ const gtk = Deno.dlopen("libgtk-3.so.0", {
 });
 const webkit = Deno.dlopen("libwebkit2gtk-4.1.so.0", {
   webkit_web_view_new: { parameters: [], result: "pointer" },
+  webkit_web_context_new_ephemeral: { parameters: [], result: "pointer" },
+  webkit_web_view_new_with_context: { parameters: ["pointer"], result: "pointer" },
   webkit_web_view_load_uri: { parameters: ["pointer", "buffer"], result: "void" },
   webkit_web_view_get_title: { parameters: ["pointer"], result: "pointer" },
   webkit_web_view_get_settings: { parameters: ["pointer"], result: "pointer" },
@@ -44,7 +46,8 @@ const webkit = Deno.dlopen("libwebkit2gtk-4.1.so.0", {
 
 const cstr = (s) => new TextEncoder().encode(s + "\0");
 
-export function openWindow({ title, url, width, height }) {
+/** `ephemeral`: a private WebKit session that writes nothing to disk (no cache, cookies, storage). */
+export function openWindow({ title, url, width, height, ephemeral = false }) {
   glib.symbols.g_set_prgname(cstr(title)); // app-id / WM class, e.g. for Hyprland window rules
   gtk.symbols.gtk_init(null, null);
 
@@ -52,7 +55,9 @@ export function openWindow({ title, url, width, height }) {
   gtk.symbols.gtk_window_set_title(win, cstr(title));
   gtk.symbols.gtk_window_set_default_size(win, width, height);
 
-  const view = webkit.symbols.webkit_web_view_new();
+  const view = ephemeral
+    ? webkit.symbols.webkit_web_view_new_with_context(webkit.symbols.webkit_web_context_new_ephemeral())
+    : webkit.symbols.webkit_web_view_new();
   const settings = webkit.symbols.webkit_web_view_get_settings(view);
   webkit.symbols.webkit_settings_set_enable_developer_extras(settings, 1); // right-click → Inspect Element
   gtk.symbols.gtk_container_add(win, view);

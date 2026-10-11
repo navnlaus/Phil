@@ -207,7 +207,7 @@ async function load(path) {
   state.path = listing.path;
   terminal.follow(listing.path);
   state.entries = listing.entries;
-  document.title = (listing.path === "/" ? "/" : listing.path.split("/").pop()) + " — phil";
+  document.title = (listing.path === "/" ? "/" : listing.path.split("/").pop()) + (state.init.incognito ? " — phil (incognito)" : " — phil");
   renderCrumbs();
   renderPlaces();
   $("#btn-up").disabled = !listing.parent;
@@ -1061,7 +1061,7 @@ state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
 applySettings();
 const thumbDirEl = $("#status-thumbdir");
-thumbDirEl.textContent = `Thumbnails: ${state.init.thumbDir}`;
+thumbDirEl.textContent = (state.init.incognito ? "Incognito · " : "") + `Thumbnails: ${state.init.thumbDir}`;
 thumbDirEl.title = `${state.init.thumbDir} (${state.init.thumbSize})`;
 thumbs.connect();
 

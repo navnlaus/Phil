@@ -20,11 +20,28 @@ const url = await new Promise((resolve, reject) => {
   server.postMessage(config);
 });
 
-console.log(`phil: thumbnails in ${config.thumbDir}`);
+// Incognito thumbnails for folders that couldn't hold a .thumbnails folder.
+const cleanUp = () => {
+  if (config.incognito) {
+    try {
+      Deno.removeSync(config.scratchDir, { recursive: true });
+    } catch { /* never created */ }
+  }
+};
+
+if (config.incognito) console.log("phil: incognito");
+console.log(`phil: thumbnails in ${config.thumbDir ?? "a .thumbnails folder in each folder"}`);
 if (config.browser) {
   console.log(`phil: open ${url}`);
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    Deno.addSignalListener(signal, () => {
+      cleanUp();
+      Deno.exit(0);
+    });
+  }
 } else {
   const { openWindow } = await import("./window.js");
-  openWindow({ title: "phil", url, width: 1280, height: 820 });
+  openWindow({ title: "phil", url, width: 1280, height: 820, ephemeral: config.incognito });
+  cleanUp();
   Deno.exit(0);
 }
