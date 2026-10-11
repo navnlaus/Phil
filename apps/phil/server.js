@@ -4,7 +4,9 @@ import { basename, dirname, join, normalize } from "@std/path";
 import { httpError, json, serveFile, text } from "../../engine/http.js";
 import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
+import { Hooks, metadataFile, runHook } from "./hooks.js";
 import { home, serverConfig } from "./launch.js";
+import { folderSize, properties } from "./properties.js";
 import { isTextFile, textHead, textPreview } from "./texthead.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
@@ -18,6 +20,14 @@ export function createServer({ profile, controlSocket }) {
   const sockets = new Set(); // every page's WebSocket, for {theme}
   const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
   const folders = new FolderSummaries(thumbs.dir && !config.incognito ? join(thumbs.dir, "folders") : null);
+  const shown = new Map(); // page WebSocket -> the folder it shows
+  // A hook ran: the windows showing its folder say so.
+  const hooks = new Hooks(metadataFile(config.settingsFile), {
+    persist: !config.incognito,
+    onRun(run) {
+      for (const [socket, dir] of shown) if (dir === dirname(run.path) && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ hook: run }));
+    },
+  });
   console.log(`phil: thumbnails in ${config.thumbDir ?? "a .thumbnails folder in each folder"}`);
 
   async function handle(req, url) {
@@ -52,12 +62,37 @@ export function createServer({ profile, controlSocket }) {
         return preview(requirePath(path), url.searchParams.get("size") ?? "2560");
       case "POST /api/open":
         return openExternal(await req.json());
-      case "POST /api/delete":
-        return json(await deletePaths((await req.json()).paths ?? []));
-      case "POST /api/transfer":
-        return json(await transfer(await req.json()));
-      case "POST /api/rename":
-        return json(await rename(await req.json()));
+      case "POST /api/delete": {
+        const paths = (await req.json()).paths ?? [];
+        const result = await deletePaths(paths);
+        await movedHooks(paths, result, () => null);
+        return json(result);
+      }
+      case "POST /api/transfer": {
+        const body = await req.json();
+        const result = await transfer(body);
+        if (body.op === "move") await movedHooks(body.paths ?? [], result, (p) => join(body.dest, basename(p)));
+        return json(result);
+      }
+      case "POST /api/rename": {
+        const body = await req.json();
+        const result = await rename(body);
+        await hooks.moved(body.path, result.path);
+        return json(result);
+      }
+      case "GET /api/properties":
+        return json({ ...await properties(requirePath(path)), meta: await hooks.get(path) });
+      case "GET /api/folder-size":
+        return json(await folderSize(requirePath(path)));
+      case "PUT /api/meta": { // {path, onChange}: Properties' phil section
+        const { path, onChange = "" } = await req.json();
+        await hooks.set(requirePath(path), { onChange: String(onChange).trim() });
+        return json({ ok: true });
+      }
+      case "POST /api/run-hook": { // Properties' "Run now"
+        const { path, command } = await req.json();
+        return json(await runHook(requirePath(path), String(command ?? "")));
+      }
       case "POST /api/add-to-config":
         return json(await addToConfig(requirePath((await req.json()).path)));
       case "PUT /api/settings":
@@ -79,6 +114,8 @@ export function createServer({ profile, controlSocket }) {
   async function listDir(dir, sort) {
     const mtime = (await Deno.stat(dir)).mtime?.getTime() ?? 0; // before reading: a change while listing is caught next time
     const entries = await readEntries(dir);
+    const meta = await hooks.all();
+    for (const e of entries) if (meta[e.path]?.onChange) e.onChange = meta[e.path].onChange;
     // While we're here, this folder's own summary, from thumbnails already cached.
     const previewOf = (e) => (e.kind === "file" ? textPreviewOf(e) : typeof e.thumb === "string" ? { url: e.thumb } : e.thumb ?? null);
     makeSummary({ entries, mtime, sort, previewOf })
@@ -152,10 +189,16 @@ export function createServer({ profile, controlSocket }) {
     const { socket, response } = Deno.upgradeWebSocket(req);
     const pending = new Map();
     let watcher = null, watching = Promise.resolve(); // one watch request at a time
+    let hookWatch = null; // the shown folder's hooks (hooks.js)
     socket.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.watch) {
         watching = watching.then(async () => (watcher = await watchFolder(msg.watch, watcher, send))).catch(() => {});
+        if (shown.get(socket) !== msg.watch) {
+          hookWatch?.close();
+          hookWatch = hooks.watch(msg.watch);
+          shown.set(socket, msg.watch);
+        }
       }
       for (const path of msg.cancel ?? []) pending.get(path)?.abort();
       for (const path of msg.want ?? []) {
@@ -188,6 +231,8 @@ export function createServer({ profile, controlSocket }) {
     sockets.add(socket);
     socket.onclose = () => {
       sockets.delete(socket);
+      shown.delete(socket);
+      hookWatch?.close();
       pending.forEach((c) => c.abort());
       watching.then(() => watcher?.close());
     };
@@ -317,6 +362,12 @@ export function createServer({ profile, controlSocket }) {
   }
 
   // F2: renames in place. Never overwrites: a name that's taken is an error.
+  // The metadata of what was deleted or moved (the paths without an error) follows it.
+  async function movedHooks(paths, { errors = [] }, to) {
+    const failed = new Set(errors.map((e) => e.path));
+    for (const path of paths) if (!failed.has(path)) await hooks.moved(path, to(path)).catch(() => {});
+  }
+
   async function rename({ path, name }) {
     requirePath(path);
     if (typeof name !== "string" || !name || name.includes("/") || name.includes("\0") || name === "." || name === "..") {

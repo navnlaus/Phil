@@ -29,6 +29,7 @@
       <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/></symbol>
       <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></symbol>
       <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M7 9l3 3-3 3M12 15h5"/></symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z" fill="currentColor"/></symbol>
       <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
     </defs>
   </svg>
@@ -93,6 +94,28 @@
   <div id="app-view" hidden></div>
 
   <menu id="context" hidden></menu>
+
+  <dialog id="props">
+    <form method="dialog">
+      <p class="title"></p>
+      <p class="where"></p>
+      <dl class="facts"></dl>
+      <section class="phil">
+        <h3>phil</h3>
+        <label for="props-hook">When it changes, run</label>
+        <div class="hook-row">
+          <input id="props-hook" type="text" spellcheck="false" autocomplete="off" placeholder="a command, e.g. sudo systemctl restart keyd">
+          <button type="button" class="run" title="Run it now, to try it">Run now</button>
+        </div>
+        <p class="hint">While a phil window shows this folder, when the file changes, the command runs in bash, in the folder, with the file as $1.</p>
+        <pre class="output" hidden></pre>
+      </section>
+      <div class="buttons">
+        <button value="cancel">Cancel</button>
+        <button value="save" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="confirm">
     <form method="dialog">
