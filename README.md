@@ -289,7 +289,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Ctrl+L | type a path (`~` works) |
 | `/` or Ctrl+F | filter |
 | Ctrl+H | show hidden files |
-| F9 | toggle the places sidebar |
+| F9 | toggle the places sidebar (home folders, drives in /run/media and /mnt, and /etc/fstab's network shares and other mounts; refreshed when the window gets focus) |
 | F4 / Ctrl+` | toggle the terminal panel |
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
 | Ctrl + / − / wheel | thumbnail size |

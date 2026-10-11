@@ -24,6 +24,8 @@ export function createServer({ profile, controlSocket }) {
     const path = url.searchParams.get("path");
     const route = `${req.method} ${url.pathname}`;
     switch (route) {
+      case "GET /api/places": // again, when the window gets focus: drives come and go
+        return json(await places());
       case "GET /api/init":
         return json({
           start: (await lastDir()) ?? config.startDir, // windows asked for a folder get it in the URL
@@ -435,14 +437,49 @@ async function places() {
     if (seen.has(path) || (path === h && name !== "Home")) continue;
     if (await isDir(path)) out.push({ name, path, icon }), seen.add(path);
   }
+  // Drives and shares: whatever is in /run/media/<user> (USB drives) and /mnt,
+  // and the mounts in /etc/fstab that are network shares or outside the
+  // system's own folders. Mount points are never looked inside, so a share
+  // whose server is asleep can't hold this up (or wake an automount).
+  const add = (path, icon) => {
+    if (seen.has(path)) return;
+    seen.add(path);
+    out.push({ name: basename(path), path, icon });
+  };
+  const mounts = await fstabMounts();
   for (const base of [`/run/media/${basename(h)}`, "/mnt"]) {
     try {
       for await (const d of Deno.readDir(base)) {
-        if (d.isDirectory) out.push({ name: d.name, path: join(base, d.name), icon: "drive" });
+        if (d.isDirectory) add(join(base, d.name), mounts.get(join(base, d.name)) ?? "drive");
       }
     } catch { /* not present */ }
   }
+  for (const [path, icon] of mounts) add(path, icon);
   out.push({ name: "Filesystem", path: "/", icon: "drive" });
+  return out;
+}
+
+const NETWORK_FS = /^(nfs4?|cifs|smb3?|fuse\.sshfs|sshfs|fuse\.rclone|rclone|9p|davfs2?|fuse\.davfs2?|ceph|glusterfs)$/;
+const SYSTEM_DIRS = /^\/(boot|efi|usr|var|etc|opt|root|tmp|srv\/tftp|proc|sys|dev|run(?!\/media)|home)(\/|$)|^\/$/;
+
+// Mount point -> icon ("network" or "drive") for /etc/fstab's mounts worth
+// a place: network shares anywhere, other file systems outside the system's
+// own folders (not /, /home, /boot, swap...).
+async function fstabMounts() {
+  const out = new Map();
+  let fstab = "";
+  try {
+    fstab = await Deno.readTextFile("/etc/fstab");
+  } catch {
+    return out;
+  }
+  for (const line of fstab.split("\n")) {
+    const [, where, type] = line.replace(/#.*/, "").trim().split(/\s+/);
+    if (!where?.startsWith("/") || !type || type === "swap") continue;
+    const path = where.replace(/\\040/g, " ").replace(/\/+$/, "") || "/";
+    if (NETWORK_FS.test(type)) out.set(path, "network");
+    else if (!SYSTEM_DIRS.test(path)) out.set(path, "drive");
+  }
   return out;
 }
 
