@@ -211,6 +211,8 @@ main {
 #location:focus, #filter:focus { border-color: var(--accent); }
 #filter { width: 180px; }
 #zoom { width: 110px; accent-color: var(--accent); }
+#btn-close { margin-left: 2px; }
+#btn-close:hover { background: #c94b4b; color: #fff; }
 
 /* Grid */
 

@@ -38,6 +38,11 @@ if (config.incognito) console.log("phil: incognito");
 console.log(`phil: thumbnails in ${config.thumbDir ?? "a .thumbnails folder in each folder"}`);
 if (config.browser) {
   console.log(`phil: open ${url}`);
+  server.onmessage = (e) => {
+    if (!e.data.quit) return;
+    cleanUp();
+    Deno.exit(0);
+  };
   for (const signal of ["SIGINT", "SIGTERM"]) {
     Deno.addSignalListener(signal, () => {
       cleanUp();
