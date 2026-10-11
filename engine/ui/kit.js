@@ -75,3 +75,16 @@ export function clipboardKey(e) {
   if ((mod && !e.shiftKey && k === "v") || (e.shiftKey && !e.ctrlKey && k === "Insert")) return "paste";
   return null;
 }
+
+/**
+ * Keeps keyboard focus on `el` (a page's main view): now, and whenever the
+ * window or embedded view gets focus back with nothing in particular focused.
+ */
+export function holdFocus(el) {
+  const take = () => {
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) el.focus({ preventScroll: true });
+  };
+  addEventListener("focus", take);
+  take();
+}

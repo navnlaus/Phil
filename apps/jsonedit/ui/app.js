@@ -1,4 +1,4 @@
-import { clipboardKey, closeWindow, copyText, embedded, pasteText, ready } from "/engine/ui/kit.js";
+import { clipboardKey, closeWindow, copyText, embedded, holdFocus, pasteText, ready } from "/engine/ui/kit.js";
 import { parse, position } from "/ui/json.js";
 import { clone, displayPath, editText, follow, freshKey, fromParse, isContainer, literal, serialize, stepsTo } from "/ui/model.js";
 
@@ -970,3 +970,4 @@ if (file) {
 } else {
   load("{}");
 }
+holdFocus(doc.root ? tree : $("#fix-text"));

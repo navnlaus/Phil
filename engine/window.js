@@ -54,6 +54,8 @@ const gtk = Deno.dlopen("libgtk-3.so.0", {
   gtk_window_set_startup_id: { parameters: ["pointer", "buffer"], result: "void" },
   gtk_container_add: { parameters: ["pointer", "pointer"], result: "void" },
   gtk_widget_show_all: { parameters: ["pointer"], result: "void" },
+  gtk_widget_grab_focus: { parameters: ["pointer"], result: "void" },
+  gtk_window_present: { parameters: ["pointer"], result: "void" },
   gtk_widget_destroy: { parameters: ["pointer"], result: "void" },
   gtk_main: { parameters: [], result: "void" },
   gtk_main_quit: { parameters: [], result: "void" },
@@ -105,6 +107,9 @@ export function createApp({ name, ephemeral = false, keepRunning = false, trace 
     // shows it, so each app's windows get their own (for window rules).
     glib.symbols.g_set_prgname(cstr(w.appId));
     gtk.symbols.gtk_widget_show_all(w.win);
+    // Keys go to the page from the start, without a click first.
+    gtk.symbols.gtk_widget_grab_focus(w.view);
+    gtk.symbols.gtk_window_present(w.win);
   };
 
   // A closing window's web process is killed rather than left to exit by
