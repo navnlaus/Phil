@@ -6,7 +6,7 @@ import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
 import { Hooks, metadataFile, runHook } from "./hooks.js";
 import { home, serverConfig } from "./launch.js";
-import { folderSize, properties } from "./properties.js";
+import { canWrite, folderSize, me, properties } from "./properties.js";
 import { isTextFile, textHead, textPreview } from "./texthead.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
@@ -125,10 +125,14 @@ export function createServer({ profile, controlSocket }) {
   }
 
   // The folder's entries with size and date; with `lookups`, also each media
-  // file's cached thumbnail and each subfolder's saved summary.
+  // file's cached thumbnail, each subfolder's saved summary, whether you can
+  // change it without sudo (`writable`; through a link, what it points to)
+  // and what a link points to (`target`).
   async function readEntries(dir, { lookups = true } = {}) {
     const dirents = [];
     for await (const d of Deno.readDir(dir)) dirents.push(d);
+    const who = lookups ? await me() : null;
+    const dirStat = lookups ? await Deno.stat(dir).catch(() => null) : null;
     return await mapLimit(dirents, 64, async (d) => {
       const path = join(dir, d.name);
       let stat = null;
@@ -145,6 +149,11 @@ export function createServer({ profile, controlSocket }) {
         symlink: d.isSymlink,
       };
       if (!lookups) return entry;
+      if (d.isSymlink) entry.target = await Deno.readLink(path).catch(() => null);
+      if (stat) {
+        const folder = !stat.isFile ? null : d.isSymlink ? await Deno.realPath(path).then((real) => Deno.stat(dirname(real))).catch(() => null) : dirStat;
+        entry.writable = canWrite(stat, folder, who);
+      }
       if (stat && (kind === "image" || kind === "video" || kind === "pdf")) entry.thumb = await thumbs.lookup(path, stat);
       if (kind === "dir") entry.summary = await folders.get(path);
       return entry;

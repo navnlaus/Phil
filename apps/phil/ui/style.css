@@ -297,10 +297,17 @@ main {
   text-transform: uppercase;
   color: var(--text-dim);
 }
-.thumb .badge {
+/* A tile's marks (showMarks in app.js) */
+.marks {
   position: absolute;
-  right: 4px;
+  z-index: 3;
   top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 3px;
+  pointer-events: none;
+}
+.marks .badge {
   display: grid;
   place-items: center;
   width: 20px;
@@ -309,7 +316,10 @@ main {
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
 }
-.thumb .badge svg { width: 12px; height: 12px; stroke: none; }
+.marks .badge svg { width: 12px; height: 12px; stroke: none; }
+.marks .badge.line svg { fill: none; stroke: currentColor; stroke-width: 2.6; }
+.marks .badge.hook { color: #ffd24d; }
+.marks .badge.locked { color: #ff6b6b; }
 .thumb.loading::after {
   content: "";
   position: absolute;
@@ -461,7 +471,7 @@ body[data-theme="chips"] .label .name, body[data-theme="chips"] .label .meta {
 }
 body[data-theme="chips"] .label .meta { align-self: flex-end; font-size: 9.5px; color: rgba(255, 255, 255, 0.85); opacity: 0; transition: opacity 0.12s; }
 body[data-theme="chips"] .tile:is(:hover, .selected) .label .meta { opacity: 1; }
-body[data-theme="chips"] .thumb .badge { right: auto; left: 4px; }
+body[data-theme="chips"] .marks { right: auto; left: 4px; }
 body[data-theme="chips"] .tile.dir { --face: 13% 4% 4% 4%; }
 body[data-theme="chips"] .tile.dir .thumb::before { left: 4%; }
 body[data-theme="chips"] .tile.dir .label { padding: calc(13% + 5px) calc(4% + 5px) calc(4% + 5px); }
@@ -629,8 +639,6 @@ body[data-theme="chips"] .label .rename { align-self: stretch; }
 #props .buttons button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 #props button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* A file with an on-change hook (Properties) */
-.thumb .badge.hook { color: #ffd24d; }
 
 /* Drag and drop */
 

@@ -326,7 +326,12 @@ is saved. A plain command like that runs as phil's own child, so sudo goes
 without asking while it remembers the password you gave the editor to save
 the file (otherwise it fails with "a password is required"). Opening or
 touching the file doesn't count, nor do changes the command makes itself.
-A tile with a hook has a ⚡. They're kept in `~/.config/phil/metadata.json`,
+A tile with a hook has a ⚡.
+
+**Tile marks.** In a tile's corner: a link icon on a link; a red lock on a
+file or folder you can't change without sudo (a file: also its folder, as
+saving replaces it there), and for a link, a red link icon when that's so of
+what it points to. Hovering says which. They're kept in `~/.config/phil/metadata.json`,
 and follow the file when phil renames or moves it.
 
 ## jsonedit
