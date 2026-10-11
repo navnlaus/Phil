@@ -42,19 +42,14 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
 body {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
   background: var(--bg);
   color: var(--text);
   font: 13px/1.35 system-ui, sans-serif;
 }
-/* Fixed rows, so the path field can be hidden without the others moving up. */
-#bar { grid-row: 1; }
-#path-form { grid-row: 2; }
-main { grid-row: 3; }
-#status { grid-row: 4; }
+/* The tree fills the window; the bars float over it and fade out (kit.css). */
+main { position: relative; height: 100%; }
 
 button, input, select, textarea { font: inherit; color: inherit; }
 button, select {
@@ -65,7 +60,8 @@ button, select {
   background: var(--bg-raised);
   cursor: pointer;
 }
-button.icon { width: 30px; padding: 0; font-size: 16px; }
+button.icon { display: inline-grid; place-items: center; width: 30px; padding: 0; font-size: 16px; }
+button.icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 button:hover:not(:disabled) { background: var(--bg-hover); }
 button:disabled { opacity: 0.4; cursor: default; }
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -74,11 +70,10 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 
 #bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-side);
+  padding: 4px 6px;
 }
 #file { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #file-name { font-weight: 600; }
@@ -94,13 +89,12 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 }
 #search-count { min-width: 4em; color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
 
-#path-form {
+#path-form { /* a second line of the bar, while open */
   display: flex;
+  flex-basis: 100%;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-raised);
+  padding: 2px 0;
 }
 #path-form[hidden] { display: none; }
 #path-label { color: var(--text-dim); }
@@ -117,10 +111,12 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 
 /* The tree */
 
-main { display: grid; min-height: 0; }
 #tree {
+  position: absolute;
+  inset: 0;
   overflow: auto;
-  padding: 6px 0 40px;
+  padding: 40px 0 40px; /* at either end, rows clear the bars that float over them */
+  user-select: none; /* rows are selected as lines; text inside a key or value with .selecting */
   font: 13px/24px var(--mono);
   outline: none;
 }
@@ -137,7 +133,9 @@ main { display: grid; min-height: 0; }
 }
 .row:hover { background: var(--bg-hover); }
 .row.selected { background: var(--accent-bg); }
-#tree:focus .row.selected { box-shadow: inset 2px 0 var(--accent); }
+.row.cursor { box-shadow: inset 2px 0 var(--accent); }
+#tree:not(:focus) .row.cursor { box-shadow: inset 2px 0 var(--text-dim); }
+#tree .selecting { user-select: text; cursor: text; }
 .row.match .key, .row.match .value { background: var(--match-bg); border-radius: 3px; }
 .toggle { flex: none; width: 14px; color: var(--text-dim); text-align: center; cursor: pointer; }
 .key { color: var(--key); }
@@ -155,7 +153,7 @@ main { display: grid; min-height: 0; }
 
 /* Buttons on the hovered or selected row */
 .row .actions { display: none; margin-left: auto; padding-left: 12px; gap: 4px; }
-.row:hover .actions, .row.selected .actions { display: flex; }
+.row:hover .actions, .row.cursor .actions { display: flex; }
 .actions button {
   height: 20px;
   margin-top: 2px;
@@ -189,7 +187,7 @@ textarea.editor.block { white-space: pre; overflow: auto; min-width: min(60vw, 7
 .empty-doc { padding: 24px; color: var(--text-dim); font-family: system-ui, sans-serif; }
 
 /* Fixing a file that isn't valid JSON */
-#fix { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: 10px; min-height: 0; }
+#fix { position: absolute; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: 10px; min-height: 0; }
 #fix[hidden] { display: none; }
 #fix-error { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--error-bg); color: var(--error); }
 #fix-text {
@@ -210,8 +208,6 @@ textarea.editor.block { white-space: pre; overflow: auto; min-width: min(60vw, 7
   display: flex;
   gap: 16px;
   padding: 4px 10px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-side);
   color: var(--text-dim);
   font-size: 12px;
   white-space: nowrap;

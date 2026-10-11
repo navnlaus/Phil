@@ -1,3 +1,4 @@
+import { closeWindow, embedded, ready } from "/engine/ui/kit.js";
 import { parse, position } from "/ui/json.js";
 import { clone, displayPath, editText, follow, freshKey, fromParse, isContainer, literal, serialize, stepsTo } from "/ui/model.js";
 
@@ -13,7 +14,10 @@ const doc = {
   root: null, // the model (model.js); null while fixing a file that isn't JSON
   fixSaved: null, // the text on disk, while fixing it
 };
-let selected = null;
+// The selection works like lines in a text editor: the rows from `anchor` to
+// `cursor` (the same row for a single one). A selected object or array takes
+// everything inside it along.
+let cursor = null, anchor = null;
 const expanded = new Set(); // open objects and arrays
 const shown = new WeakMap(); // big containers: how many children are shown
 let rowOf = new WeakMap(); // node -> its row, for the current render
@@ -55,7 +59,7 @@ function load(text) {
     $("#fix").hidden = true;
     tree.hidden = false;
     expandTo(doc.root, 2);
-    selected = doc.root;
+    cursor = anchor = doc.root.children?.[0] ?? doc.root; // the top level would select everything
     render();
     tree.focus();
   }
@@ -90,6 +94,11 @@ async function write(path, { isNew = false, force = false }) {
 
 const isDirty = () => (doc.root ? stateId !== savedId : $("#fix-text").value !== doc.fixSaved);
 
+function close() {
+  if (isDirty() && !confirm("Close without saving the changes?")) return;
+  closeWindow();
+}
+
 function showFile() {
   const name = doc.path ? doc.path.split("/").pop() : "Untitled";
   $("#file-name").textContent = name;
@@ -100,7 +109,7 @@ function showFile() {
   $("#btn-redo").disabled = !redoStack.length;
 }
 
-// The path field under the bar, for Open and Save as. Resolves to an absolute
+// The path field in the bar, for Open and Save as. Resolves to an absolute
 // path, or null when cancelled.
 function askPath(label, value) {
   const form = $("#path-form"), input = $("#path-input");
@@ -194,7 +203,8 @@ function snapshot() {
   return {
     text: serialize(doc.root, ""),
     id: stateId,
-    selected: selected && stepsTo(selected),
+    cursor: cursor && stepsTo(cursor),
+    anchor: anchor && stepsTo(anchor),
     open: [...expanded].filter(attached).map(stepsTo),
   };
 }
@@ -220,10 +230,11 @@ function restore(snap) {
   doc.root = fromParse(snap.text, parse(snap.text).root);
   expanded.clear();
   for (const steps of snap.open) expanded.add(follow(doc.root, steps));
-  selected = snap.selected ? follow(doc.root, snap.selected) : doc.root;
+  cursor = snap.cursor ? follow(doc.root, snap.cursor) : doc.root;
+  anchor = snap.anchor ? follow(doc.root, snap.anchor) : cursor;
   stateId = snap.id;
   render();
-  reveal(selected);
+  reveal(cursor, { keepAnchor: true });
   showFile();
 }
 
@@ -255,10 +266,10 @@ function render() {
   addRows(frag, doc.root, 0);
   tree.replaceChildren(frag);
   tree.scrollTop = scroll;
-  if (!selected || !attached(selected)) selected = doc.root;
-  rowOf.get(selected)?.classList.add("selected");
+  if (!cursor || !attached(cursor)) cursor = doc.root;
+  if (!anchor || !attached(anchor) || !rowOf.has(anchor)) anchor = cursor;
   for (const node of matches) rowOf.get(node)?.classList.add("match");
-  showWhere();
+  paint();
 }
 
 function addRows(frag, node, depth) {
@@ -323,20 +334,54 @@ function button(text, action, title) {
   return b;
 }
 
-function select(node, { scroll = true } = {}) {
+// The rows in order on screen.
+const visibleRows = () => [...tree.children].filter((r) => r.node);
+
+// The selected rows' nodes, top level only (not ones inside another selected
+// one), in document order.
+function selection() {
+  const rows = visibleRows();
+  let a = rows.indexOf(rowOf.get(anchor)), b = rows.indexOf(rowOf.get(cursor));
+  if (a === -1) a = b;
+  if (a > b) [a, b] = [b, a];
+  const nodes = rows.slice(a, b + 1).map((r) => r.node);
+  const set = new Set(nodes);
+  return nodes.filter((n) => {
+    for (let p = n.parent; p; p = p.parent) if (set.has(p)) return false;
+    return true;
+  });
+}
+
+// Moves the cursor to `node`; `extend` keeps the anchor (Shift), so the rows
+// between are selected.
+function select(node, { extend = false, scroll = true } = {}) {
   if (!node) return;
-  rowOf.get(selected)?.classList.remove("selected");
-  selected = node;
-  const row = rowOf.get(node);
-  row?.classList.add("selected");
-  if (scroll) row?.scrollIntoView({ block: "nearest" });
+  cursor = node;
+  if (!extend) anchor = node;
+  paint();
+  if (scroll) rowOf.get(node)?.scrollIntoView({ block: "nearest" });
+}
+
+// Marks the selected rows, and the rows inside selected objects and arrays.
+function paint() {
+  for (const row of tree.querySelectorAll(".row.selected, .row.cursor")) row.classList.remove("selected", "cursor");
+  const top = new Set(selection());
+  for (const row of visibleRows()) {
+    for (let n = row.node; n; n = n.parent) {
+      if (top.has(n)) {
+        row.classList.add("selected");
+        break;
+      }
+    }
+  }
+  rowOf.get(cursor)?.classList.add("cursor");
   showWhere();
   showCount();
 }
 
 // Opens the containers around `node` (and shows enough of big ones), then
-// selects it.
-function reveal(node) {
+// moves the cursor there.
+function reveal(node, { keepAnchor = false } = {}) {
   let changed = false;
   for (let n = node; n.parent; n = n.parent) {
     if (!expanded.has(n.parent)) expanded.add(n.parent), changed = true;
@@ -344,7 +389,7 @@ function reveal(node) {
     if (i >= (shown.get(n.parent) ?? CHUNK)) shown.set(n.parent, Math.ceil((i + 1) / CHUNK) * CHUNK), changed = true;
   }
   if (changed) render();
-  select(node, { scroll: false });
+  select(node, { extend: keepAnchor, scroll: false });
   rowOf.get(node)?.scrollIntoView({ block: "nearest" });
 }
 
@@ -356,14 +401,14 @@ function toggle(node, open = !expanded.has(node)) {
 }
 
 function showWhere() {
-  if (!selected) return;
-  const n = selected.children?.length;
-  const what = selected.type === "object" ? `object, ${n} key${n === 1 ? "" : "s"}` : selected.type === "array" ? `array, ${n} item${n === 1 ? "" : "s"}` : selected.type;
-  $("#where").textContent = `${displayPath(selected)}  ·  ${what}`;
+  if (!cursor) return;
+  const nodes = selection();
+  if (nodes[0] === doc.root && cursor !== doc.root) return void ($("#where").textContent = "Everything selected");
+  if (nodes.length > 1) return void ($("#where").textContent = `${nodes.length} items selected`);
+  const n = cursor.children?.length;
+  const what = cursor.type === "object" ? `object, ${n} key${n === 1 ? "" : "s"}` : cursor.type === "array" ? `array, ${n} item${n === 1 ? "" : "s"}` : cursor.type;
+  $("#where").textContent = `${displayPath(cursor)}  ·  ${what}`;
 }
-
-// The rows in order on screen, for the arrow keys.
-const visibleRows = () => [...tree.children].filter((r) => r.node);
 
 // ---------------------------------------------------------------- editing in place
 
@@ -372,9 +417,10 @@ let editing = null; // { node, commit }
 /**
  * Turns the node's key ("key") or value ("value"; an object or array is edited
  * as JSON text) into a text field. Enter keeps it (Ctrl+Enter for multi-line
- * JSON), Esc doesn't, clicking elsewhere keeps it. `then` runs once it's kept.
+ * JSON), Esc doesn't, clicking elsewhere keeps it. `text` starts the field
+ * with that instead (a key typed on a selected value). `then` runs once kept.
  */
-function edit(node, what, { then } = {}) {
+function edit(node, what, { then, text } = {}) {
   if (editing) editing.commit();
   if (!doc.root || (what === "key" && node.parent?.type !== "object")) return;
   const json = what === "value" && isContainer(node);
@@ -386,7 +432,7 @@ function edit(node, what, { then } = {}) {
   const input = document.createElement(what === "key" ? "input" : "textarea");
   input.className = `editor${json ? " block" : ""}`;
   input.spellcheck = false;
-  input.value = initial;
+  input.value = text ?? initial;
   const hint = el("span", "hint");
   target.replaceWith(input);
   if (what !== "key") input.after(hint);
@@ -451,7 +497,8 @@ function edit(node, what, { then } = {}) {
   input.addEventListener("blur", () => setTimeout(() => finish(true)));
   check();
   input.focus();
-  if (multiline) input.setSelectionRange(0, 0);
+  if (text !== undefined) input.setSelectionRange(input.value.length, input.value.length);
+  else if (multiline) input.setSelectionRange(0, 0);
   else input.select();
 }
 
@@ -491,32 +538,55 @@ function addAfter(node) {
   addInside(node.parent, node.parent.children.indexOf(node) + 1);
 }
 
-function remove(node) {
-  if (!node.parent) return;
-  const siblings = node.parent.children;
-  const i = siblings.indexOf(node);
-  change(() => siblings.splice(i, 1));
-  select(siblings[i] ?? siblings[i - 1] ?? node.parent);
-}
-
-function duplicate(node) {
-  if (!node.parent) return;
-  const copy = clone(node, node.parent);
-  if (node.parent.type === "object") copy.key = freshKey(node.parent, node.key);
-  change(() => node.parent.children.splice(node.parent.children.indexOf(node) + 1, 0, copy));
-  select(copy);
-}
-
-function move(node, by) {
-  const siblings = node.parent?.children;
-  if (!siblings) return;
-  const i = siblings.indexOf(node), j = i + by;
-  if (j < 0 || j >= siblings.length) return;
+function remove(nodes) {
+  if (nodes.includes(doc.root)) { // everything (Ctrl+A): an empty document of the same kind
+    if (isContainer(doc.root)) change(() => (doc.root.children = []));
+    return select(doc.root);
+  }
+  if (!nodes.length) return;
+  // Then the item after the last one deleted, or before the first, or their parent.
+  const first = nodes[0], last = nodes.at(-1);
+  const after = last.parent.children.slice(last.parent.children.indexOf(last) + 1).find((n) => !nodes.includes(n));
+  const before = first.parent.children.slice(0, first.parent.children.indexOf(first)).reverse().find((n) => !nodes.includes(n));
   change(() => {
-    siblings.splice(i, 1);
-    siblings.splice(j, 0, node);
+    for (const n of nodes) n.parent.children.splice(n.parent.children.indexOf(n), 1);
   });
-  select(node);
+  select(after ?? before ?? last.parent);
+}
+
+function duplicate(nodes) {
+  nodes = nodes.filter((n) => n.parent);
+  if (!nodes.length) return;
+  const copies = [];
+  change(() => {
+    // Copies of a run of siblings go after the run, others after themselves.
+    const sameParent = nodes.every((n) => n.parent === nodes[0].parent);
+    let at = sameParent ? nodes[0].parent.children.indexOf(nodes.at(-1)) + 1 : null;
+    for (const n of nodes) {
+      const copy = clone(n, n.parent);
+      if (n.parent.type === "object") copy.key = freshKey(n.parent, n.key);
+      n.parent.children.splice(sameParent ? at++ : n.parent.children.indexOf(n) + 1, 0, copy);
+      copies.push(copy);
+    }
+  });
+  select(copies[0]);
+  if (copies.length > 1) select(copies.at(-1), { extend: true });
+}
+
+// Moves a run of siblings up or down by one.
+function move(nodes, by) {
+  const parent = nodes[0]?.parent;
+  if (!parent || nodes.some((n) => n.parent !== parent)) return;
+  const siblings = parent.children;
+  const first = siblings.indexOf(nodes[0]), last = siblings.indexOf(nodes.at(-1));
+  if (last - first + 1 !== nodes.length || first + by < 0 || last + by >= siblings.length) return;
+  const [a, c] = [anchor, cursor];
+  change(() => {
+    siblings.splice(first, nodes.length);
+    siblings.splice(first + by, 0, ...nodes);
+  });
+  select(a, { scroll: false });
+  select(c, { extend: true });
 }
 
 // Converts the value to another type, keeping what can be kept: a number from
@@ -537,8 +607,13 @@ function convert(node, type) {
   change(() => replaceValue(node, value));
 }
 
-async function copy(node) {
-  const text = serialize(node, indentUnit());
+// Copies one item as its JSON value; several as the lines they are in the
+// file (`"key": value,` in an object), which paste back in as items.
+async function copy(nodes) {
+  const indent = indentUnit();
+  const text = nodes.length === 1
+    ? serialize(nodes[0], indent)
+    : nodes.map((n) => (n.parent?.type === "object" ? `${JSON.stringify(n.key)}: ` : "") + serialize(n, indent)).join(",\n");
   try {
     await navigator.clipboard.writeText(text);
   } catch {
@@ -551,18 +626,31 @@ async function copy(node) {
   }
 }
 
-// Pasted text: JSON goes in as such, anything else as a string. It goes into
-// a selected object or array that's open, empty or the top level, else after
-// the selection. Pasted into an object, an object's members keep their keys;
-// anything else gets a key to fill in.
+// What pasted text is: JSON as such, or lines of items copied from an object
+// or array (`"a": 1, "b": 2` or `1, 2`), or else a string.
+function pasted(text) {
+  const t = text.trim().replace(/,$/, "");
+  for (const [wrapped, items] of [[t, false], [`{${t}}`, true], [`[${t}]`, true]]) {
+    const { root } = parse(wrapped);
+    if (root) return { node: fromParse(wrapped, root), items };
+  }
+  return { ...literal(text), items: false };
+}
+
+// Pasted text goes into a selected object or array that's open, empty or the
+// top level, else after the selection. Copied items, and an object's members
+// pasted into an object, go in as items keeping their keys; anything else
+// pasted into an object gets a key to fill in.
 function paste(text) {
-  const { node: value, error } = literal(text);
+  const { node: value, error, items: isItems } = pasted(text);
   if (error) return alert(`The pasted text isn't valid JSON: ${error}`);
-  const into = isContainer(selected) && (!selected.parent || !selected.children.length || expanded.has(selected));
-  const container = into ? selected : selected.parent;
+  const target = selection().at(-1);
+  const into = isContainer(target) && (!target.parent || !target.children.length || expanded.has(target));
+  const container = into ? target : target.parent;
   if (!container) return; // the whole document is a single value
-  let index = into ? container.children.length : container.children.indexOf(selected) + 1;
-  const items = container.type === "object" && value.type === "object" ? value.children : [value];
+  let index = into ? container.children.length : container.children.indexOf(target) + 1;
+  const spread = isItems || (container.type === "object" && value.type === "object");
+  const items = spread ? value.children : [value];
   change(() => {
     for (const item of items) {
       item.parent = container;
@@ -572,29 +660,72 @@ function paste(text) {
     }
     expanded.add(container);
   });
-  select(items.at(-1));
-  if (container.type === "object" && value.type !== "object") edit(items[0], "key");
+  select(items[0]);
+  if (items.length > 1) select(items.at(-1), { extend: true });
+  else if (container.type === "object" && !spread) edit(items[0], "key");
 }
 
 // ---------------------------------------------------------------- mouse
+
+// Pressing inside a key or value selects text there (that span alone is
+// selectable); anywhere else on a row selects rows, and dragging extends that
+// to the rows dragged over, like lines in a text editor.
+let dragging = false;
+
+function clearTextSelection() {
+  for (const span of tree.querySelectorAll(".selecting")) span.classList.remove("selecting");
+  getSelection().removeAllRanges();
+}
 
 tree.addEventListener("mousedown", (e) => {
   const row = e.target.closest(".row");
   if (!row?.node || e.target.closest(".editor")) return;
   hideMenu();
-  select(row.node, { scroll: false });
+  clearTextSelection();
+  if (e.button === 2) { // a right click inside the selection keeps it for the menu
+    if (!rowSelected(row)) select(row.node, { scroll: false });
+    return;
+  }
+  if (e.button !== 0 || e.target.closest("button")) return;
+  const span = e.target.closest(".key:not(.index), .value:not(.count)");
+  if (span && !e.shiftKey) {
+    select(row.node, { scroll: false });
+    span.classList.add("selecting");
+    return;
+  }
+  e.preventDefault(); // no text selection; rows instead
+  tree.focus({ preventScroll: true });
+  select(row.node, { extend: e.shiftKey, scroll: false });
+  if (!e.target.classList.contains("toggle")) dragging = true;
 });
+
+const rowSelected = (row) => row.classList.contains("selected");
+
+addEventListener("mousemove", (e) => {
+  if (!dragging) return;
+  if (!(e.buttons & 1)) return void (dragging = false);
+  const r = tree.getBoundingClientRect();
+  const y = Math.max(r.top + 2, Math.min(r.bottom - 2, e.clientY));
+  const row = document.elementFromPoint(r.left + 40, y)?.closest(".row");
+  if (row?.node && row.node !== cursor) select(row.node, { extend: true });
+  // Near the top or bottom edge, scroll.
+  if (e.clientY < r.top + 24) tree.scrollTop -= 24;
+  else if (e.clientY > r.bottom - 24) tree.scrollTop += 24;
+});
+addEventListener("mouseup", () => (dragging = false));
 
 tree.addEventListener("click", (e) => {
   const node = e.target.closest(".row")?.node;
-  if (!node || e.target.closest(".editor")) return;
+  if (!node || e.target.closest(".editor") || e.shiftKey) return;
   const action = e.target.closest("button")?.dataset.action;
   if (action === "add") return addInside(node);
   if (action === "menu") {
     const r = e.target.getBoundingClientRect();
-    return showMenu(r.left, r.bottom, node);
+    if (!rowSelected(e.target.closest(".row"))) select(node, { scroll: false });
+    return showMenu(r.left, r.bottom);
   }
   if (e.target.classList.contains("toggle")) return toggle(node);
+  if (!getSelection().isCollapsed) return; // text was selected
   if (!e.target.closest(".value") || isContainer(node)) return tree.focus({ preventScroll: true });
   if (node.type === "boolean") return change(() => (node.value = !node.value));
   edit(node, "value");
@@ -603,43 +734,64 @@ tree.addEventListener("click", (e) => {
 tree.addEventListener("dblclick", (e) => {
   const node = e.target.closest(".row")?.node;
   if (!node || e.target.closest(".editor, button")) return;
-  if (e.target.closest(".key:not(.index)")) return edit(node, "key");
-  if (isContainer(node)) toggle(node);
+  if (e.target.closest(".key:not(.index)")) return clearTextSelection(), edit(node, "key");
+  if (isContainer(node) && !e.target.closest(".value")) toggle(node);
 });
 
 tree.addEventListener("contextmenu", (e) => {
-  const node = e.target.closest(".row")?.node;
-  if (!node || e.target.closest(".editor")) return;
+  if (!e.target.closest(".row")?.node || e.target.closest(".editor")) return;
   e.preventDefault();
-  select(node, { scroll: false });
-  showMenu(e.clientX, e.clientY, node);
+  showMenu(e.clientX, e.clientY);
+});
+
+// Text selected inside a key or value is copied as it shows, without the
+// line break the browser adds at the end of the span.
+document.addEventListener("copy", (e) => {
+  if (!tree.querySelector(".selecting") || getSelection().isCollapsed) return;
+  e.preventDefault();
+  e.clipboardData.setData("text/plain", getSelection().toString().replace(/\n$/, ""));
 });
 
 // ---------------------------------------------------------------- menu
 
 const TYPES = ["string", "number", "boolean", "null", "object", "array"];
 
-function showMenu(x, y, node) {
+// The menu for the selection: one item, or several.
+function showMenu(x, y) {
+  const nodes = selection();
+  const node = nodes[0];
+  const many = nodes.length > 1;
   const container = isContainer(node);
-  const items = [
-    ["Edit value", container ? "" : "Enter", () => edit(node, "value")],
-    node.parent?.type === "object" && ["Rename key", "F2", () => edit(node, "key")],
-    container && [node.type === "object" ? "Add key" : "Add item", "Ctrl+Enter", () => addInside(node)],
-    node.parent && ["Add after", "Insert", () => addAfter(node)],
-    node.parent && ["Duplicate", "Ctrl+D", () => duplicate(node)],
-    node.parent && ["Move up", "Ctrl+↑", () => move(node, -1)],
-    node.parent && ["Move down", "Ctrl+↓", () => move(node, 1)],
-    "-",
-    ["Copy as JSON", "Ctrl+C", () => copy(node)],
-    ["Copy path", "", () => navigator.clipboard.writeText(displayPath(node)).catch(() => {})],
-    container && node.children.length && ["Expand everything inside", "*", () => (expandTo(node, Infinity), render())],
-    "-",
-    { label: "Change type to" },
-    ...TYPES.filter((t) => t !== node.type).map((t) => [t, "", () => convert(node, t)]),
-    node.parent && "-",
-    node.parent && ["Delete", "Del", () => remove(node)],
-  ].filter(Boolean);
-  menu.replaceChildren(...items.map((item) => {
+  const items = many
+    ? [
+      { label: `${nodes.length} items` },
+      ["Duplicate", "Ctrl+D", () => duplicate(nodes)],
+      ["Move up", "Alt+↑", () => move(nodes, -1)],
+      ["Move down", "Alt+↓", () => move(nodes, 1)],
+      ["Copy", "Ctrl+C", () => copy(nodes)],
+      ["Cut", "Ctrl+X", () => (copy(nodes), remove(nodes))],
+      "-",
+      ["Delete", "Del", () => remove(nodes)],
+    ]
+    : [
+      ["Edit value", container ? "" : "Enter", () => edit(node, "value")],
+      node.parent?.type === "object" && ["Rename key", "F2", () => edit(node, "key")],
+      container && [node.type === "object" ? "Add key" : "Add item", "Ctrl+Enter", () => addInside(node)],
+      node.parent && ["Add after", "Insert", () => addAfter(node)],
+      node.parent && ["Duplicate", "Ctrl+D", () => duplicate(nodes)],
+      node.parent && ["Move up", "Alt+↑", () => move(nodes, -1)],
+      node.parent && ["Move down", "Alt+↓", () => move(nodes, 1)],
+      "-",
+      ["Copy as JSON", "Ctrl+C", () => copy(nodes)],
+      ["Copy path", "", () => navigator.clipboard.writeText(displayPath(node)).catch(() => {})],
+      container && node.children.length && ["Expand everything inside", "*", () => (expandTo(node, Infinity), render())],
+      "-",
+      { label: "Change type to" },
+      ...TYPES.filter((t) => t !== node.type).map((t) => [t, "", () => convert(node, t)]),
+      node.parent && "-",
+      node.parent && ["Delete", "Del", () => remove(nodes)],
+    ];
+  menu.replaceChildren(...items.filter(Boolean).map((item) => {
     if (item === "-") return document.createElement("hr");
     if (item.label) return el("div", "label", item.label);
     const [label, shortcut, action] = item;
@@ -665,36 +817,46 @@ document.addEventListener("mousedown", (e) => !menu.contains(e.target) && hideMe
 // ---------------------------------------------------------------- keys
 
 tree.addEventListener("keydown", (e) => {
-  if (editing || !selected || e.target !== tree) return;
-  const ctrl = e.ctrlKey || e.metaKey;
+  if (editing || !cursor || e.target !== tree) return;
+  const ctrl = e.ctrlKey || e.metaKey, shift = e.shiftKey, k = e.key;
+  // Text selected inside a key or value: the browser copies that.
+  if (ctrl && (k === "c" || k === "C") && !getSelection().isCollapsed) return;
   const rows = visibleRows();
-  const i = rows.indexOf(rowOf.get(selected));
-  const go = (j) => select(rows[Math.max(0, Math.min(rows.length - 1, j))]?.node);
+  const i = rows.indexOf(rowOf.get(cursor));
+  const go = (j) => select(rows[Math.max(0, Math.min(rows.length - 1, j))]?.node, { extend: shift });
   const page = Math.max(1, Math.floor(tree.clientHeight / 24) - 1);
-  const node = selected, k = e.key;
-  if (ctrl && k === "ArrowUp") move(node, -1);
-  else if (ctrl && k === "ArrowDown") move(node, 1);
+  const node = cursor;
+  const nodes = selection();
+  if (e.altKey && k === "ArrowUp") move(nodes, -1);
+  else if (e.altKey && k === "ArrowDown") shift ? duplicate(nodes) : move(nodes, 1);
+  else if (ctrl && k === "ArrowUp") move(nodes, -1);
+  else if (ctrl && k === "ArrowDown") move(nodes, 1);
   else if (k === "ArrowUp") go(i - 1);
   else if (k === "ArrowDown") go(i + 1);
   else if (k === "PageUp") go(i - page);
   else if (k === "PageDown") go(i + page);
   else if (k === "Home") go(0);
   else if (k === "End") go(rows.length - 1);
-  else if (k === "ArrowLeft") expanded.has(node) && node.children.length ? toggle(node, false) : select(node.parent);
-  else if (k === "ArrowRight") isContainer(node) && node.children.length && (expanded.has(node) ? select(node.children[0]) : toggle(node, true));
+  else if (k === "ArrowLeft" && !shift) expanded.has(node) && node.children.length ? toggle(node, false) : select(node.parent);
+  else if (k === "ArrowRight" && !shift) isContainer(node) && node.children.length && (expanded.has(node) ? select(node.children[0]) : toggle(node, true));
+  else if (ctrl && k.toLowerCase() === "a") select(rows[0].node), select(rows.at(-1).node, { extend: true });
+  else if (k === "Escape") nodes.length > 1 ? select(cursor) : embedded ? close() : clearTextSelection();
+  else if (k === "Delete" || k === "Backspace") remove(nodes);
+  else if (ctrl && k.toLowerCase() === "d") duplicate(nodes);
+  else if (ctrl && k.toLowerCase() === "c") copy(nodes);
+  else if (ctrl && k.toLowerCase() === "x") nodes.some((n) => n.parent) && (copy(nodes), remove(nodes));
+  else if (nodes.length > 1 && (k === "Enter" || k === "F2" || k === " " || k === "Insert")) select(cursor);
   else if (ctrl && k === "Enter") isContainer(node) ? addInside(node) : addAfter(node);
   else if (k === "Enter") isContainer(node) ? toggle(node) : edit(node, "value");
   else if (k === "F2") node.parent?.type === "object" ? edit(node, "key") : !isContainer(node) && edit(node, "value");
   else if (k === " ") node.type === "boolean" ? change(() => (node.value = !node.value)) : toggle(node);
   else if (k === "Insert") addAfter(node);
-  else if (k === "Delete" || k === "Backspace") remove(node);
-  else if (ctrl && k.toLowerCase() === "d") duplicate(node);
-  else if (ctrl && k.toLowerCase() === "c") copy(node);
-  else if (ctrl && k.toLowerCase() === "x") node.parent && (copy(node), remove(node));
   else if (k === "*") isContainer(node) && (expandTo(node, Infinity), render());
   else if (k === "ContextMenu") {
     const r = rowOf.get(node).getBoundingClientRect();
-    showMenu(r.left + 40, r.bottom, node);
+    showMenu(r.left + 40, r.bottom);
+  } else if (k.length === 1 && !ctrl && !e.altKey && !isContainer(node) && nodes.length === 1) {
+    edit(node, "value", { text: k }); // typing on a value replaces it, like in a spreadsheet
   } else return;
   e.preventDefault();
 });
@@ -739,7 +901,7 @@ function findMatches(query) {
 
 function showCount() {
   const q = $("#search").value;
-  const i = matches.indexOf(selected);
+  const i = matches.indexOf(cursor);
   $("#search-count").textContent = !q ? "" : !matches.length ? "none" : i === -1 ? `${matches.length}` : `${i + 1} of ${matches.length}`;
 }
 
@@ -757,7 +919,7 @@ $("#search").addEventListener("keydown", (e) => {
     showCount();
     tree.focus();
   } else if (e.key === "Enter" && matches.length) {
-    const i = matches.indexOf(selected);
+    const i = matches.indexOf(cursor);
     reveal(matches[(i + (e.shiftKey ? -1 : 1) + matches.length) % matches.length]);
   } else if (e.key === "ArrowDown") {
     tree.focus();
@@ -771,6 +933,8 @@ $("#btn-open").onclick = openDialog;
 $("#btn-save").onclick = () => save();
 $("#btn-undo").onclick = undo;
 $("#btn-redo").onclick = redo;
+$("#btn-close").onclick = close;
+$("#btn-close").title = embedded ? "Close (Esc)" : "Close";
 $("#indent").addEventListener("change", () => {
   try {
     localStorage.setItem("indent", $("#indent").value);
@@ -779,8 +943,7 @@ $("#indent").addEventListener("change", () => {
 
 // ---------------------------------------------------------------- start
 
-// The engine shows the window once the page is ready (engine/window.js).
-globalThis.webkit?.messageHandlers?.phil?.postMessage("ready");
+ready();
 const { home } = await api("/api/init");
 try {
   $("#indent").value = localStorage.getItem("indent") ?? "2";
