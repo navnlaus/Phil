@@ -76,9 +76,10 @@ async function launch(argv) {
     await parsed.run();
     Deno.exit(0);
   }
+  if (parsed.send && (await ask(parsed.send.socket, parsed.send.message).catch(() => null))?.ok) Deno.exit(0);
   const profile = JSON.parse(JSON.stringify(parsed.profile ?? {})); // without the undefined values
   const request = {
-    open: { app: name, ...parsed.open },
+    open: { app: parsed.app ?? name, ...parsed.open },
     startupId: Deno.env.get("XDG_ACTIVATION_TOKEN") ?? Deno.env.get("DESKTOP_STARTUP_ID"),
   };
   const socket = socketPath(profile);

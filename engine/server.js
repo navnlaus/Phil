@@ -17,9 +17,9 @@ async function start({ profile, controlSocket, wakeFd }) {
   const quit = () => self.postMessage({ quit: true });
   // Every app's server, then a listening port for each.
   const apps = {};
-  await Promise.all(Object.entries(APPS).map(async ([name, app]) => {
+  await Promise.all(Object.entries(APPS).filter(([, app]) => app.server).map(async ([name, app]) => {
     const mod = await app.server();
-    apps[name] = { uiDir: mod.UI_DIR, server: await mod.createServer({ profile, quit }) };
+    apps[name] = { uiDir: mod.UI_DIR, server: await mod.createServer({ profile, quit, controlSocket }) };
   }));
   const urls = {};
   await Promise.all(Object.keys(apps).map(async (name) => (urls[name] = await serve(name, apps, { token, quit }))));
@@ -34,6 +34,7 @@ async function start({ profile, controlSocket, wakeFd }) {
       libc.symbols.write(wakeFd, line, line.length);
     };
     const listening = await listen(controlSocket, async (message, { stopListening }) => {
+      if (message.to) return (await apps[message.to]?.server.control?.(message)) ?? { ok: false }; // for an app
       if (message.retire) await stopListening();
       if (!message.ping) forward(message);
       return { ok: true };

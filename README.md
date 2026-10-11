@@ -16,6 +16,11 @@ quickly. The engine keeps running after its last window closes.
 - **jsonedit**, a JSON editor: `jsonedit file.json` (see [jsonedit](#jsonedit)).
 - **textedit**, a text editor with syntax highlighting and Markdown that can be
   edited as it reads: `textedit file` (see [textedit](#textedit)).
+- **phil-editor** (`ed` with `alias ed=phil-editor`): the right editor for a
+  file, jsonedit for JSON and textedit for other text. Typed in phil's terminal
+  panel, it opens the editor in that phil window (the panel's shell has
+  `PHIL_TERMINAL` and `PHIL_ENGINE_SOCKET`; the editor's Esc returns to the
+  terminal); anywhere else, in a window of its own.
 
 Each app gets its own server on 127.0.0.1, with its own port and origin; its
 windows get its own Wayland app id (`phil`, `jsonedit`) for window rules. Apps
@@ -69,8 +74,10 @@ after changing the code.
   (`apps/phil/dbus.js`), which opens a phil window per request with the items
   selected, and exits after 10 idle minutes. While Nautilus is running it
   holds that D-Bus name itself, so those requests go to Nautilus until it quits.
-- `~/.local/share/applications/jsonedit.desktop`: jsonedit is offered for JSON
-  files ("Open with"), not made their default.
+- `jsonedit.desktop` and `textedit.desktop`, made the default apps for JSON and
+  for text files (plain text, Markdown, scripts, code, configs, logs; not HTML
+  or XML), so they open from browsers' download lists, `xdg-open` and file
+  pickers.
 
 ## phil
 
@@ -249,6 +256,8 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
   involved.) If you're in the middle of typing or a command is running, it
   leaves the shell alone.
 - Right-click a file → "Paste path in terminal" inserts its quoted path.
+- `phil-editor file` (or `ed file`) opens the file's editor over the folder,
+  in this window; Esc comes back to the terminal.
 - Ctrl+Insert copies the selected text, Shift+Insert pastes; Ctrl+C and Ctrl+V
   stay the shell's. On Omarchy, Super+C / Super+V do the same once Hyprland
   counts phil as a terminal (it sends terminals Ctrl+Insert / Shift+Insert, and

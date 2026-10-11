@@ -11,11 +11,12 @@ import { mediaKind, Thumbnailer } from "./thumbs.js";
 export const UI_DIR = new URL("./ui/", import.meta.url);
 const DEFAULT_THEME = "overlay"; // see the themes in ui/style.css
 
-export function createServer({ profile }) {
+export function createServer({ profile, controlSocket }) {
   const config = serverConfig(profile);
   const thumbs = new Thumbnailer(config);
   // Incognito leaves no traces, so its folder summaries last for the session only.
   const sockets = new Set(); // every page's WebSocket, for {theme}
+  const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
   const folders = new FolderSummaries(thumbs.dir && !config.incognito ? join(thumbs.dir, "folders") : null);
   console.log(`phil: thumbnails in ${config.thumbDir ?? "a .thumbnails folder in each folder"}`);
 
@@ -251,13 +252,22 @@ export function createServer({ profile }) {
     const cwd = await isDir(url.searchParams.get("cwd") ?? "") ? url.searchParams.get("cwd") : home();
     const size = (name, fallback) => Math.max(1, Number(url.searchParams.get(name)) || fallback);
     const cdFile = join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-cd-${crypto.randomUUID()}`);
+    // PHIL_TERMINAL and PHIL_ENGINE_SOCKET: so phil-editor run in this shell
+    // can have its editor shown in this window (see control()).
+    const terminal = crypto.randomUUID();
     const pty = new Pty(["bash", "--rcfile", await shellInit, "-i"], {
       cwd,
       cols: size("cols", 80),
       rows: size("rows", 24),
-      env: { PHIL_CD_FILE: cdFile, ...(config.incognito ? { PHIL_INCOGNITO: "1" } : {}) },
+      env: {
+        PHIL_CD_FILE: cdFile,
+        PHIL_TERMINAL: terminal,
+        ...(controlSocket ? { PHIL_ENGINE_SOCKET: controlSocket } : {}),
+        ...(config.incognito ? { PHIL_INCOGNITO: "1" } : {}),
+      },
     });
     const { socket, response } = Deno.upgradeWebSocket(req);
+    terminals.set(terminal, socket);
     socket.binaryType = "arraybuffer";
     socket.onopen = async () => {
       for await (const chunk of pty.output()) {
@@ -281,6 +291,7 @@ export function createServer({ profile }) {
       }).catch(() => {});
     };
     socket.onclose = () => {
+      terminals.delete(terminal);
       pty.close();
       Deno.remove(cdFile).catch(() => {});
     };
@@ -369,7 +380,17 @@ export function createServer({ profile }) {
     }
   }
 
-  return { handle, port: config.port || undefined };
+  // Requests to phil on the engine's control socket: { embed: { terminal, app,
+  // params } } from phil-editor in a terminal panel shows that app in the
+  // panel's window (a text frame on its WebSocket; see terminal.js).
+  function control({ embed }) {
+    const socket = embed && terminals.get(embed.terminal);
+    if (socket?.readyState !== WebSocket.OPEN) return { ok: false };
+    socket.send(JSON.stringify({ open: { app: embed.app, params: embed.params ?? {} } }));
+    return { ok: true };
+  }
+
+  return { handle, control, port: config.port || undefined };
 }
 
 // bash --rcfile needs a real file, and under `deno compile` ours lives in the
