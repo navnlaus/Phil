@@ -58,13 +58,19 @@ async function write({ path, text, mtime = null, force = false }) {
     if (stat && mtime !== null && (stat.mtime?.getTime() ?? 0) !== mtime) throw httpError(409, `${basename(path)} changed on disk since it was opened.`);
     if (!stat && mtime !== null) throw httpError(409, `${basename(path)} was deleted since it was opened.`);
   }
-  const tmp = join(dirname(path), `.${basename(path)}.${crypto.randomUUID().slice(0, 8)}.tmp`);
+  // Through a symlink (a link in Documents/Config, say), the file it points to
+  // is what's saved: renaming over the link would replace the link instead.
+  const real = stat ? await Deno.realPath(path) : path;
+  const tmp = join(dirname(real), `.${basename(real)}.${crypto.randomUUID().slice(0, 8)}.tmp`);
   try {
     await Deno.writeTextFile(tmp, text, { mode: stat ? stat.mode & 0o7777 : 0o644 });
     if (stat) await Deno.chmod(tmp, stat.mode & 0o7777); // writeTextFile's mode is masked by the umask
-    await Deno.rename(tmp, path);
+    await Deno.rename(tmp, real);
   } catch (err) {
     await Deno.remove(tmp).catch(() => {});
+    if (err instanceof Deno.errors.PermissionDenied) {
+      throw httpError(403, `You can't write ${real}${real !== path ? ` (where ${basename(path)} links to)` : ""}: it belongs to ${stat?.uid === 0 ? "root" : "another user"} or its folder is read-only.`);
+    }
     throw err;
   }
   return { path, mtime: (await Deno.stat(path)).mtime?.getTime() ?? 0 };
