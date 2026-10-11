@@ -3,6 +3,7 @@
 // its pages have an origin of their own and keep their absolute URLs. Posts
 // { urls: {app: url}, control } once all are listening.
 import { APPS } from "./apps.js";
+import { readClipboard, writeClipboard } from "./clipboard.js";
 import { errorResponse, json, staticFile, text } from "./http.js";
 import { listen } from "./instance.js";
 
@@ -42,8 +43,8 @@ async function start({ profile, controlSocket, wakeFd }) {
 
 // Resolves to the app's URL with the token: opening it sets the session cookie.
 // Besides the app's own files and routes, its pages get /engine/ui/ (shared
-// styles and scripts) and /engine/apps (every app's URL, for showing one
-// inside another).
+// styles and scripts), /engine/apps (every app's URL, for showing one inside
+// another) and /engine/clipboard (the desktop's clipboard).
 function serve(name, uiDir, app, { token, quit, urls }) {
   let host, cookie;
   const { promise, resolve } = Promise.withResolvers();
@@ -87,6 +88,10 @@ function serve(name, uiDir, app, { token, quit, urls }) {
     if (req.method === "GET" && url.pathname.startsWith("/ui/")) return staticFile(uiDir, url.pathname.slice(4));
     if (req.method === "GET" && url.pathname.startsWith("/engine/ui/")) return staticFile(KIT_DIR, url.pathname.slice(11));
     if (req.method === "GET" && url.pathname === "/engine/apps") return json(urls);
+    if (url.pathname === "/engine/clipboard") { // the desktop's clipboard (clipboard.js)
+      if (req.method === "GET") return text(200, await readClipboard());
+      if (req.method === "PUT") return await writeClipboard(await req.text()), json({ ok: true });
+    }
     if (req.method === "POST" && url.pathname === "/api/quit") { // the close button in --browser mode (windows close natively)
       quit();
       return json({ ok: true });

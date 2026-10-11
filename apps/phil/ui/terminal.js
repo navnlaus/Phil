@@ -1,3 +1,5 @@
+import { copyText, pasteText } from "/engine/ui/kit.js";
+
 export const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
 
 /**
@@ -101,15 +103,16 @@ export class TerminalPanel {
     this.term.onResize(({ cols, rows }) => {
       if (this.isRunning) this.ws.send(JSON.stringify({ resize: [cols, rows] }));
     });
-    // Let the panel and focus shortcuts reach the app instead of the shell. Copying is
-    // done here; pasting is left to the browser, whose paste event xterm.js
-    // sends to the shell.
+    // Let the panel and focus shortcuts reach the app instead of the shell.
+    // Copying and pasting (Ctrl+Insert / Shift+Insert) go through the desktop's
+    // clipboard (kit.js); xterm.js pastes into the shell as a paste.
     this.term.attachCustomKeyEventHandler((e) => {
       if (isToggleKey(e) || isFocusKey(e)) return false;
       const action = clipboardAction(e);
-      if (action === "copy" && e.type === "keydown") {
+      if (action && e.type === "keydown") {
         e.preventDefault();
-        if (this.term.hasSelection()) navigator.clipboard.writeText(this.term.getSelection()).catch(() => {});
+        if (action === "paste") pasteText().then((text) => text && this.term.paste(text));
+        else if (this.term.hasSelection()) copyText(this.term.getSelection());
       }
       return !action;
     });

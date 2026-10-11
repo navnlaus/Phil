@@ -1,4 +1,4 @@
-import { closeWindow, embedded, ready } from "/engine/ui/kit.js";
+import { clipboardKey, closeWindow, copyText, embedded, pasteText, ready } from "/engine/ui/kit.js";
 import { parse, position } from "/ui/json.js";
 import { clone, displayPath, editText, follow, freshKey, fromParse, isContainer, literal, serialize, stepsTo } from "/ui/model.js";
 
@@ -607,23 +607,19 @@ function convert(node, type) {
   change(() => replaceValue(node, value));
 }
 
-// Copies one item as its JSON value; several as the lines they are in the
-// file (`"key": value,` in an object), which paste back in as items.
-async function copy(nodes) {
+// Copies the selected rows as the lines they are in the file, with what's
+// inside them: `"key": value` for an object's members, the value for an
+// array's items, one per line (with commas between). They paste back in as
+// items, here or into another file.
+function copy(nodes) {
   const indent = indentUnit();
-  const text = nodes.length === 1
-    ? serialize(nodes[0], indent)
-    : nodes.map((n) => (n.parent?.type === "object" ? `${JSON.stringify(n.key)}: ` : "") + serialize(n, indent)).join(",\n");
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const ta = Object.assign(document.createElement("textarea"), { value: text });
-    document.body.append(ta);
-    ta.select();
-    document.execCommand("copy");
-    ta.remove();
-    tree.focus();
-  }
+  copyText(nodes.map((n) => (n.parent?.type === "object" ? `${JSON.stringify(n.key)}: ` : "") + serialize(n, indent)).join(",\n"));
+}
+
+// Text selected inside a key or value (dragged over), if any.
+function selectedText() {
+  if (!tree.querySelector(".selecting") || getSelection().isCollapsed) return "";
+  return getSelection().toString().replace(/\n$/, ""); // the browser adds a line break at the span's end
 }
 
 // What pasted text is: JSON as such, or lines of items copied from an object
@@ -642,6 +638,7 @@ function pasted(text) {
 // pasted into an object, go in as items keeping their keys; anything else
 // pasted into an object gets a key to fill in.
 function paste(text) {
+  if (!text.trim()) return; // nothing copied
   const { node: value, error, items: isItems } = pasted(text);
   if (error) return alert(`The pasted text isn't valid JSON: ${error}`);
   const target = selection().at(-1);
@@ -744,12 +741,12 @@ tree.addEventListener("contextmenu", (e) => {
   showMenu(e.clientX, e.clientY);
 });
 
-// Text selected inside a key or value is copied as it shows, without the
-// line break the browser adds at the end of the span.
+// Copying from the browser's own menu: the selected text as it shows.
 document.addEventListener("copy", (e) => {
-  if (!tree.querySelector(".selecting") || getSelection().isCollapsed) return;
+  const text = selectedText();
+  if (!text) return;
   e.preventDefault();
-  e.clipboardData.setData("text/plain", getSelection().toString().replace(/\n$/, ""));
+  e.clipboardData.setData("text/plain", text);
 });
 
 // ---------------------------------------------------------------- menu
@@ -770,6 +767,7 @@ function showMenu(x, y) {
       ["Move down", "Alt+↓", () => move(nodes, 1)],
       ["Copy", "Ctrl+C", () => copy(nodes)],
       ["Cut", "Ctrl+X", () => (copy(nodes), remove(nodes))],
+      ["Paste after", "Ctrl+V", () => pasteText().then(paste)],
       "-",
       ["Delete", "Del", () => remove(nodes)],
     ]
@@ -782,8 +780,11 @@ function showMenu(x, y) {
       node.parent && ["Move up", "Alt+↑", () => move(nodes, -1)],
       node.parent && ["Move down", "Alt+↓", () => move(nodes, 1)],
       "-",
-      ["Copy as JSON", "Ctrl+C", () => copy(nodes)],
-      ["Copy path", "", () => navigator.clipboard.writeText(displayPath(node)).catch(() => {})],
+      ["Copy", "Ctrl+C", () => copy(nodes)],
+      node.parent?.type === "object" && ["Copy value", "", () => copyText(serialize(node, indentUnit()))],
+      ["Copy path", "", () => copyText(displayPath(node))],
+      node.parent && ["Cut", "Ctrl+X", () => (copy(nodes), remove(nodes))],
+      ["Paste", "Ctrl+V", () => pasteText().then(paste)],
       container && node.children.length && ["Expand everything inside", "*", () => (expandTo(node, Infinity), render())],
       "-",
       { label: "Change type to" },
@@ -819,8 +820,20 @@ document.addEventListener("mousedown", (e) => !menu.contains(e.target) && hideMe
 tree.addEventListener("keydown", (e) => {
   if (editing || !cursor || e.target !== tree) return;
   const ctrl = e.ctrlKey || e.metaKey, shift = e.shiftKey, k = e.key;
-  // Text selected inside a key or value: the browser copies that.
-  if (ctrl && (k === "c" || k === "C") && !getSelection().isCollapsed) return;
+  // Copy, cut and paste, by any of their keys (kit.js), through the desktop's
+  // clipboard. Text dragged over inside a key or value copies as just that.
+  const clip = clipboardKey(e);
+  if (clip) {
+    e.preventDefault();
+    const text = selectedText();
+    if (clip === "paste") pasteText().then(paste);
+    else if (text) copyText(text);
+    else {
+      copy(selection());
+      if (clip === "cut") remove(selection());
+    }
+    return;
+  }
   const rows = visibleRows();
   const i = rows.indexOf(rowOf.get(cursor));
   const go = (j) => select(rows[Math.max(0, Math.min(rows.length - 1, j))]?.node, { extend: shift });
@@ -843,8 +856,6 @@ tree.addEventListener("keydown", (e) => {
   else if (k === "Escape") nodes.length > 1 ? select(cursor) : embedded ? close() : clearTextSelection();
   else if (k === "Delete" || k === "Backspace") remove(nodes);
   else if (ctrl && k.toLowerCase() === "d") duplicate(nodes);
-  else if (ctrl && k.toLowerCase() === "c") copy(nodes);
-  else if (ctrl && k.toLowerCase() === "x") nodes.some((n) => n.parent) && (copy(nodes), remove(nodes));
   else if (nodes.length > 1 && (k === "Enter" || k === "F2" || k === " " || k === "Insert")) select(cursor);
   else if (ctrl && k === "Enter") isContainer(node) ? addInside(node) : addAfter(node);
   else if (k === "Enter") isContainer(node) ? toggle(node) : edit(node, "value");
