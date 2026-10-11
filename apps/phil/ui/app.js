@@ -1547,7 +1547,7 @@ document.addEventListener("keydown", (e) => {
 
   if (e.altKey && e.key === "ArrowLeft") return history.back(), handled();
   if (e.altKey && e.key === "ArrowRight") return history.forward(), handled();
-  if (e.key === "Backspace" && e.target === grid) return $("#btn-up").click(), handled();
+  if ((e.key === "Backspace" || e.key === "Escape") && e.target === grid) return $("#btn-up").click(), handled();
   if (ctrl && e.key === "l") return editLocation(), handled();
   if ((ctrl && e.key === "f") || (e.key === "/" && e.target === grid)) return filterInput.focus(), filterInput.select(), handled();
   if (ctrl && e.key === "h") return toggleHidden(), handled();
@@ -1580,7 +1580,6 @@ document.addEventListener("keydown", (e) => {
   if (ctrl && e.key === "a") return setMarked(state.view.map((v) => v.path)), updateStatus(), handled();
   // Ctrl+C / Ctrl+Insert / Super+C: the selected files' paths, one per line.
   if (clipboardKey(e) === "copy" && state.marked.size) return copyText(markedEntries().map((m) => m.path).join("\n")), handled();
-  if (e.key === "Escape") return select(-1), handled();
   if (e.key === "Enter" || (e.key === " " && !typed)) return open(cur), handled();
   if (e.key.length === 1 && !ctrl && !e.altKey) return typeAhead(e.key), handled();
 });

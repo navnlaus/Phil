@@ -293,7 +293,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 |---|---|
 | double-click / Enter | open folder, view image, play video in mpv, edit a `.json` file in jsonedit or any other text file (notes, code, configs, logs; whatever reads as text) in textedit, both in this window, or open the file with its default app (right-click a video → "Play here" for the built-in player; any file → "Edit as text") |
 | arrows, Home/End, PgUp/PgDn | move selection (with Shift: extend it) |
-| Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; Esc clears |
+| Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; click empty space to clear |
 | Ctrl+C / Ctrl+Insert / Super+C | copy the selected files' paths, one per line |
 | drag (Ctrl/Shift+drag) | select everything the rectangle touches (add to the selection); scrolls at the edges |
 | type a name | jump to the next entry starting with it (repeat a letter to cycle) |
@@ -301,7 +301,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
 | right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, places) |
 | middle-drag onto a folder | move there right away |
-| Backspace | parent folder |
+| Backspace, Esc | parent folder |
 | Alt+← / Alt+→ | back / forward |
 | Ctrl+L | type a path (`~` works) |
 | `/` or Ctrl+F | filter |
