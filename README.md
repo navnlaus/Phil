@@ -89,6 +89,8 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | drag (Ctrl/Shift+drag) | select everything the rectangle touches (add to the selection); scrolls at the edges |
 | type a name | jump to the next entry starting with it (repeat a letter to cycle) |
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
+| right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, places) |
+| middle-drag onto a folder | move there right away |
 | Backspace / Alt+↑ | parent folder |
 | Alt+← / Alt+→ | back / forward |
 | Ctrl+L | type a path (`~` works) |

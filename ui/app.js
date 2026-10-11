@@ -308,6 +308,7 @@ function renderCrumbs() {
   const add = (label, path) => {
     const b = document.createElement("button");
     b.textContent = label;
+    b.dataset.path = path; // drop target
     b.onclick = (e) => {
       e.stopPropagation();
       navigate(path);
@@ -327,6 +328,7 @@ function renderPlaces() {
   nav.replaceChildren(...state.init.places.map((p) => {
     const a = document.createElement("a");
     a.href = "#" + encodePath(p.path);
+    a.dataset.path = p.path; // drop target
     a.title = p.path;
     a.innerHTML = icon(p.icon);
     a.append(p.name);
@@ -599,7 +601,10 @@ function showContextMenu(x, y, entry) {
       terminal.insert(shellQuote(entry.path) + " ");
     }]);
   }
+  showMenu(x, y, items);
+}
 
+function showMenu(x, y, items) {
   contextMenu.replaceChildren(...items.map(([label, action]) => {
     const li = document.createElement("li");
     const b = document.createElement("button");
@@ -663,9 +668,9 @@ function contentPoint(clientX, clientY) {
 // repainted, so the rectangle never shows). Cancelling the press's default
 // action stops both; the grid then has to take focus itself.
 grid.addEventListener("mousedown", (e) => {
-  if (e.button !== 0 || (e.target === grid && e.offsetX >= grid.clientWidth)) return;
-  e.preventDefault();
-  grid.focus({ preventScroll: true });
+  if (e.target === grid && e.offsetX >= grid.clientWidth) return; // the scrollbar
+  if (e.button === 0 || e.button === 1) e.preventDefault(); // no native drag; middle: no autoscroll or paste
+  if (e.button !== 2) grid.focus({ preventScroll: true });
 });
 grid.addEventListener("dragstart", (e) => e.preventDefault());
 grid.addEventListener("selectstart", (e) => e.preventDefault());
@@ -710,19 +715,140 @@ function startBand() {
   }));
   band.el = Object.assign(document.createElement("div"), { className: "rubber-band" });
   grid.append(band.el);
-  const autoScroll = () => {
-    if (!band?.active) return;
+  edgeScroll(() => band?.active && band.client[1], updateBand);
+}
+
+// While a drag is near the grid's top or bottom edge, scroll it (faster the
+// closer to the edge). `clientY()` returns false once the drag is over.
+function edgeScroll(clientY, onScroll) {
+  const step = () => {
+    const y = clientY();
+    if (y === false || y === undefined) return;
     const r = grid.getBoundingClientRect();
-    const y = band.client[1];
     const edge = 40;
     const speed = y < r.top + edge ? -(r.top + edge - y) : y > r.bottom - edge ? y - (r.bottom - edge) : 0;
     if (speed) {
       grid.scrollTop += Math.max(-40, Math.min(40, speed / 2));
-      updateBand();
+      onScroll();
     }
-    requestAnimationFrame(autoScroll);
+    requestAnimationFrame(step);
   };
-  requestAnimationFrame(autoScroll);
+  requestAnimationFrame(step);
+}
+
+// ---------------------------------------------------------------- drag and drop
+
+// Right-drag or middle-drag a selection onto a folder (a folder tile, a path
+// segment in the top bar, or a place in the sidebar). Dropping a right-drag
+// asks "Move to / Copy to"; a middle-drag moves right away.
+let drag = null;
+
+grid.addEventListener("pointerdown", (e) => {
+  if (e.button !== 1 && e.button !== 2) return;
+  const i = tileIndex(e.target);
+  if (i === -1) return;
+  drag = { id: e.pointerId, button: e.button, index: i, start: [e.clientX, e.clientY], client: [e.clientX, e.clientY] };
+  addEventListener("pointermove", moveDrag);
+  addEventListener("pointerup", endDrag);
+  addEventListener("pointercancel", endDrag);
+});
+
+function moveDrag(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  drag.client = [e.clientX, e.clientY];
+  if (!drag.active) {
+    if (Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 6) return;
+    startDrag();
+  }
+  updateDrag();
+}
+
+function startDrag() {
+  drag.active = true;
+  hideContextMenu();
+  if (!state.marked.has(state.view[drag.index].path)) select(drag.index, { scroll: false });
+  drag.items = markedEntries();
+  drag.paths = new Set(drag.items.map((e) => e.path));
+  drag.dirs = drag.items.filter((e) => e.kind === "dir").map((e) => e.path + "/");
+  const ghost = (drag.ghost = document.createElement("div"));
+  ghost.className = "drag-ghost";
+  const first = drag.items[0];
+  if (typeof first.thumb === "string") ghost.append(Object.assign(new Image(), { src: first.thumb, draggable: false }));
+  else ghost.insertAdjacentHTML("beforeend", icon(KIND_ICON[first.kind]));
+  drag.label = document.createElement("span");
+  ghost.append(drag.label);
+  document.body.append(ghost);
+  document.body.classList.add("dragging");
+  edgeScroll(() => drag?.active && drag.client[1], updateDrag);
+}
+
+// The folder under the pointer, if the dragged items can go there.
+function dropTargetAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const tile = el?.closest(".tile");
+  const target = tile ? state.view[tile.dataset.index] : null;
+  const path = target ? (target.kind === "dir" ? target.path : null) : el?.closest("[data-path]")?.dataset.path;
+  if (!path || path === state.path || drag.paths.has(path)) return null;
+  if (drag.dirs.some((d) => (path + "/").startsWith(d))) return null; // into itself
+  return { path, el: tile ?? el.closest("[data-path]") };
+}
+
+function updateDrag() {
+  const [x, y] = drag.client;
+  drag.ghost.style.transform = `translate(${x + 14}px, ${y + 14}px)`;
+  const target = dropTargetAt(x, y);
+  if (target?.el !== drag.target?.el) {
+    drag.target?.el.classList.remove("drop-target");
+    target?.el.classList.add("drop-target");
+  }
+  drag.target = target;
+  const what = drag.items.length === 1 ? drag.items[0].name : `${drag.items.length} items`;
+  const verb = drag.button === 1 ? "Move" : "Move or copy";
+  drag.label.textContent = target ? `${verb} ${what} to ${target.path.split("/").pop() || "/"}` : what;
+}
+
+function endDrag(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  removeEventListener("pointermove", moveDrag);
+  removeEventListener("pointerup", endDrag);
+  removeEventListener("pointercancel", endDrag);
+  const d = drag;
+  drag = null;
+  if (!d.active) {
+    if (d.wantsMenu) { // a plain right click
+      if (!state.marked.has(state.view[d.index].path)) select(d.index, { scroll: false });
+      showContextMenu(e.clientX, e.clientY, state.view[d.index]);
+    }
+    return;
+  }
+  d.ghost.remove();
+  document.body.classList.remove("dragging");
+  d.target?.el.classList.remove("drop-target");
+  if (!d.target || e.type === "pointercancel") return;
+  const name = d.target.path.split("/").pop() || "/";
+  if (d.button === 1) return transfer("move", d.items, d.target.path);
+  showMenu(e.clientX, e.clientY, [
+    [`Move to “${name}”`, () => transfer("move", d.items, d.target.path)],
+    [`Copy to “${name}”`, () => transfer("copy", d.items, d.target.path)],
+  ]);
+}
+
+async function transfer(op, items, dest) {
+  const progress = $("#status-progress");
+  progress.textContent = `${op === "move" ? "Moving" : "Copying"} ${items.length} item${items.length === 1 ? "" : "s"}…`;
+  let result;
+  try {
+    result = await api("/api/transfer", { method: "POST", body: JSON.stringify({ op, dest, paths: items.map((e) => e.path) }) });
+  } catch (err) {
+    result = { errors: [{ path: "", error: err.message }] };
+  }
+  progress.textContent = "";
+  updateProgress();
+  await load(state.path);
+  if (result.errors.length) {
+    alert(`Couldn't ${op} ${result.errors.length} item(s):\n` +
+      result.errors.map((e) => `${e.path.split("/").pop()}: ${e.error}`).join("\n"));
+  }
 }
 
 function updateBand() {
@@ -755,6 +881,9 @@ grid.addEventListener("contextmenu", (e) => {
   const i = tileIndex(e.target);
   if (i === -1) return; // keep the webview's own menu (Inspect Element) on empty space
   e.preventDefault();
+  // On Linux this fires when the button goes down. A right press may become a
+  // drag, so the menu waits for the release (see endDrag).
+  if (drag?.button === 2) return void (drag.wantsMenu = true);
   if (!state.marked.has(state.view[i].path)) select(i, { scroll: false });
   showContextMenu(e.clientX, e.clientY, state.view[i]);
 });

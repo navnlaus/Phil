@@ -79,6 +79,8 @@ function start(config) {
         return openExternal(await req.json());
       case "POST /api/delete":
         return json(await deletePaths((await req.json()).paths ?? []));
+      case "POST /api/transfer":
+        return json(await transfer(await req.json()));
       case "PUT /api/settings":
         await writeSettings(await req.json());
         return json({ ok: true });
@@ -359,6 +361,34 @@ async function deletePaths(paths) {
       await Deno.remove(path, { recursive: true });
     } catch (err) {
       errors.push({ path, error: err.message });
+    }
+  }
+  return { errors };
+}
+
+// Drag and drop: move or copy items into `dest`. mv/cp handle folders,
+// symlinks (copied as links) and moves across filesystems. Nothing is ever
+// overwritten: a name that already exists in `dest` is reported and skipped.
+async function transfer({ op, paths = [], dest }) {
+  if (op !== "move" && op !== "copy") throw Object.assign(new Error("bad op"), { status: 400 });
+  requirePath(dest);
+  if (!(await isDir(dest))) throw Object.assign(new Error("destination is not a folder"), { status: 400 });
+  const errors = [];
+  for (const src of paths) {
+    try {
+      requirePath(src);
+      if (normalize(src) !== src || src === "/") throw new Error("invalid path");
+      if (dest === src || dest.startsWith(src + "/")) throw new Error("can't put a folder inside itself");
+      if (dirname(src) === dest) throw new Error("it's already in that folder");
+      const target = join(dest, basename(src));
+      if (await Deno.lstat(target).then(() => true, () => false)) throw new Error("an item with that name already exists there");
+      const [cmd, ...args] = op === "move" ? ["mv", "-n", "-T"] : ["cp", "-a", "-n", "-T"];
+      const result = await new Deno.Command(cmd, { args: [...args, "--", src, target], stdin: "null", stdout: "null", stderr: "piped" }).output();
+      if (!result.success) {
+        throw new Error(new TextDecoder().decode(result.stderr).trim().split("\n").at(-1) || `${cmd} failed`);
+      }
+    } catch (err) {
+      errors.push({ path: src, error: err.message });
     }
   }
   return { errors };
