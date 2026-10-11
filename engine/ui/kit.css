@@ -22,3 +22,27 @@
 /* The X at the right end of the top bar. */
 .close-button { margin-left: 2px; }
 .close-button:hover { background: #c94b4b !important; color: #fff; }
+
+/* askPassword(): a small box at the top of the page. */
+.kit-password {
+  position: fixed;
+  z-index: 50;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(460px, calc(100vw - 32px));
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised, var(--bg));
+  color: var(--text);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  font: 13px/1.4 system-ui, sans-serif;
+}
+.kit-password label { white-space: pre-line; }
+.kit-password div { display: flex; gap: 6px; }
+.kit-password input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: inherit; }
+.kit-password button { height: 28px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: inherit; cursor: pointer; }
+.kit-password input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
