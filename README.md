@@ -147,8 +147,8 @@ session.
 
 Files that turn out to be text (anything UTF-8 without NUL bytes: notes,
 Markdown, JSON, config files, code, CSV, logs...) show their own text on the
-tile, syntax-highlighted in textedit's colors (in the background: tiles show
-plain first), scaled to the file: a short one in readable type, a long one smaller to
+tile, code and configs syntax-highlighted in textedit's colors (in the
+background: tiles show plain first), scaled to the file: a short one in readable type, a long one smaller to
 fit more of it, down to lines drawn as bars. Markdown headings stay large
 enough to read even in long documents. Only the start of a file is read (32 KB,
 up to 400 lines), when its tile comes into view.

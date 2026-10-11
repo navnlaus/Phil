@@ -300,8 +300,10 @@ function drawText(box) {
   const colors = {}; // syntax roles (engine/ui/syntax.js) to --s-* colors
   const colorOf = (role, plain) => (role ? (colors[role] ??= css.getPropertyValue(`--s-${role}`).trim() || plain) : plain);
   const family = prose ? "system-ui, sans-serif" : "ui-monospace, monospace";
-  const runs = box.text.runs; // highlighted, once the worker has answered
-  if (!runs) highlightText(box);
+  // Code and configs are highlighted (once the worker has answered); prose
+  // (Markdown, plain text) looks like a document instead.
+  const runs = prose ? null : box.text.runs;
+  if (!prose && !runs) highlightText(box);
   let y = pad * 0.6;
   lines.forEach(([kind, text], i) => {
     const size = sizeOf(kind, body);
@@ -310,7 +312,7 @@ function drawText(box) {
     const heading = !!HEADING[kind];
     const plain = heading ? strong : dim;
     let line = runs?.[i] ?? [[text, null]];
-    if (heading) line = [[text.replace(/^\s*#+\s*/, ""), "heading"]]; // drawn large instead of with its #
+    if (heading) line = [[text.replace(/^\s*#+\s*/, ""), null]]; // drawn large and bold instead of with its #
     ctx.globalAlpha = kind === "c" && !runs ? 0.55 : heading ? 1 : 0.9;
     if (size * dpr >= 3) {
       ctx.font = `${heading ? 700 : 400} ${size}px ${family}`;
