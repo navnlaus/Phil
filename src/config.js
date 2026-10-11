@@ -7,6 +7,10 @@ Usage: phil [options] [directory | file...]
 Without a directory, phil opens the folder it was showing when it last closed.
 Given files, it opens their folder with them selected.
 
+phil keeps running in the background after its last window closes, so new
+windows open quickly: \`phil ...\` hands the request to the running phil.
+Incognito windows get their own phil, which exits with its last window.
+
 Options:
   --thumb-dir PATH   Where this process stores thumbnails
                      (env PHIL_THUMB_DIR, default $XDG_CACHE_HOME/phil/thumbnails)
@@ -19,6 +23,11 @@ Options:
                      .thumbnails folder inside each folder instead of the cache
                      (unless --thumb-dir is given), no WebKit disk cache
   --browser          Don't open a window; print the URL to open in a browser
+  --standalone       Don't use or become the background phil: a process of its
+                     own that exits when its window closes (handy for development)
+  --quit             Stop the background phil (with --incognito: the incognito one)
+  --retire           Ask every running phil to stop taking new windows and exit once
+                     its windows are closed, so the next launch runs a new build
   --file-manager-service
                      Run the org.freedesktop.FileManager1 D-Bus service that
                      "Show in folder" uses; started by D-Bus, see scripts/install.sh
@@ -35,6 +44,9 @@ const OPTIONS = {
   "--port": true,
   "--incognito": false,
   "--browser": false,
+  "--standalone": false,
+  "--quit": false,
+  "--retire": false,
   "--file-manager-service": false,
   "--help": false,
 };
@@ -96,7 +108,15 @@ export function parseConfig(args) {
   const startDir = paths.length && isFile(paths[0]) ? dirname(paths[0]) : paths[0] ?? Deno.cwd();
   return {
     browser: !!opts.browser,
+    standalone: !!opts.standalone,
+    quit: !!opts.quit,
+    retire: !!opts.retire,
     fileManagerService: !!opts["file-manager-service"],
+    // Options that make a separate instance (see instance.js).
+    thumbDirOption: thumbDir ? resolve(thumbDir) : undefined,
+    thumbSizeOption: opts["thumb-size"] ?? env("PHIL_THUMB_SIZE"),
+    jobsOption: opts.jobs,
+    portOption: opts.port,
     incognito,
     startDir,
     startDirGiven: paths.length > 0,

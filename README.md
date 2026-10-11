@@ -27,6 +27,25 @@ file manager. Rerun it after changing the code.
 
 `phil file...` opens the files' folder with them selected.
 
+## Background instance
+
+`phil` keeps running after its last window closes, so later windows open
+quickly (no GTK/WebKit startup): a new `phil ...` finds the running one through
+`$XDG_RUNTIME_DIR/phil/main.sock`, asks it for a window and exits.
+
+- Incognito windows get their own instance (`incognito.sock`): separate server,
+  token and private WebKit session, app id `phil-incognito` and a purple stripe
+  along the top. It exits, deleting its temporary thumbnails, with its last
+  window. "Show in folder" always goes to the normal instance.
+- Non-default `--thumb-dir`, `--thumb-size`, `--jobs` or `--port` make an
+  instance of their own, so those options always apply.
+- `phil --quit` stops the background phil (`--incognito --quit` the incognito
+  one). `deno task install` runs `phil --retire`: running phils keep their
+  windows but take no new ones and exit once those close.
+- `--standalone` is the old behavior: one process per window, which exits with
+  it. `deno task start` uses it, so development runs don't end up in the
+  installed background phil.
+
 ## Run
 
 ```sh

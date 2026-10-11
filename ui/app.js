@@ -909,7 +909,7 @@ document.addEventListener("mousedown", (e) => {
 
 $("#btn-back").onclick = () => history.back();
 $("#btn-close").onclick = () => {
-  const native = window.webkit?.messageHandlers?.phil; // phil's own window (src/window.js)
+  const native = globalThis.webkit?.messageHandlers?.phil; // phil's own window (src/window.js)
   if (native) return native.postMessage("close");
   fetch("/api/quit", { method: "POST" }).finally(() => window.close()); // --browser
 };
@@ -1075,7 +1075,7 @@ document.addEventListener("keydown", (e) => {
 // ---------------------------------------------------------------- start
 
 // phil keeps its window hidden until the page is styled and running (src/window.js).
-window.webkit?.messageHandlers?.phil?.postMessage(`ready:${JSON.stringify({ script: Math.round(performance.now()) })}`);
+globalThis.webkit?.messageHandlers?.phil?.postMessage(`ready:${JSON.stringify({ script: Math.round(performance.now()) })}`);
 state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
 applySettings();
@@ -1085,6 +1085,11 @@ thumbDirEl.title = `${state.init.thumbDir} (${state.init.thumbSize})`;
 thumbs.connect();
 
 restoreTerminal = state.settings.termOpen;
-initialSelect = state.init.select.length ? state.init.select : null;
+// Files to select, from ?select= (phil file..., "Show in folder"); dropped from
+// the URL so they aren't reselected later.
+const selectParams = new URLSearchParams(location.search).getAll("select");
+initialSelect = selectParams.length ? selectParams : null;
+if (location.search) history.replaceState(null, "", location.pathname + location.hash);
+document.body.classList.toggle("incognito", state.init.incognito);
 if (location.hash.length > 1) load(decodeURIComponent(location.hash.slice(1)));
 else navigate(state.init.start);

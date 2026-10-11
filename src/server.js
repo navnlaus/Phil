@@ -1,6 +1,7 @@
 // Local HTTP server for the UI. Runs in a worker; posts { url } once listening.
 import { basename, dirname, extname, join, normalize } from "@std/path";
 import { home } from "./config.js";
+import { listen } from "./instance.js";
 import { Pty } from "./pty.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
@@ -24,14 +25,35 @@ self.onmessage = (e) => start(e.data);
 function start(config) {
   const token = crypto.randomUUID();
   const thumbs = new Thumbnailer(config);
-  let host;
+  let host, cookie;
+
+  // Tell the main thread we're up, after taking over the instance's control
+  // socket (if any): its requests go to the GTK main loop through wakeFd.
+  async function announce(url) {
+    let control = "none";
+    if (config.controlSocket) {
+      const libc = Deno.dlopen("libc.so.6", { write: { parameters: ["i32", "buffer", "usize"], result: "isize" } });
+      const forward = (message) => {
+        const line = new TextEncoder().encode(JSON.stringify(message) + "\n");
+        libc.symbols.write(config.wakeFd, line, line.length);
+      };
+      const listening = await listen(config.controlSocket, async (message, { stopListening }) => {
+        if (message.retire) await stopListening();
+        forward(message);
+        return { ok: true };
+      });
+      control = listening ? "listening" : "in-use";
+    }
+    self.postMessage({ url, control });
+  }
 
   Deno.serve({
     hostname: "127.0.0.1",
     port: config.port,
     onListen({ port }) {
       host = `127.0.0.1:${port}`;
-      self.postMessage({ url: `http://${host}/?token=${token}` });
+      cookie = `phil-${port}`; // per port, so two phils never overwrite each other's session
+      announce(`http://${host}/?token=${token}`);
     },
   }, async (req) => {
     try {
@@ -46,13 +68,14 @@ function start(config) {
     // Only answer requests addressed to us (blocks DNS rebinding) that carry the session cookie.
     if (req.headers.get("host") !== host) return text(403, "Forbidden");
     if (url.searchParams.get("token") === token) {
+      url.searchParams.delete("token"); // keep the rest (?select=...); the #folder carries over by itself
       return new Response(null, {
         status: 303,
-        headers: { location: "/", "set-cookie": `phil=${token}; HttpOnly; SameSite=Strict; Path=/` },
+        headers: { location: "/" + url.search, "set-cookie": `${cookie}=${token}; HttpOnly; SameSite=Strict; Path=/` },
       });
     }
     const cookies = (req.headers.get("cookie") ?? "").split(/;\s*/);
-    if (!cookies.includes(`phil=${token}`)) return text(403, "Forbidden: open the URL printed by phil");
+    if (!cookies.includes(`${cookie}=${token}`)) return text(403, "Forbidden: open the URL printed by phil");
 
     const path = url.searchParams.get("path");
     const route = `${req.method} ${url.pathname}`;
@@ -61,8 +84,7 @@ function start(config) {
         return staticFile("index.html");
       case "GET /api/init":
         return json({
-          start: config.startDirGiven ? config.startDir : (await lastDir()) ?? config.startDir,
-          select: config.select,
+          start: (await lastDir()) ?? config.startDir, // windows asked for a folder get it in the URL
           home: home(),
           places: await places(),
           incognito: config.incognito,
