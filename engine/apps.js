@@ -44,6 +44,10 @@ export const APPS = {
     launch: () => import("../apps/imageview/launch.js"),
     server: () => import("../apps/imageview/server.js"),
   },
+  imageresize: {
+    launch: () => import("../apps/imageresize/launch.js"),
+    server: () => import("../apps/imageresize/server.js"),
+  },
   "phil-editor": {
     launch: () => import("../apps/phil-editor/launch.js"),
   },

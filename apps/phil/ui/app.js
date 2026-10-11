@@ -1163,6 +1163,7 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "dir") items.push(["Open", () => navigate(entry.path)]);
   if (entry.kind === "dir" && remoteOf(entry.path)) items.push([`SSH here (${remoteOf(entry.path).host})`, () => sshTo(entry.path)]);
   if (entry.kind === "image") items.push(["View", () => open(state.view.indexOf(entry))]);
+  if (entry.kind === "image") items.push(["Resize, crop, compress…", () => openInApp("imageresize", { file: entry.path })]);
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
   if (entry.kind === "video") items.push(["Play here", () => viewer.open(state.view.indexOf(entry))]);
   if (isJson(entry)) items.push(["Edit in jsonedit", () => openInApp("jsonedit", { file: entry.path })]);

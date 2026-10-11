@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>imageresize</title>
+  <!-- Relative URLs: imageresize is also served inside other apps (engine/server.js). -->
+  <link rel="stylesheet" href="engine/ui/kit.css">
+  <link rel="stylesheet" href="ui/style.css">
+  <script type="module" src="ui/app.js"></script>
+</head>
+<body>
+  <main>
+    <section id="view" tabindex="0" aria-label="Picture">
+      <!-- The picture with the crop box over it, or the result. -->
+      <div id="frame" hidden>
+        <img id="src" alt="" draggable="false">
+        <div id="shade"><div id="hole"></div></div>
+        <div id="crop" data-drag="move">
+          <i data-drag="nw"></i><i data-drag="n"></i><i data-drag="ne"></i><i data-drag="e"></i>
+          <i data-drag="se"></i><i data-drag="s"></i><i data-drag="sw"></i><i data-drag="w"></i>
+          <span id="crop-size"></span>
+        </div>
+      </div>
+      <img id="result" alt="" draggable="false" hidden>
+      <p id="message" hidden></p>
+
+      <header id="bar" class="overlay-bar top">
+        <div id="file"><span id="name"></span><span id="orig"></span></div>
+        <div class="seg" id="show" title="Switch (V)">
+          <button data-show="crop" class="on">Crop</button><button data-show="result">Result</button>
+        </div>
+        <button id="btn-close" class="icon close-button" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </header>
+    </section>
+
+    <aside id="panel">
+      <section>
+        <h3>Size</h3>
+        <select id="preset" aria-label="Size preset"></select>
+        <div class="row">
+          <input id="w" type="number" min="1" max="20000" aria-label="Width"><span class="x">×</span><input id="h" type="number" min="1" max="20000" aria-label="Height">
+          <button id="lock" class="icon on" title="Keep the shape: change one side, the other follows"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></svg></button>
+        </div>
+        <div class="seg" id="fit" title="When the size has another shape than the picture">
+          <button data-fit="fill" class="on">Crop to fill</button><button data-fit="inside">Fit inside</button>
+        </div>
+        <label class="check"><input type="checkbox" id="enlarge"> Enlarge if smaller</label>
+      </section>
+
+      <section>
+        <h3>Crop</h3>
+        <div class="row">
+          <select id="aspect" aria-label="Crop shape">
+            <option value="free">Any shape</option>
+            <option value="original">The picture's</option>
+            <option value="1:1">1:1 square</option>
+            <option value="4:3">4:3</option>
+            <option value="3:2">3:2</option>
+            <option value="16:9">16:9</option>
+            <option value="21:9">21:9</option>
+            <option value="4:5">4:5 portrait</option>
+            <option value="2:3">2:3 portrait</option>
+            <option value="9:16">9:16 portrait</option>
+          </select>
+          <button id="crop-all" title="The whole picture">All</button>
+        </div>
+        <p class="hint" id="crop-hint">Drag the box, or its edges and corners.</p>
+      </section>
+
+      <section>
+        <h3>Compression</h3>
+        <div class="seg" id="format">
+          <button data-format="jpeg" class="on">JPEG</button><button data-format="webp">WebP</button><button data-format="png">PNG</button>
+        </div>
+        <div class="lossy">
+          <div class="seg" id="by">
+            <button data-by="quality" class="on">Quality</button><button data-by="size">File size</button>
+          </div>
+          <div class="row" id="quality-row"><input type="range" id="quality" min="1" max="100" value="82" aria-label="Quality"><output id="quality-out">82</output></div>
+          <div class="row" id="size-row" hidden><span>At most</span><input id="target" type="number" min="5" value="500" aria-label="File size"><span>KB</span></div>
+          <label class="check jpeg-only"><input type="checkbox" id="progressive" checked> Progressive</label>
+        </div>
+        <label class="check"><input type="checkbox" id="metadata"> Keep metadata (camera, place)</label>
+      </section>
+
+      <section id="outcome">
+        <div id="out-main">…</div>
+        <div id="out-detail"></div>
+      </section>
+
+      <section>
+        <h3>Save as</h3>
+        <input id="dest" type="text" spellcheck="false" autocomplete="off" aria-label="File name">
+        <p class="hint" id="dest-dir"></p>
+        <button id="save" class="primary" title="Ctrl+S">Save</button>
+        <p id="saved" hidden></p>
+      </section>
+    </aside>
+  </main>
+</body>
+</html>

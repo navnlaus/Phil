@@ -18,6 +18,8 @@ quickly. The engine keeps running after its last window closes.
   edited as it reads: `textedit file` (see [textedit](#textedit)).
 - **imageview**, an image viewer: `imageview picture.jpg`, and the other images
   in its folder (see [imageview](#imageview)).
+- **imageresize**: resize, crop and compress an image (right-click it in phil;
+  see [imageresize](#imageresize)).
 - **phil-editor** (`ed` with `alias ed=phil-editor`): the right editor for a
   file, jsonedit for JSON and textedit for other text. Typed in phil's terminal
   panel, it opens the editor in that phil window (the panel's shell has
@@ -442,3 +444,31 @@ Formats the webview can't show (HEIC, TIFF, JPEG XL...) are converted by vips.
 | Esc / Q | leave fullscreen, close |
 
 `deno task imageview [file]` runs it from the source.
+
+## imageresize
+
+`imageresize picture.jpg`, or right-click an image in phil → "Resize, crop,
+compress…" (shown in phil's window). The picture is on the left with a crop
+box over it; the settings on the right; the result is made as you change them
+(by vips, in the background), with its file size and how much smaller it is.
+
+- **Size**: a preset — this monitor's resolution (from Hyprland), 4K, 1440p,
+  1080p, 720p, social media and link preview sizes, an avatar, a longest side
+  (3840 … 512 px) or a percentage — or your own (typing one side changes the
+  other with the lock on). A size with another shape than the picture is
+  either filled (cropped to its shape; you get exactly that size) or fitted
+  inside. "Enlarge if smaller" lets the others grow a small picture.
+- **Crop**: drag the box, its edges or corners; it keeps the preset's shape,
+  or one you pick (1:1, 4:3, 3:2, 16:9, 21:9, 4:5, 2:3, 9:16, the picture's),
+  or any. "All" takes the whole picture.
+- **Compression**: JPEG (progressive, optimized Huffman tables), WebP or PNG;
+  by quality, or by file size: the best quality that fits under it. The color
+  profile is kept; other metadata (camera, GPS) only if you say so. Images
+  are turned upright first (EXIF rotation).
+- **Result** (V) shows what will be saved; click it for its actual pixels.
+- **Save** (Ctrl+S) writes next to the original, named like
+  `photo-1920x1080.jpg` (edit the name, or give a full path); it asks before
+  replacing a file.
+
+Its working copies live in `$XDG_RUNTIME_DIR` (memory) and go when the engine
+exits. `deno task imageresize file` runs it from the source.
