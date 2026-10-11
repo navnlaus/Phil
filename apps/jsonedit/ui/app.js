@@ -1,6 +1,6 @@
-import { clipboardKey, closeWindow, copyText, embedded, holdFocus, pasteText, ready } from "/engine/ui/kit.js";
-import { parse, position } from "/ui/json.js";
-import { clone, displayPath, editText, follow, freshKey, fromParse, isContainer, literal, serialize, stepsTo } from "/ui/model.js";
+import { clipboardKey, closeWindow, copyText, embedded, holdFocus, onCloseRequest, pasteText, ready } from "../engine/ui/kit.js";
+import { parse, position } from "./json.js";
+import { clone, displayPath, editText, follow, freshKey, fromParse, isContainer, literal, serialize, stepsTo } from "./model.js";
 
 const $ = (sel) => document.querySelector(sel);
 const tree = $("#tree");
@@ -36,7 +36,7 @@ async function api(path, options) {
 }
 
 async function openFile(path) {
-  const file = await api(`/api/file?path=${encodeURIComponent(path)}`);
+  const file = await api(`api/file?path=${encodeURIComponent(path)}`);
   doc.path = file.path;
   doc.mtime = file.missing ? null : file.mtime;
   undoStack.length = redoStack.length = 0;
@@ -78,7 +78,7 @@ async function save({ as = false } = {}) {
 async function write(path, { isNew = false, force = false }) {
   const text = doc.root ? serialize(doc.root, indentUnit()) + "\n" : $("#fix-text").value;
   try {
-    const { mtime } = await api("/api/file", {
+    const { mtime } = await api("api/file", {
       method: "PUT",
       body: JSON.stringify({ path, text, mtime: isNew ? null : doc.mtime, force }),
     });
@@ -945,6 +945,7 @@ $("#btn-save").onclick = () => save();
 $("#btn-undo").onclick = undo;
 $("#btn-redo").onclick = redo;
 $("#btn-close").onclick = close;
+onCloseRequest(close);
 $("#btn-close").title = embedded ? "Close (Esc)" : "Close";
 $("#indent").addEventListener("change", () => {
   try {
@@ -954,8 +955,7 @@ $("#indent").addEventListener("change", () => {
 
 // ---------------------------------------------------------------- start
 
-ready();
-const { home } = await api("/api/init");
+const { home } = await api("api/init");
 try {
   $("#indent").value = localStorage.getItem("indent") ?? "2";
 } catch { /* storage unavailable */ }
@@ -971,3 +971,4 @@ if (file) {
   load("{}");
 }
 holdFocus(doc.root ? tree : $("#fix-text"));
+ready(); // with the file shown: the window appears (or, inside phil, gets the keyboard)

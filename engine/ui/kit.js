@@ -6,9 +6,14 @@
  */
 export const embedded = globalThis.parent !== globalThis && new URLSearchParams(location.search).has("embedded");
 
-/** The page is styled and running: the engine shows its window (engine/window.js). */
+/**
+ * The page is styled and running: the engine shows its window
+ * (engine/window.js); shown inside another app, that app gives it the keyboard
+ * (a page in a frame can't take focus itself in WebKit).
+ */
 export function ready(detail = "") {
-  if (!embedded) globalThis.webkit?.messageHandlers?.phil?.postMessage(detail ? `ready:${detail}` : "ready");
+  if (embedded) parent.postMessage({ engine: "ready" }, "*");
+  else globalThis.webkit?.messageHandlers?.phil?.postMessage(detail ? `ready:${detail}` : "ready");
 }
 
 /** Closes the window, or the embedded view. */
@@ -20,16 +25,15 @@ export function closeWindow() {
 }
 
 /**
- * The URL that opens another app's page (with its session token), e.g.
- * appUrl("jsonedit", { file }) for an <iframe>: `params` go in its query.
- * Embedded pages get ?embedded, so their close button comes back here.
+ * The URL that shows another app inside this page (an <iframe>), e.g.
+ * appUrl("jsonedit", { file }): `params` go in its query. It's served on this
+ * page's origin (/engine/embed/, see engine/server.js), and gets ?embedded, so
+ * its close button comes back here.
  */
-export async function appUrl(app, params = {}, { embed = true } = {}) {
-  const urls = await (await fetch("/engine/apps")).json();
-  if (!urls[app]) throw new Error(`no app called ${app}`);
-  const url = new URL(urls[app]);
+export function appUrl(app, params = {}) {
+  const url = new URL(`/engine/embed/${app}/`, location.origin);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  if (embed) url.searchParams.set("embedded", "1");
+  url.searchParams.set("embedded", "1");
   return url.href;
 }
 
@@ -86,5 +90,17 @@ export function holdFocus(el) {
     if (!active || active === document.body || active === document.documentElement) el.focus({ preventScroll: true });
   };
   addEventListener("focus", take);
+  // Shown inside another app: WebKit ignores focus() here until that app has
+  // given this frame the keyboard; it says so once it has (see ready()).
+  if (embedded) addEventListener("message", (e) => e.source === parent && e.data?.engine === "focus" && take());
   take();
+}
+
+/**
+ * Shown inside another app: `fn` runs when that app asks this one to close
+ * (Esc pressed while it still had the keyboard).
+ */
+export function onCloseRequest(fn) {
+  if (!embedded) return;
+  addEventListener("message", (e) => e.source === parent && e.data?.engine === "close-request" && fn());
 }

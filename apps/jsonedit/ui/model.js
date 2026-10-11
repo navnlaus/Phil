@@ -5,7 +5,7 @@
 //     children,   for objects and arrays
 //     key,        for members of an object
 //     parent }
-import { parse } from "/ui/json.js";
+import { parse } from "./json.js";
 
 export const isContainer = (node) => node.type === "object" || node.type === "array";
 

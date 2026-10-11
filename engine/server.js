@@ -15,12 +15,14 @@ self.onmessage = (e) => start(e.data);
 async function start({ profile, controlSocket, wakeFd }) {
   const token = crypto.randomUUID();
   const quit = () => self.postMessage({ quit: true });
-  const urls = {};
+  // Every app's server, then a listening port for each.
+  const apps = {};
   await Promise.all(Object.entries(APPS).map(async ([name, app]) => {
     const mod = await app.server();
-    const server = await mod.createServer({ profile, quit });
-    urls[name] = await serve(name, mod.UI_DIR, server, { token, quit, urls });
+    apps[name] = { uiDir: mod.UI_DIR, server: await mod.createServer({ profile, quit }) };
   }));
+  const urls = {};
+  await Promise.all(Object.keys(apps).map(async (name) => (urls[name] = await serve(name, apps, { token, quit }))));
 
   // Take over the instance's control socket (if any): its requests go to the
   // GTK main loop through wakeFd.
@@ -41,16 +43,19 @@ async function start({ profile, controlSocket, wakeFd }) {
   self.postMessage({ urls, control });
 }
 
-// Resolves to the app's URL with the token: opening it sets the session cookie.
-// Besides the app's own files and routes, its pages get /engine/ui/ (shared
-// styles and scripts), /engine/apps (every app's URL, for showing one inside
-// another) and /engine/clipboard (the desktop's clipboard).
-function serve(name, uiDir, app, { token, quit, urls }) {
+// Serves app `name`; resolves to its URL with the token (opening it sets the
+// session cookie). Besides the app's own files and routes, its pages get
+// /engine/ui/ (shared styles and scripts), /engine/clipboard (the desktop's
+// clipboard) and /engine/embed/<app>/: any other app, to show inside this
+// one's window. That's on this origin, since WebKit won't let a page in a
+// frame from another origin take keyboard focus. (Apps that can be shown so
+// use relative URLs.)
+function serve(name, apps, { token, quit }) {
   let host, cookie;
   const { promise, resolve } = Promise.withResolvers();
   Deno.serve({
     hostname: "127.0.0.1",
-    port: app.port ?? 0,
+    port: apps[name].server.port ?? 0,
     onListen({ port }) {
       host = `127.0.0.1:${port}`;
       cookie = `${name}-${port}`; // per port, so two engines never overwrite each other's session
@@ -84,20 +89,29 @@ function serve(name, uiDir, app, { token, quit, urls }) {
       return text(400, "Bad request");
     }
 
-    if (req.method === "GET" && url.pathname === "/") return staticFile(uiDir, "index.html");
-    if (req.method === "GET" && url.pathname.startsWith("/ui/")) return staticFile(uiDir, url.pathname.slice(4));
-    if (req.method === "GET" && url.pathname.startsWith("/engine/ui/")) return staticFile(KIT_DIR, url.pathname.slice(11));
-    if (req.method === "GET" && url.pathname === "/engine/apps") return json(urls);
-    if (url.pathname === "/engine/clipboard") { // the desktop's clipboard (clipboard.js)
-      if (req.method === "GET") return text(200, await readClipboard());
-      if (req.method === "PUT") return await writeClipboard(await req.text()), json({ ok: true });
+    const embed = /^\/engine\/embed\/([\w-]+)(\/.*)$/.exec(url.pathname);
+    if (embed && apps[embed[1]]) {
+      url.pathname = embed[2];
+      return route(req, url, apps[embed[1]]);
     }
     if (req.method === "POST" && url.pathname === "/api/quit") { // the close button in --browser mode (windows close natively)
       quit();
       return json({ ok: true });
     }
-    return (await app.handle(req, url)) ?? text(404, "Not found");
+    return route(req, url, apps[name]);
   }
 
   return promise;
+}
+
+// A request for an app, at the root of the URL space it's served in.
+async function route(req, url, { uiDir, server }) {
+  if (req.method === "GET" && url.pathname === "/") return staticFile(uiDir, "index.html");
+  if (req.method === "GET" && url.pathname.startsWith("/ui/")) return staticFile(uiDir, url.pathname.slice(4));
+  if (req.method === "GET" && url.pathname.startsWith("/engine/ui/")) return staticFile(KIT_DIR, url.pathname.slice(11));
+  if (url.pathname === "/engine/clipboard") { // the desktop's clipboard (clipboard.js)
+    if (req.method === "GET") return text(200, await readClipboard());
+    if (req.method === "PUT") return await writeClipboard(await req.text()), json({ ok: true });
+  }
+  return (await server.handle(req, url)) ?? text(404, "Not found");
 }

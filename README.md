@@ -203,8 +203,10 @@ An app is a folder in `apps/` with a `launch.js` (its command line and window
 URL; loaded by every command, so it stays small), a `server.js` (its routes, in
 the engine's server worker) and a `ui/` folder (`index.html` at `/`, the rest
 under `/ui/`); `engine/apps.js` lists them. Pages also get `/engine/ui/` (the
-shared kit) and `/engine/apps` (every app's URL, to show one in an `<iframe>`
-with `?embedded`). The engine handles the session
+shared kit), `/engine/clipboard` and `/engine/embed/<app>/`: every other app
+on the page's own origin, to show inside it in an `<iframe>` with `?embedded`
+(WebKit won't give keyboard focus to a page in a frame from another origin).
+Apps that can be shown that way use relative URLs. The engine handles the session
 (a random token in the window's URL becomes a cookie; requests without it, or
 to another host, are refused), static files and window management.
 
