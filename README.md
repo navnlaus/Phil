@@ -47,7 +47,7 @@ windows get its own Wayland app id (`phil`, `jsonedit`) for window rules. Apps
 share a look: a top (and bottom) bar that floats over the page and fades out
 until hovered, with an X at the right that closes the window
 (`themes/base.css`, `engine/ui/kit.js`). One app can show another inside its window:
-phil opens `.json` files in jsonedit, other text files in textedit and images
+phil opens `.json` files in jsonedit, other text files and documents in textedit and images
 in imageview that way, and the app's X (or Esc) goes back to the folder. Copying and pasting go through
 the desktop's clipboard (`wl-copy` / `wl-paste`), so they show up in Omarchy's
 clipboard history and take what was copied anywhere; every way of pressing
@@ -222,7 +222,9 @@ tile, code and configs syntax-highlighted in textedit's colors (in the
 background: tiles show plain first), scaled to the file: a short one in readable type, a long one smaller to
 fit more of it, down to lines drawn as bars. Markdown headings stay large
 enough to read even in long documents. Only the start of a file is read (32 KB,
-up to 400 lines), when its tile comes into view.
+up to 400 lines), when its tile comes into view. Documents (Word, RTF,
+OpenDocument) show their text too, from the Markdown textedit reads them as
+(below; converted once, then kept with the thumbnails).
 
 ### Themes
 
@@ -382,7 +384,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 
 | | |
 |---|---|
-| double-click / Enter | open folder, view image in imageview, play video in mpv, edit a `.json` file in jsonedit or any other text file (notes, code, configs, logs; whatever reads as text) in textedit, both in this window, or open the file with its default app (right-click a video → "Play here" for the built-in player; any file → "Edit as text") |
+| double-click / Enter | open folder, view image in imageview, play video in mpv, edit a `.json` file in jsonedit or any other text file (notes, code, configs, logs; whatever reads as text) in textedit, both in this window (a Word, RTF or OpenDocument document: read in textedit, as Markdown), or open the file with its default app (right-click a video → "Play here" for the built-in player; any file → "Edit as text") |
 | arrows, Home/End, PgUp/PgDn | move selection (with Shift: extend it) |
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; click empty space to clear |
 | Ctrl+C / Ctrl+Insert / Super+C | copy the selected files' paths, one per line |
@@ -509,6 +511,15 @@ line turn it into a heading, list or quote. Code shows the Markdown itself
 were edited as new Markdown; everything else keeps its exact source, so a
 small edit doesn't reformat the file. Front matter and raw HTML show as they
 are and can be edited in the code. Images show from the file's folder.
+
+Documents (`.docx`, `.doc`, `.rtf`, `.odt` and other word processors' files)
+open for reading: LibreOffice turns them into Markdown (with its Markdown
+export: a recent LibreOffice; 26.8 has it), which shows rendered and read-only. Headings,
+bold and italic, lists, tables, links and pictures come through; fonts,
+colors and layout don't. "Save as Markdown…" (Ctrl+S) keeps that as a `.md`
+file, editable from then on, and "Edit original" opens the document in its
+own app (LibreOffice, usually). Converting takes a second or two; the
+document is never written to.
 
 `deno task textedit [file]` runs it from the source.
 

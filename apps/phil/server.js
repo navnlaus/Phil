@@ -214,7 +214,10 @@ export function createServer({ profile, controlSocket }) {
   }
 
   // A text file's preview for its folder's tile, or false if it isn't text.
-  const textPreviewOf = (e) => textPreview(e.path).then((text) => text && { text }, () => false);
+  // Documents (Word, RTF, ...) are converted to Markdown for it, once: kept
+  // with the thumbnails.
+  const documentCache = join(config.thumbDir, "documents");
+  const textPreviewOf = (e, signal) => textPreview(e.path, { cacheDir: documentCache, signal }).then((text) => text && { text }, () => false);
 
   // A folder tile came into view without an up-to-date summary: read the folder
   // and make previews of its first files in the view's sort order.
@@ -227,7 +230,7 @@ export function createServer({ profile, controlSocket }) {
       mtime,
       sort,
       async previewOf(e) {
-        if (e.kind === "file") return await textPreviewOf(e);
+        if (e.kind === "file") return await textPreviewOf(e, signal);
         try {
           return { url: await thumbs.get(e.path, signal) };
         } catch (err) {
@@ -277,8 +280,12 @@ export function createServer({ profile, controlSocket }) {
       for (const path of msg.cancel ?? []) pending.get(path)?.abort();
       for (const path of msg.want ?? []) {
         if (pending.has(path)) continue;
-        if (mediaKind(path) === "file") { // other files: the start of their text, if they're text
-          textHead(path).then((text) => send({ path, text }), () => send({ path, text: null }));
+        if (mediaKind(path) === "file") { // other files: the start of their text, if they're text (documents: converted)
+          const ctrl = new AbortController();
+          pending.set(path, ctrl);
+          textHead(path, { cacheDir: documentCache, signal: ctrl.signal })
+            .then((text) => send({ path, text }), () => !ctrl.signal.aborted && send({ path, text: null }))
+            .finally(() => pending.get(path) === ctrl && pending.delete(path));
           continue;
         }
         const ctrl = new AbortController();

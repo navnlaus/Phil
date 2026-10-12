@@ -1,4 +1,5 @@
 import { basename, extname } from "@std/path";
+import { documentMarkdown, isDocument } from "../../engine/documents.js";
 
 const HEAD = 32 * 1024; // bytes read from the start of a file
 const MAX_LINES = 400;
@@ -10,13 +11,18 @@ const MAX_CHARS = 200; // per line
  * "tr" for a Markdown table's row and "tsep" for the line under its header,
  * "c" for a comment line and "" otherwise. `prose`: Markdown or plain text,
  * drawn in a proportional font. `name`: the file's, for its highlighting. null for files that aren't text (binary, or
- * not UTF-8) or are empty.
+ * not UTF-8) or are empty. A document (Word, RTF, ...: engine/documents.js)
+ * is drawn from its Markdown, converted (`cacheDir`: kept there; `signal`:
+ * given up on before its turn).
  */
-export async function textHead(path, { maxLines = MAX_LINES, maxChars = MAX_CHARS } = {}) {
-  const text = decodeText(await head(path));
+export async function textHead(path, { maxLines = MAX_LINES, maxChars = MAX_CHARS, cacheDir, signal } = {}) {
+  const document = isDocument(path);
+  const text = document
+    ? (await documentMarkdown(path, { cacheDir, signal })).replace(/!\[[^\]]*\]\([^)]*\)/g, "").slice(0, HEAD) // its text, not its pictures' data
+    : decodeText(await head(path));
   if (!text) return null;
 
-  const ext = extname(path).toLowerCase();
+  const ext = document ? ".md" : extname(path).toLowerCase();
   const markdown = ext === ".md" || ext === ".markdown";
   const comment = markdown ? null : commentPrefix(ext);
   let fenced = false; // inside a Markdown ``` block, where # isn't a heading
@@ -30,7 +36,7 @@ export async function textHead(path, { maxLines = MAX_LINES, maxChars = MAX_CHAR
     return [kind, line];
   });
   if (!lines.some(([, l]) => l.trim())) return null;
-  return { lines, prose: markdown || ext === ".txt" || ext === "", name: basename(path) }; // the name picks the highlighting
+  return { lines, prose: markdown || ext === ".txt" || ext === "", name: basename(path) + (document ? ".md" : "") }; // the name picks the highlighting
 }
 
 /** Whether the file is text (an empty one counts), for opening it in an editor. */
@@ -82,4 +88,4 @@ function commentPrefix(ext) {
 }
 
 /** A shorter start, for a folder's preview: a quarter of a tile shows less. */
-export const textPreview = (path) => textHead(path, { maxLines: 40, maxChars: 100 });
+export const textPreview = (path, options) => textHead(path, { maxLines: 40, maxChars: 100, ...options });
