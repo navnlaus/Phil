@@ -276,8 +276,8 @@ their own in their `ui/style.css`; base.css's element defaults weigh nothing
 `/themes/` to every app, and `/engine/styles` tells pages when one changes.
 
 `--browser` prints a URL instead of opening a window. That's handy for using
-Chromium's devtools while working on the UI. In the window, right-click on empty
-space → Inspect Element works too.
+Chromium's devtools while working on the UI. In the window, Shift+right-click on
+empty space → Inspect Element works too.
 
 ## Requirements
 
@@ -397,6 +397,9 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | drag (Ctrl/Shift+drag) | select everything the rectangle touches (add to the selection); scrolls at the edges |
 | drag a selected file or folder | drag the selection out as files: onto a browser page (an upload), another file manager, a chat; onto a folder in phil: "Move to" / "Copy to" |
 | type a name | jump to the next entry starting with it (repeat a letter to cycle) |
+| Insert / + (after the up arrow) | a new folder, "Folder" ("Folder 2"... when there's one), its name ready to type over (Enter keeps it) |
+| Super+Insert | a new file, "File.txt" ("File 2.txt"...), the same way |
+| right-click empty space (tiles or sidebar) | New folder / New file here; on a folder (its tile, a place in the sidebar, a part of the path) New folder / New file inside it |
 | F2 | rename in place (Enter or clicking elsewhere renames, Esc cancels) |
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
 | right-click a text or JSON file → Add to Config | a link to it in `Documents/Config`, for config files used often but kept all over (a name that's taken gets its folder's in front: `waybar-config`) |
