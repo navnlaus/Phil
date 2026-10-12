@@ -96,6 +96,8 @@ const thumbs = {
       this.wanted.forEach((p) => (this.folders.has(p) ? this.outFolders : this.outWant).add(p));
       if (this.watching) this.watch(this.watching);
       if (this.tagging) this.tag(this.tagging);
+      if (this.totals.size) this.send({ totals: [...this.totals] }); // asked for before the connection was up
+      this.totals.clear();
       this.flush();
     };
     this.ws.onmessage = (e) => {
@@ -136,6 +138,12 @@ const thumbs = {
   },
   send(msg) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  },
+  // Folders' total sizes (foldertotals.js), answered with {totalOf, bytes}.
+  totals: new Set(),
+  wantTotals(paths) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.send({ totals: paths });
+    else paths.forEach((p) => this.totals.add(p));
   },
   // Auto-tagging: the folder whose pictures to tag (null: none).
   tag(path) {
@@ -215,10 +223,12 @@ function onFolderSummary(path, summary) {
 
 // A folder's total size, with its subfolders' (foldertotals.js): asked for
 // once its tile is near the view, unless the one known is recent.
-function wantTotal(entry) {
-  if ((entry.total && !entry.total.stale) || entry.totalAsked) return;
-  entry.totalAsked = true;
-  thumbs.send({ totals: [entry.path] });
+const wantTotal = (entry) => wantTotals([entry]);
+
+function wantTotals(entries) {
+  const asked = entries.filter((e) => !(e.total && !e.total.stale) && !e.totalAsked);
+  for (const e of asked) e.totalAsked = true;
+  if (asked.length) thumbs.wantTotals(asked.map((e) => e.path));
 }
 
 function onFolderTotal(path, bytes) {
@@ -227,6 +237,13 @@ function onFolderTotal(path, bytes) {
   if (entry?.path !== path) return;
   entry.total = bytes === null ? { failed: true } : { bytes, stale: false };
   if (entry.summary) showFolderInfo(tile, entry);
+  if (state.settings.sort === "size") resortSoon();
+}
+
+// Sorted by size, folders move as their totals come in: once they stop for a moment.
+function resortSoon() {
+  clearTimeout(resortSoon.timer);
+  resortSoon.timer = setTimeout(() => render(), 300);
 }
 
 function showThumb(tile, entry) {
@@ -553,16 +570,21 @@ async function refresh() {
   }
 }
 
+// Folders first, then files, each in the chosen order. By size, a folder
+// goes by everything in it (its total; until that's known, its files').
 function sortEntries(list) {
   const by = {
     name: (a, b) => collator.compare(a.name, b.name),
     mtime: (a, b) => b.mtime - a.mtime,
-    size: (a, b) => b.size - a.size,
+    size: (a, b) => sizeOf(b) - sizeOf(a),
     kind: (a, b) => collator.compare(a.kind, b.kind) || collator.compare(ext(a.name), ext(b.name)),
   }[state.settings.sort];
   const ext = (name) => name.slice(name.lastIndexOf(".") + 1);
-  list.sort((a, b) => (b.kind === "dir") - (a.kind === "dir") || by(a, b) || collator.compare(a.name, b.name));
+  list.sort((a, b) => folderFirst(a, b) || by(a, b) || collator.compare(a.name, b.name));
 }
+
+const folderFirst = (a, b) => (b.kind === "dir") - (a.kind === "dir");
+const sizeOf = (e) => (e.kind === "dir" ? e.total?.bytes ?? e.summary?.size ?? 0 : e.size);
 
 function render(selectPath = state.view[state.selected]?.path) {
   const q = filterInput.value.trim().toLowerCase();
@@ -574,7 +596,9 @@ function render(selectPath = state.view[state.selected]?.path) {
   sortEntries(state.view);
   // Searching a tagged folder: what has it in its name first, then the
   // pictures that look like it, best first.
-  if (q && searchScores.size) state.view.sort((a, b) => (named(b) ? 2 : searchScores.get(b.path) ?? 0) - (named(a) ? 2 : searchScores.get(a.path) ?? 0));
+  if (q && searchScores.size) state.view.sort((a, b) => folderFirst(a, b) || (named(b) ? 2 : searchScores.get(b.path) ?? 0) - (named(a) ? 2 : searchScores.get(a.path) ?? 0));
+  // By size, every folder's total is wanted, not just those in view: they decide the order.
+  if (state.settings.sort === "size") wantTotals(state.view.filter((e) => e.kind === "dir"));
 
   nearObserver.disconnect();
   farObserver.disconnect();
