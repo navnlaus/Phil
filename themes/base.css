@@ -73,14 +73,29 @@
 
 /* The page: the window, no page scrolling (apps scroll their own parts). */
 
-:where(*, *::before, *::after) { box-sizing: border-box; }
-:where(html, body) { margin: 0; height: 100%; overflow: hidden; }
-:where(body) { background: var(--bg); color: var(--text); font: 13px/1.35 system-ui, sans-serif; }
-[hidden] { display: none !important; }
+:where(*, *::before, *::after) {
+  box-sizing: border-box;
+}
+:where(html, body) {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+:where(body) {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.35 system-ui, sans-serif;
+}
+[hidden] {
+  display: none !important;
+}
 
 /* Controls */
 
-:where(button, input, select, textarea) { font: inherit; color: inherit; }
+:where(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
+}
 :where(button, select) {
   height: 28px;
   padding: 0 10px;
@@ -89,14 +104,46 @@
   background: var(--bg-raised);
   cursor: pointer;
 }
-:where(button:hover:not(:disabled)) { background: var(--bg-hover); }
-:where(button:disabled) { opacity: 0.4; cursor: default; }
-:where(button.icon) { display: inline-grid; place-items: center; width: 30px; padding: 0; }
-:where(button) svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-:where(button.primary) { background: var(--accent); border-color: var(--accent); color: #fff; }
-:where(button.primary:hover:not(:disabled)) { background: color-mix(in srgb, var(--accent) 88%, #000); }
-:where(button.danger) { background: var(--danger); border-color: var(--danger); color: #fff; }
-:where(button.on) { background: var(--accent-bg); color: var(--accent); } /* a toggle that's on */
+:where(button:hover:not(:disabled)) {
+  background: var(--bg-hover);
+}
+:where(button:disabled) {
+  opacity: 0.4;
+  cursor: default;
+}
+:where(button.icon) {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  padding: 0;
+}
+:where(button) svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+:where(button.primary) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+:where(button.primary:hover:not(:disabled)) {
+  background: color-mix(in srgb, var(--accent) 88%, #000);
+}
+:where(button.danger) {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+/* a toggle that's on */
+:where(button.on) {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
 :where(input:is([type=text], [type=number], [type=search], [type=password], :not([type]))) {
   height: 28px;
   min-width: 0;
@@ -105,20 +152,48 @@
   border-radius: 6px;
   background: var(--bg);
 }
-:where(button, select, input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+:where(button, select, input, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 
 /* Buttons side by side as one control; the one that's on is .on. */
-.seg { display: inline-flex; }
-.seg > button { border-radius: 0; }
-.seg > button:first-child { border-radius: 6px 0 0 6px; }
-.seg > button:last-child { border-radius: 0 6px 6px 0; }
-.seg > button + button { border-left: 0; }
+.seg {
+  display: inline-flex;
+}
+.seg > button {
+  border-radius: 0;
+}
+.seg > button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.seg > button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+.seg > button + button {
+  border-left: 0;
+}
 
 /* A checkbox with its label: <label class="check"><input type="checkbox"> Text</label> */
-.check { display: inline-flex; align-items: center; gap: 6px; }
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 /* Small grey text that explains, and small capitals that head a section. */
-.hint { margin: 0; color: var(--text-dim); font-size: 12px; }
-.heading { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+.hint {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.heading {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
 
 /* Top and bottom bars float over the page, invisible until hovered (or while
    something inside them has focus, e.g. a search field). */
@@ -135,12 +210,23 @@
   opacity: 1;
   transition: opacity 0.08s ease;
 }
-.overlay-bar.top { top: 0; border-bottom: 1px solid var(--border); }
-.overlay-bar.bottom { bottom: 0; border-top: 1px solid var(--border); }
+.overlay-bar.top {
+  top: 0;
+  border-bottom: 1px solid var(--border);
+}
+.overlay-bar.bottom {
+  bottom: 0;
+  border-top: 1px solid var(--border);
+}
 
 /* The X at the right end of the top bar. */
-.close-button { margin-left: 2px; }
-.close-button:hover { background: var(--danger) !important; color: #fff; }
+.close-button {
+  margin-left: 2px;
+}
+.close-button:hover {
+  background: var(--danger) !important;
+  color: #fff;
+}
 
 /* askPassword() (kit.js): a small box at the top of the page. */
 .kit-password {
@@ -160,7 +246,17 @@
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
   font: 13px/1.4 system-ui, sans-serif;
 }
-.kit-password label { white-space: pre-line; }
-.kit-password div { display: flex; gap: 6px; }
-.kit-password input { flex: 1; }
-.kit-password input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.kit-password label {
+  white-space: pre-line;
+}
+.kit-password div {
+  display: flex;
+  gap: 6px;
+}
+.kit-password input {
+  flex: 1;
+}
+.kit-password input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
