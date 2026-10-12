@@ -7,6 +7,7 @@ import { currentTheme, themeNames, themesDir } from "../../engine/themes.js";
 import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
 import { Hooks, metadataFile, runHook } from "./hooks.js";
+import { taggable, Tagging } from "./tagging.js";
 import { home, serverConfig } from "./launch.js";
 import { canWrite, folderSize, me, properties } from "./properties.js";
 import { isTextFile, textHead, textPreview } from "./texthead.js";
@@ -31,6 +32,19 @@ export function createServer({ profile, controlSocket }) {
     },
   });
   console.log(`phil: thumbnails in ${config.thumbDir}`);
+  // Auto-tagging (tagging.js): embeddings cached next to the thumbnails.
+  const tagging = new Tagging({
+    cacheDir: config.incognito ? null : join(thumbs.dir, "tags"),
+    userTagsFile: join(dirname(config.settingsFile), "tags.txt"),
+    persist: !config.incognito,
+  });
+  // A picture's thumbnail file, made if need be: what tagging looks at.
+  const thumbnailFile = async (path, signal) => {
+    const url = await thumbs.get(path, signal);
+    if (url.startsWith("/thumbs/")) return thumbs.fileFor(basename(url));
+    if (url.startsWith("/file?")) return new URLSearchParams(url.slice(6)).get("path"); // a picture in a .thumbnails folder
+    return null;
+  };
 
   async function handle(req, url) {
     const path = url.searchParams.get("path");
@@ -48,6 +62,7 @@ export function createServer({ profile, controlSocket }) {
           incognito: config.incognito,
           thumbDir: config.thumbsInMemory ? "in memory" : config.thumbDir,
           thumbSize: thumbs.name,
+          tagging: { available: await tagging.available() },
           settings: { ...await readSettings(), theme: await currentTheme() }, // a theme that's gone: the default
         });
       case "GET /api/list": {
@@ -86,11 +101,24 @@ export function createServer({ profile, controlSocket }) {
         return json({ ...await properties(requirePath(path)), meta: await hooks.get(path) });
       case "GET /api/folder-size":
         return json(await folderSize(requirePath(path)));
-      case "PUT /api/meta": { // {path, description, onChange}: Properties' phil section
+      case "PUT /api/meta": { // {path, description, onChange, tags}: Properties' phil section
         const { path, ...changes } = await req.json();
         const clean = (key) => key in changes ? { [key]: String(changes[key] ?? "").trim() } : {};
-        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange") });
+        const tags = "tags" in changes ? cleanTags(changes.tags) : null;
+        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...(tags ? { tags: tags.length ? tags : "" } : {}) });
+        if (tags?.length) await tagging.addToVocabulary(tags);
         return json({ ok: true });
+      }
+      case "POST /api/tags": { // {paths, tags}: tags added by hand to the selected pictures
+        const body = await req.json();
+        const tags = cleanTags(body.tags);
+        const all = await hooks.all();
+        for (const p of body.paths ?? []) {
+          requirePath(p);
+          await hooks.set(p, { tags: [...new Set([...(all[p]?.tags ?? []), ...tags])] });
+        }
+        await tagging.addToVocabulary(tags);
+        return json({ ok: true, tags });
       }
       case "POST /api/run-hook": { // Properties' "Run now"
         const { path, command } = await req.json();
@@ -127,6 +155,7 @@ export function createServer({ profile, controlSocket }) {
     for (const e of entries) {
       if (meta[e.path]?.onChange) e.onChange = meta[e.path].onChange;
       if (meta[e.path]?.description) e.description = meta[e.path].description;
+      if (meta[e.path]?.tags?.length) e.tags = meta[e.path].tags; // given by hand
     }
     // While we're here, this folder's own summary, from thumbnails already cached.
     const previewOf = (e) => (e.kind === "file" ? textPreviewOf(e) : typeof e.thumb === "string" ? { url: e.thumb } : e.thumb ?? null);
@@ -211,6 +240,7 @@ export function createServer({ profile, controlSocket }) {
     const pending = new Map();
     let watcher = null, watching = Promise.resolve(); // one watch request at a time
     let hookWatch = null; // the shown folder's hooks (hooks.js)
+    let tagJob = null; // the shown folder's tagging, aborted when another is asked for
     socket.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.watch) {
@@ -220,6 +250,11 @@ export function createServer({ profile, controlSocket }) {
           hookWatch = hooks.watch(msg.watch);
           shown.set(socket, msg.watch);
         }
+      }
+      if ("tag" in msg) { // {tag: folder} tags its pictures, sending {tagged: folder, tags, left}; {tag: null} stops
+        tagJob?.abort();
+        tagJob = msg.tag ? new AbortController() : null;
+        if (tagJob) tagFolder(msg.tag, tagJob.signal, send).catch(() => {});
       }
       for (const path of msg.cancel ?? []) pending.get(path)?.abort();
       for (const path of msg.want ?? []) {
@@ -254,11 +289,33 @@ export function createServer({ profile, controlSocket }) {
       sockets.delete(socket);
       shown.delete(socket);
       hookWatch?.close();
+      tagJob?.abort();
       pending.forEach((c) => c.abort());
       watching.then(() => watcher?.close());
     };
     const send = (msg) => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(msg));
     return response;
+  }
+
+  // Tags the pictures in `dir` for a page, sending what's ready as it goes:
+  // {tagged: dir, tags: {path: [[tag, probability]]}, left}, or {tagged: dir,
+  // error} ("setup" when the tagger isn't installed).
+  async function tagFolder(dir, signal, send) {
+    if (!(await tagging.available())) return send({ tagged: dir, error: "setup" });
+    const files = [];
+    for await (const d of Deno.readDir(dir)) {
+      if (d.name.startsWith(".") || !taggable(d.name)) continue;
+      const stat = await Deno.stat(join(dir, d.name)).catch(() => null);
+      if (stat?.isFile) files.push({ path: join(dir, d.name), size: stat.size, mtime: stat.mtime?.getTime() ?? 0 });
+    }
+    try {
+      for await (const step of tagging.tag(dir, files, thumbnailFile, signal)) {
+        if (signal.aborted) return;
+        send({ tagged: dir, ...step });
+      }
+    } catch (err) {
+      if (!signal.aborted) send({ tagged: dir, error: err.message });
+    }
   }
 
   // Watches the folder a page shows and its subfolders (not deeper), and sends
@@ -524,6 +581,13 @@ const shellInit = (async () => {
   await Deno.rename(tmp, path); // atomic, so a concurrently starting shell never reads half a file
   return path;
 })();
+
+// Tags as given (a list, or text separated by commas): trimmed, single
+// spaces, no duplicates or empty ones.
+function cleanTags(tags) {
+  const list = Array.isArray(tags) ? tags : String(tags ?? "").split(",");
+  return [...new Set(list.map((t) => String(t).trim().replace(/\s+/g, " ")).filter(Boolean))];
+}
 
 function requirePath(path) {
   if (!path || !path.startsWith("/")) throw httpError(400, "absolute path required");

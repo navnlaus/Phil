@@ -72,6 +72,25 @@ body.sidebar #sidebar {
   text-overflow: ellipsis;
 }
 #places a:hover { background: var(--bg-hover); }
+
+/* Tags: the current folder's, under the places (auto-tagging when on) */
+#tags-panel { margin: 14px 4px 0; padding-top: 10px; border-top: 1px solid var(--border); }
+#tags-panel > .check { padding: 0 6px; color: var(--text-dim); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+#tags-status { margin: 6px 6px 0; white-space: normal; }
+#tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 2px 4px; }
+#tags button {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: none;
+  color: var(--text);
+  font-size: 12px;
+  gap: 5px;
+}
+#tags button .n { color: var(--text-dim); font-size: 11px; }
+#tags button.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+#tags button.mine { border-style: dashed; } /* given by hand somewhere here */
 #places a.active { background: var(--accent-bg); color: var(--accent); }
 #places svg { width: 16px; height: 16px; color: var(--text-dim); }
 #places a.active svg { color: inherit; }
@@ -521,7 +540,8 @@ body[data-theme] .tile.has-hook .label { padding-right: 28px; }
 #props .phil { padding-top: 12px; border-top: 1px solid var(--border); }
 #props .phil[hidden], #props .hook[hidden] { display: none; }
 #props .hook { margin-top: 12px; }
-#props-desc {
+#props .tags-label { margin-top: 10px; }
+#props-desc, #props-tags {
   width: 100%;
   height: 30px;
   padding: 0 8px;
@@ -530,7 +550,7 @@ body[data-theme] .tile.has-hook .label { padding-right: 28px; }
   background: var(--bg);
   color: var(--text);
 }
-#props-desc:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+#props-desc:focus, #props-tags:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 #props h3 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
 #props label { display: block; margin-bottom: 5px; }
 #props .hook-row { display: flex; gap: 6px; }
