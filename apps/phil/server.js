@@ -3,6 +3,7 @@
 import { basename, dirname, join, normalize } from "@std/path";
 import { httpError, json, serveFile, text } from "../../engine/http.js";
 import { imagePreview } from "../../engine/media.js";
+import { themeNames, themesDir } from "../../engine/themes.js";
 import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
 import { Hooks, metadataFile, runHook } from "./hooks.js";
@@ -97,6 +98,12 @@ export function createServer({ profile, controlSocket }) {
       }
       case "POST /api/add-to-config":
         return json(await addToConfig(requirePath((await req.json()).path)));
+      case "GET /api/themes": // the bottom bar's theme picker
+        return json({ themes: await themeNames(), dir: themesDir(), theme: (await readSettings()).theme ?? DEFAULT_THEME });
+      case "PUT /api/theme": // {theme}: picked there
+        return json(await pickTheme((await req.json()).theme));
+      case "POST /api/themes": // {name}: a new one, from the template
+        return json(await newTheme((await req.json()).name));
       case "PUT /api/settings":
         if (!config.incognito) await writeSettings(await req.json()); // incognito: this session only
         return json({ ok: true });
@@ -409,16 +416,42 @@ export function createServer({ profile, controlSocket }) {
     }
   }
 
-  // The theme is chosen by editing the settings file, never by the page: the
-  // page's settings are saved around it. It's written out even when unset, so
-  // the file shows where it goes.
-  async function writeSettings(settings) {
-    const { theme = DEFAULT_THEME } = await readSettings();
+  // The theme is in the settings file (edited by hand, or set by pickTheme):
+  // the page's other settings are saved around it. It's written out even when
+  // unset, so the file shows where it goes.
+  async function writeSettings(settings, { theme } = {}) {
+    theme ??= (await readSettings()).theme ?? DEFAULT_THEME;
     delete settings.theme;
     await Deno.mkdir(dirname(config.settingsFile), { recursive: true });
     const tmp = `${config.settingsFile}.${crypto.randomUUID().slice(0, 8)}.tmp`;
     await Deno.writeTextFile(tmp, JSON.stringify({ theme, ...settings }, null, 2) + "\n");
     await Deno.rename(tmp, config.settingsFile); // atomic, for the watcher and other phils
+  }
+
+  // A theme picked in a window: saved in the settings file, which restyles
+  // every window (watchTheme). Incognito: those windows only, for the session.
+  async function pickTheme(theme) {
+    if (!(await themeNames()).includes(theme)) throw httpError(404, `No theme called ${theme}`);
+    if (!config.incognito) await writeSettings(await readSettings(), { theme });
+    else for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ theme }));
+    return { theme };
+  }
+
+  // A new theme: <name>.css in the themes folder, from theme-template.css, picked.
+  async function newTheme(name) {
+    name = String(name ?? "").trim().toLowerCase().replace(/\s+/g, "-");
+    if (!/^[\w-]+$/.test(name) || name === "base") throw httpError(400, "A theme's name: letters, digits, - and _");
+    const file = join(themesDir(), `${name}.css`);
+    const template = await Deno.readTextFile(new URL("./theme-template.css", import.meta.url));
+    await Deno.mkdir(themesDir(), { recursive: true });
+    try {
+      await Deno.writeTextFile(file, template.replace("NAME", name), { createNew: true });
+    } catch (err) {
+      if (err instanceof Deno.errors.AlreadyExists) throw httpError(409, `There's a theme called ${name} already`);
+      throw err;
+    }
+    await pickTheme(name);
+    return { theme: name, file };
   }
 
   // Editing the theme in the settings file restyles open windows right away.

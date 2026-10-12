@@ -49,6 +49,23 @@
       </section>
 
       <section>
+        <h3 class="heading">Turn</h3>
+        <div class="row">
+          <div class="seg">
+            <button id="turn-left" class="icon" title="Turn left (Shift+R)"><svg viewBox="0 0 24 24"><path d="M4 4v5h5"/><path d="M4.6 9A8 8 0 1 1 6 17.3"/></svg></button>
+            <button id="turn-right" class="icon" title="Turn right (R)"><svg viewBox="0 0 24 24"><path d="M20 4v5h-5"/><path d="M19.4 9A8 8 0 1 0 18 17.3"/></svg></button>
+          </div>
+          <button id="mirror" class="icon" title="Mirror, left to right (M)"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M9 7 4 17h5zM15 7l5 10h-5z"/></svg></button>
+          <span id="turn-info" class="hint"></span>
+        </div>
+        <div class="row">
+          <span>Straighten</span>
+          <input type="range" id="angle" min="-45" max="45" step="0.1" value="0" aria-label="Straighten" title="Double-click: back to straight">
+          <output id="angle-out">0°</output>
+        </div>
+      </section>
+
+      <section>
         <h3 class="heading">Crop</h3>
         <div class="row">
           <select id="aspect" aria-label="Crop shape">

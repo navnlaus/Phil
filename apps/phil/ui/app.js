@@ -905,6 +905,7 @@ function applySettings() {
   document.body.classList.toggle("sidebar", s.sidebar);
   const theme = /^[\w-]+$/.test(s.theme ?? "") ? s.theme : "overlay";
   document.body.dataset.theme = theme;
+  if (themePick.value !== theme) themePick.value = theme;
   const link = $("#theme");
   if (new URL(link.href).pathname !== `/themes/${theme}.css`) link.href = `/themes/${theme}.css`;
   redrawTexts();
@@ -1209,6 +1210,49 @@ function showMenu(x, y, items) {
 function hideContextMenu() {
   contextMenu.hidden = true;
 }
+
+// ---------------------------------------------------------------- themes
+
+// The bottom bar's theme picker: the themes (stylesheets in
+// ~/.config/phil/themes, listed again whenever one is added or removed there),
+// then a new one, and the folder. Picking one saves it in the settings, so
+// every phil window follows.
+const themePick = $("#theme-pick");
+const NEW_THEME = "\u0000new", THEME_FOLDER = "\u0000folder";
+let themesFolder = null;
+
+async function listThemes() {
+  const r = await api("/api/themes").catch(() => null);
+  if (!r) return;
+  themesFolder = r.dir;
+  const names = r.themes.includes(state.settings.theme) ? r.themes : [...r.themes, state.settings.theme];
+  themePick.replaceChildren(
+    ...names.map((t) => new Option(t, t)),
+    new Option("New theme…", NEW_THEME),
+    new Option("Open the themes folder", THEME_FOLDER),
+  );
+  themePick.value = state.settings.theme;
+}
+
+themePick.onchange = async () => {
+  const picked = themePick.value;
+  themePick.value = state.settings.theme; // until the settings say otherwise
+  grid.focus({ preventScroll: true });
+  if (picked === THEME_FOLDER) return themesFolder && navigate(themesFolder);
+  if (picked !== NEW_THEME) {
+    return api("/api/theme", { method: "PUT", body: JSON.stringify({ theme: picked }) }).catch((err) => alert(err.message));
+  }
+  const name = prompt(`A name for the new theme (a stylesheet in ${themesFolder}; it starts from a template with notes on what to change):`);
+  if (!name?.trim()) return;
+  try {
+    const { theme, file } = await api("/api/themes", { method: "POST", body: JSON.stringify({ name }) });
+    openExternal(file); // in its own window, next to this one: every save shows here
+    flashStatus(`New theme ${theme}: ${file}`, 8000);
+  } catch (err) {
+    alert(`Couldn't make the theme: ${err.message}`);
+  }
+};
+document.addEventListener("themes-changed", listThemes);
 
 // ---------------------------------------------------------------- properties
 
@@ -1799,6 +1843,7 @@ ready(JSON.stringify({ script: Math.round(performance.now()) }));
 state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
 applySettings();
+listThemes();
 const thumbDirEl = $("#status-thumbdir");
 thumbDirEl.textContent = (state.init.incognito ? "Incognito · " : "") + `Thumbnails: ${state.init.thumbDir}`;
 thumbDirEl.title = `${state.init.thumbDir} (${state.init.thumbSize})`;
