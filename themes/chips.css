@@ -100,7 +100,8 @@ body {
 
    A tile is .tile (and .dir, .image, .video, .pdf or .file; .selected;
    .hidden-file) holding .thumb, the picture (a folder's: a tab,
-   .thumb::before, over a face, .face), and .label: .desc (a description
+   .thumb::before, over a face, .face), .marks (the icons in the top right
+   corner: .play, .folder), and .label: .desc (a description
    from Properties), .name, .meta (size and date, or what a folder holds),
    then .tags. --tile is a tile's width, set by the zoom. The label is laid
    over the bottom of the picture; for it to sit under the picture instead,
@@ -127,9 +128,10 @@ body {
   --locked: #ff6b6b; /* the lock and link marks, light enough for the chips */
 }
 
-/* Every chip: name, details, description. */
+/* Every chip: name, details, tags, description. */
 .tile .label .name,
 .tile .label .meta,
+.tile .label .tags,
 .tile .label .desc {
   max-width: 100%;
   padding: 2px 7px;
@@ -145,18 +147,26 @@ body {
   align-self: flex-start;
 }
 
-/* Size and date, or what a folder holds: at the top right, shown on hover
-   and for the selection. */
+/* Size and date, or what a folder holds, and under them the tags (a
+   folder's: its most common ones, cut with "…" at the tile's edge): at the
+   top right, shown on hover and for the selection. */
 .tile .label .meta {
-  order: 2;
-  margin-bottom: auto;
+  order: 3;
   align-self: flex-end;
-  font-size: 9.5px;
+  font-size: 11px;
   color: rgba(255, 255, 255, 0.85);
   opacity: 0;
   transition: opacity 0.12s;
 }
-.tile:is(:hover, .selected) .label .meta {
+.tile .label .tags {
+  order: 2;
+  margin-bottom: auto;
+  align-self: flex-end;
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.tile:is(:hover, .selected) .label :is(.meta, .tags) {
   opacity: 1;
 }
 .tile.video .label .meta {

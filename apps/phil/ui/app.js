@@ -658,7 +658,8 @@ function makeTile(entry, index) {
 // Properties) over the name; before the name, a link icon for a link, red
 // (the link's, or a lock) when you can't change it without sudo (through a
 // link, what it points to); ⚡ in the bottom right corner for an on-change
-// hook; ▶ in the top right one for a video. (The top left is left alone.)
+// hook; ▶ in the top right one for a video, and a folder icon for a folder
+// (shown by themes that drop the folder's tab). (The top left is left alone.)
 function showMarks(tile, entry) {
   const desc = tile.querySelector(".label .desc");
   const description = entry.description ?? carried.get(entry.path) ?? ""; // phil's, or the file's own
@@ -670,7 +671,7 @@ function showMarks(tile, entry) {
   tile.classList.toggle("has-hook", !!entry.onChange);
   if (!entry.onChange) label.querySelector(".hook-mark")?.remove();
   else if (!label.querySelector(".hook-mark")) label.insertAdjacentHTML("beforeend", `<span class="hook-mark">${icon("bolt")}</span>`);
-  const marks = [entry.kind === "video" && ["play", ""]].filter(Boolean);
+  const marks = [entry.kind === "video" && ["play", ""], entry.kind === "dir" && ["folder", "folder fill"]].filter(Boolean);
   const key = marks.flat().join(" ");
   let el = tile.querySelector(":scope > .marks");
   if (el?.dataset.key === key) return;

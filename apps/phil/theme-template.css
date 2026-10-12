@@ -99,7 +99,8 @@ body {
 
    A tile is .tile (and .dir, .image, .video, .pdf or .file; .selected;
    .hidden-file) holding .thumb, the picture (a folder's: a tab,
-   .thumb::before, over a face, .face), and .label: .desc (a description
+   .thumb::before, over a face, .face), .marks (the icons in the top right
+   corner: .play, .folder), and .label: .desc (a description
    from Properties), .name, .meta (size and date, or what a folder holds),
    then .tags. --tile is a tile's width, set by the zoom. The label is laid
    over the bottom of the picture; for it to sit under the picture instead,
@@ -155,17 +156,21 @@ body {
   --locked: #ff6b6b;
 }
 
-/* Folders: how far the face is inset from the tile (top right bottom left). */
+/* Folders: the face (its pictures, or an icon for what it holds) fills the
+   tile, with no tab; a folder icon in the top right corner says it's one.
+   For a folder's tab back: a --face inset (top right bottom left, like
+   13% 0 0 0), and leave out the other two rules. */
 .tile.dir {
-  --face: 13% 0 0 0;
+  --face: 0;
 }
-
-/* A folder's tab, over the face; and the face's corners. */
 .tile.dir .thumb::before {
-  left: 0;
+  display: none;
 }
 .tile.dir .face {
-  border-radius: 0 6px 0 0;
+  border-radius: 0;
+}
+.tile.dir .marks .folder {
+  display: grid;
 }
 
 /* A tile under the pointer. */
