@@ -104,6 +104,7 @@ const thumbs = {
       if ("changed" in msg) return onFolderChanged(msg);
       if ("tagged" in msg) return onTagged(msg);
       if ("searched" in msg) return onSearched(msg);
+      if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes);
       if (msg.hook) return onHookRan(msg.hook);
       const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
@@ -177,7 +178,7 @@ const observe = (margin, fn) =>
   }, { root: grid, rootMargin: `${margin}px 0px` });
 
 const nearObserver = observe(800, (tile, entry, near) => {
-  if (near && entry.kind === "dir") return drawFolderTexts(tile), wantSummary(tile, entry);
+  if (near && entry.kind === "dir") return drawFolderTexts(tile), wantSummary(tile, entry), wantTotal(entry);
   if (near) return entry.kind === "file" ? showText(tile, entry) : showThumb(tile, entry);
   if (thumbs.wanted.has(entry.path)) {
     tile.firstElementChild.classList.remove("loading");
@@ -210,6 +211,22 @@ function onFolderSummary(path, summary) {
   changedFolders.delete(path);
   showFolderInfo(tile, entry);
   drawFolderTexts(tile);
+}
+
+// A folder's total size, with its subfolders' (foldertotals.js): asked for
+// once its tile is near the view, unless the one known is recent.
+function wantTotal(entry) {
+  if ((entry.total && !entry.total.stale) || entry.totalAsked) return;
+  entry.totalAsked = true;
+  thumbs.send({ totals: [entry.path] });
+}
+
+function onFolderTotal(path, bytes) {
+  const tile = tiles.get(path);
+  const entry = tile && state.view[tile.dataset.index];
+  if (entry?.path !== path) return;
+  entry.total = bytes === null ? { failed: true } : { bytes, stale: false };
+  if (entry.summary) showFolderInfo(tile, entry);
 }
 
 function showThumb(tile, entry) {
@@ -737,7 +754,7 @@ function showFolderInfo(tile, entry) {
   if (box.dataset.look !== look || !box.firstChild) fillFolderFace(box, summary, previews);
   box.dataset.look = look;
   const meta = tile.querySelector(".meta");
-  meta.textContent = summary ? folderContents(summary) : "";
+  meta.textContent = summary ? folderContents(summary, entry.total) : "";
   tile.title = entry.name + (meta.textContent ? `\n${meta.textContent}` : "") + titleNotes(entry);
   showMarks(tile, entry);
   tile.classList.toggle("empty-dir", !!summary && !summary.files && !summary.dirs);
@@ -775,11 +792,16 @@ function formatShortDate(ms) {
   return date.toLocaleDateString(undefined, thisYear ? { month: "short", day: "numeric" } : { dateStyle: "medium" });
 }
 
-function folderContents({ files, dirs, size }) {
+// "3 folders · 17 files · 56 MB / 1.2 GB": the size of the files in it, then
+// of everything, subfolders too (… while it's worked out). Without
+// subfolders the two are the same, so it's said once.
+function folderContents({ files, dirs, size }, total) {
   const count = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
   const parts = [];
   if (dirs) parts.push(count(dirs, "folder"));
-  if (files) parts.push(count(files, "file"), formatSize(size));
+  if (files) parts.push(count(files, "file"));
+  if (dirs && !total?.failed) parts.push(`${formatSize(files ? size : 0)} / ${total?.bytes !== undefined ? formatSize(total.bytes) : "…"}`);
+  else if (files) parts.push(formatSize(size));
   return parts.join(" · ") || "Empty";
 }
 
