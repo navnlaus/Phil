@@ -2,8 +2,8 @@
 # Sets up phil's optional auto-tagging (apps/phil/tagging.js): a Python
 # environment with PyTorch and transformers in ~/.local/share/phil/tagging,
 # and the SigLIP 2 base model (about 1.5 GB, from Hugging Face, into its
-# usual cache). Some 3 GB in all with a GPU build of PyTorch. Then tick Tags
-# in phil's sidebar. Run it again to update; delete that folder to remove it.
+# usual cache). About 8 GB in all with PyTorch for an NVIDIA GPU (that's
+# 6–7 GB of it), much less for the CPU. Then tick Tags in phil's sidebar. Run it again to update; delete that folder to remove it.
 set -euo pipefail
 
 data=${XDG_DATA_HOME:-$HOME/.local/share}/phil/tagging
