@@ -81,17 +81,28 @@ body.sidebar { grid-template-columns: 180px minmax(0, 1fr); }
 #sidebar .brand {
   display: flex;
   align-items: center;
-  gap: 8px;
   height: var(--bar-h);
   margin-bottom: 3px;
-  padding: 0 10px;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  padding-left: 44px; /* beside the sidebar button */
+  font: 400 16px/1 "URW Gothic", "Adwaita Sans", system-ui, sans-serif; /* geometric, light, spaced out */
+  letter-spacing: 0.34em;
   color: var(--text);
   user-select: none;
 }
-#sidebar .brand svg { width: 17px; height: 17px; color: var(--accent); fill: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* The sidebar button: in the top left corner, always there (over the top
+   bar, which leaves room for it), a folder. */
+#btn-sidebar {
+  position: fixed;
+  z-index: 8;
+  top: 3px;
+  left: 4px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+#btn-sidebar svg { color: var(--accent); fill: color-mix(in srgb, var(--accent) 18%, transparent); }
+#btn-sidebar:hover { background: var(--bg-hover); }
+#btn-sidebar[aria-pressed="true"] { background: var(--accent-bg); }
+#btn-sidebar[aria-pressed="true"] svg { fill: color-mix(in srgb, var(--accent) 45%, transparent); }
 body.sidebar #sidebar { position: static; transform: none; visibility: visible; box-shadow: none; transition: none; }
 
 #places a {
@@ -181,7 +192,7 @@ main {
   border-bottom: 1px solid var(--border);
 }
 
-.nav-buttons { display: flex; gap: 2px; }
+.nav-buttons { display: flex; gap: 2px; margin-left: 34px; } /* after the sidebar button */
 
 #location-wrap {
   flex: 1;
