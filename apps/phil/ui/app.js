@@ -864,14 +864,15 @@ function renderCrumbs() {
 
 // Drives and shares come and go (USB, mounts): the list is fetched again
 // whenever the window gets focus.
-addEventListener("focus", async () => {
+addEventListener("focus", () => refreshPlaces());
+async function refreshPlaces() {
   const fresh = await api("/api/places").catch(() => null);
   if (!fresh) return;
   state.init.mounts = fresh.mounts;
   if (JSON.stringify(fresh.places) === JSON.stringify(state.init.places)) return;
   state.init.places = fresh.places;
   renderPlaces();
-});
+}
 
 // ---------------------------------------------------------------- ssh into network mounts
 
@@ -914,6 +915,7 @@ async function sshTo(path) {
 function renderPlaces() {
   const nav = $("#places");
   nav.replaceChildren(...state.init.places.map((p) => {
+    if (p.unmounted) return unmountedPlace(p);
     const a = document.createElement("a");
     a.href = "#" + encodePath(p.path);
     a.dataset.path = p.path; // drop target
@@ -934,10 +936,63 @@ function renderPlaces() {
         ["Open", () => navigate(p.path)],
         ...(remote ? [[`SSH here (${remote.host})`, () => sshTo(p.path)]] : []),
         ...newItemsIn(p.path, " inside"),
+        ...(p.mounted ? [["Unmount", () => unmount(p)]] : []),
       ]);
     };
     return a;
   }));
+}
+
+// A drive that isn't mounted (an internal one's partition: nothing mounts
+// those by itself): dimmed; a click mounts it (udisks; a system drive asks
+// for the password) and opens it.
+function unmountedPlace(p) {
+  const a = document.createElement("a");
+  a.href = "#";
+  a.className = "unmounted";
+  a.title = `${p.device}: not mounted. Click to mount it`;
+  a.innerHTML = icon(p.icon);
+  a.append(p.name);
+  a.onclick = (e) => (e.preventDefault(), mount(p, a));
+  a.oncontextmenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showMenu(e.clientX, e.clientY, [["Mount and open", () => mount(p, a)]]);
+  };
+  return a;
+}
+
+async function mount(p, a) {
+  if (a.classList.contains("busy")) return;
+  a.classList.add("busy");
+  flashStatus(`Mounting ${p.name}…`, 60_000);
+  try {
+    const { path } = await api("/api/mount", { method: "POST", body: JSON.stringify({ device: p.device }) });
+    flashStatus(`Mounted ${p.name}`);
+    await refreshPlaces();
+    navigate(path);
+  } catch (err) {
+    flashStatus("", 0);
+    alert(`Couldn't mount ${p.name}: ${err.message}`);
+  } finally {
+    a.classList.remove("busy");
+  }
+}
+
+async function unmount(p) {
+  // Out of it first: the terminal, which follows the view, would keep it busy.
+  if (state.path === p.path || state.path.startsWith(p.path + "/")) {
+    navigate(state.init.home);
+    for (let i = 0; i < 20 && state.path !== state.init.home; i++) await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  try {
+    await api("/api/unmount", { method: "POST", body: JSON.stringify({ path: p.path }) });
+  } catch (err) {
+    return alert(`Couldn't unmount ${p.name}: ${err.message}`);
+  }
+  flashStatus(`Unmounted ${p.name}`);
+  await refreshPlaces();
 }
 
 function editLocation() {

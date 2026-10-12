@@ -99,6 +99,10 @@ export function createServer({ profile, controlSocket }) {
         await hooks.moved(body.path, result.path);
         return json(result);
       }
+      case "POST /api/mount": // {device}: a drive listed as not mounted
+        return json(await mountDrive(await req.json()));
+      case "POST /api/unmount": // {path}: a drive mounted under /run/media
+        return json(await unmountDrive(await req.json()));
       case "POST /api/create": // {dir, kind: "dir" | "file"}: a new folder or file there
         return json(await create(await req.json()));
       case "GET /api/properties":
@@ -692,6 +696,7 @@ async function places() {
     out.push({ name: basename(path), path, icon });
   };
   const mounts = await fstabMounts();
+  const drives = await blockDevices();
   for (const base of [`/run/media/${basename(h)}`, "/mnt"]) {
     try {
       for await (const d of Deno.readDir(base)) {
@@ -700,8 +705,100 @@ async function places() {
     } catch { /* not present */ }
   }
   for (const [path, icon] of mounts) add(path, icon);
+  // A drive mounted without a label is in a folder named after its UUID: it's
+  // called what it was called before, its size and file system.
+  for (const place of out) {
+    const drive = drives.find((d) => d.mountpoints.includes(place.path));
+    if (drive && !drive.label && place.path.startsWith(`/run/media/`)) place.name = driveName(drive);
+    if (drive && place.path.startsWith(`/run/media/`)) place.mounted = drive.path; // can be unmounted
+  }
+  // Partitions nothing has mounted (an internal drive's: only removable ones
+  // are mounted by themselves), for a click to mount them.
+  for (const d of await unmountedDrives(drives)) out.push({ name: driveName(d), path: null, device: d.path, icon: "drive", unmounted: true });
   out.push({ name: "Filesystem", path: "/", icon: "drive" });
   return out;
+}
+
+// The block devices with a file system: { path, size, fstype, label, uuid,
+// parttypename, type, mountpoints } (lsblk's), [] without lsblk.
+async function blockDevices() {
+  try {
+    const out = await new Deno.Command("lsblk", {
+      args: ["-J", "-b", "-o", "PATH,SIZE,FSTYPE,LABEL,UUID,PARTTYPENAME,TYPE,MOUNTPOINTS"],
+      stdin: "null",
+      stdout: "piped",
+      stderr: "null",
+      signal: AbortSignal.timeout(3000),
+    }).output();
+    const flat = (list) => list.flatMap((d) => [d, ...flat(d.children ?? [])]);
+    return flat(JSON.parse(new TextDecoder().decode(out.stdout)).blockdevices ?? [])
+      .map((d) => ({ ...d, mountpoints: (d.mountpoints ?? []).filter(Boolean) }));
+  } catch {
+    return [];
+  }
+}
+
+const MOUNTABLE = /^(ntfs3?|exfat|vfat|ext[234]|btrfs|xfs|f2fs|hfsplus|apfs|udf)$/;
+const NOT_DATA = /^(EFI|BIOS boot|Microsoft reserved|Windows recovery|Linux swap|Linux reserved)/i;
+
+// Partitions with a file system for files that aren't mounted, nor in
+// /etc/fstab (those are places already): not EFI, recovery or swap ones, not
+// a btrfs whose volume is mounted from another device.
+async function unmountedDrives(drives) {
+  const fstab = await readFstab();
+  const inFstab = (d) =>
+    fstab.some(({ source }) => source === d.path || (d.uuid && source === `UUID=${d.uuid}`) || (d.label && source === `LABEL=${d.label}`));
+  const mountedUuids = new Set(drives.filter((d) => d.mountpoints.length && d.uuid).map((d) => d.uuid));
+  return drives.filter((d) =>
+    MOUNTABLE.test(d.fstype ?? "") && !d.mountpoints.length && !NOT_DATA.test(d.parttypename ?? "") &&
+    d.size >= 256 * 1024 ** 2 && !inFstab(d) && !mountedUuids.has(d.uuid)
+  );
+}
+
+// A drive's name: its label, or its size and file system ("1.7 TB NTFS").
+function driveName({ label, size, fstype }) {
+  if (label) return label;
+  let n = size, unit = 0; // in 1024s, as the tiles' sizes
+  while (n >= 1024 && unit < 4) n /= 1024, unit++;
+  return `${n.toFixed(n < 10 && unit ? 1 : 0)} ${["B", "KB", "MB", "GB", "TB"][unit]} ${fstype.replace(/3$/, "").toUpperCase()}`;
+}
+
+// Mounting a partition listed as not mounted (for the user, by udisks: under
+// /run/media/<user>; a system drive asks for the password, the desktop's
+// polkit agent's dialog). Gives where it is.
+async function mountDrive({ device }) {
+  const drive = (await unmountedDrives(await blockDevices())).find((d) => d.path === device);
+  if (!drive) throw httpError(404, "That drive isn't there to mount (mounted already?)");
+  const { stdout } = await udisksctl(["mount", "-b", device]);
+  const path = /\bat (\/.+?)\.?\s*$/.exec(stdout)?.[1] ??
+    (await blockDevices()).find((d) => d.path === device)?.mountpoints[0];
+  if (!path) throw httpError(500, "Mounted, but couldn't tell where");
+  return { path };
+}
+
+// Unmounting a drive mounted under /run/media/<user> (by udisks).
+async function unmountDrive({ path }) {
+  requirePath(path);
+  const drive = (await blockDevices()).find((d) => d.mountpoints.includes(path));
+  if (!drive || !path.startsWith("/run/media/")) throw httpError(400, "That isn't a drive phil can unmount");
+  await udisksctl(["unmount", "-b", drive.path]);
+  return { ok: true };
+}
+
+async function udisksctl(args) {
+  let out;
+  try {
+    out = await new Deno.Command("udisksctl", { args, stdin: "null", stdout: "piped", stderr: "piped", signal: AbortSignal.timeout(180_000) }).output();
+  } catch (err) {
+    throw httpError(500, err instanceof Deno.errors.NotFound ? "Mounting drives needs udisks (udisksctl)" : "udisksctl didn't finish");
+  }
+  const said = (b) => new TextDecoder().decode(b).trim();
+  if (!out.success) {
+    // "Error mounting /dev/x: GDBus.Error:org.freedesktop.UDisks2.Error.Failed: <the reason>"
+    const reason = said(out.stderr).split("\n").find((l) => l.trim()) ?? "udisksctl failed";
+    throw httpError(500, reason.replace(/^.*?GDBus\.Error:[\w.]+:\s*/, "").replace(/^Error \w+ \S+:\s*/, ""));
+  }
+  return { stdout: said(out.stdout) };
 }
 
 const NETWORK_FS = /^(nfs4?|cifs|smb3?|fuse\.sshfs|sshfs|fuse\.rclone|rclone|9p|davfs2?|fuse\.davfs2?|ceph|glusterfs)$/;
