@@ -59,13 +59,6 @@ body.sidebar #sidebar {
   overflow-y: auto;
 }
 
-.brand {
-  padding: 2px 10px 14px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-}
-
 #places a {
   display: flex;
   align-items: center;
