@@ -45,6 +45,7 @@ const gobject = Deno.dlopen("libgobject-2.0.so.0", {
     parameters: ["pointer", "buffer", "function", "pointer", "pointer", "i32"],
     result: "u64",
   },
+  g_object_unref: { parameters: ["pointer"], result: "void" },
 });
 const gtk = Deno.dlopen("libgtk-3.so.0", {
   gtk_init: { parameters: ["pointer", "pointer"], result: "void" },
@@ -64,9 +65,23 @@ const gtk = Deno.dlopen("libgtk-3.so.0", {
   gtk_target_list_add_text_targets: { parameters: ["pointer", "u32"], result: "void" },
   gtk_target_list_unref: { parameters: ["pointer"], result: "void" },
   gtk_drag_begin_with_coordinates: { parameters: ["pointer", "pointer", "i32", "i32", "pointer", "i32", "i32"], result: "pointer" },
-  gtk_drag_set_icon_name: { parameters: ["pointer", "buffer", "i32", "i32"], result: "void" },
+  gtk_drag_set_icon_surface: { parameters: ["pointer", "pointer"], result: "void" },
   gtk_selection_data_set_uris: { parameters: ["pointer", "buffer"], result: "i32" },
   gtk_selection_data_set_text: { parameters: ["pointer", "buffer", "i32"], result: "i32" },
+});
+// A drag's picture: PNG bytes into a pixbuf, then a cairo surface at the screen's scale.
+const pixbuf = Deno.dlopen("libgdk_pixbuf-2.0.so.0", {
+  gdk_pixbuf_loader_new: { parameters: [], result: "pointer" },
+  gdk_pixbuf_loader_write: { parameters: ["pointer", "buffer", "usize", "pointer"], result: "i32" },
+  gdk_pixbuf_loader_close: { parameters: ["pointer", "pointer"], result: "i32" },
+  gdk_pixbuf_loader_get_pixbuf: { parameters: ["pointer"], result: "pointer" },
+});
+const gdk = Deno.dlopen("libgdk-3.so.0", {
+  gdk_cairo_surface_create_from_pixbuf: { parameters: ["pointer", "i32", "pointer"], result: "pointer" },
+});
+const cairo = Deno.dlopen("libcairo.so.2", {
+  cairo_surface_set_device_offset: { parameters: ["pointer", "f64", "f64"], result: "void" },
+  cairo_surface_destroy: { parameters: ["pointer"], result: "void" },
 });
 const webkit = Deno.dlopen("libwebkit2gtk-4.1.so.0", {
   webkit_web_view_new: { parameters: [], result: "pointer" },
@@ -169,8 +184,10 @@ export function createApp({ name, ephemeral = false, keepRunning = false, trace 
   // A drag of files out of window `w`, started while the page's own drag (a
   // right- or middle-drag, which WebKit doesn't turn into one) leaves the
   // window, its button still held. `uris`: file:// URIs; `actions`: what the
-  // place it's dropped on may do ("copy", "move", "ask"); `icon`: an icon name.
-  function startDrag(w, { uris, paths, button, actions, icon }) {
+  // place it's dropped on may do ("copy", "move", "ask"); `image`: the drag's
+  // picture (a PNG data: URL, drawn at `scale`), with the pointer at
+  // `hotspot` from its top left corner.
+  function startDrag(w, { uris, paths, button, actions, image, scale = 1, hotspot = [0, 0] }) {
     const strings = uris.map(cstr);
     const uriArray = new BigUint64Array(strings.length + 1); // a NULL-terminated char**
     strings.forEach((s, i) => (uriArray[i] = BigInt(Deno.UnsafePointer.value(Deno.UnsafePointer.of(s)))));
@@ -183,8 +200,24 @@ export function createApp({ name, ephemeral = false, keepRunning = false, trace 
       w.win, targets, actions.reduce((m, a) => m | (mask[a] ?? 0), 0), button, null, -1, -1,
     );
     gtk.symbols.gtk_target_list_unref(targets);
-    if (context && icon) gtk.symbols.gtk_drag_set_icon_name(context, cstr(icon), 0, 0);
-    if (!context) w.drag = null;
+    if (!context) return void (w.drag = null);
+    if (image) setDragPicture(context, image, scale, hotspot);
+  }
+
+  function setDragPicture(context, dataUrl, scale, [hx, hy]) {
+    const png = Uint8Array.from(atob(dataUrl.slice(dataUrl.indexOf(",") + 1)), (c) => c.charCodeAt(0));
+    const loader = pixbuf.symbols.gdk_pixbuf_loader_new();
+    const ok = pixbuf.symbols.gdk_pixbuf_loader_write(loader, png, png.length, null) &&
+      pixbuf.symbols.gdk_pixbuf_loader_close(loader, null);
+    const pb = ok ? pixbuf.symbols.gdk_pixbuf_loader_get_pixbuf(loader) : null;
+    if (pb) {
+      const surface = gdk.symbols.gdk_cairo_surface_create_from_pixbuf(pb, scale, null);
+      // The pointer is at the surface's (0, 0): its origin moved to the hotspot (in device pixels).
+      cairo.symbols.cairo_surface_set_device_offset(surface, hx * scale, hy * scale);
+      gtk.symbols.gtk_drag_set_icon_surface(context, surface);
+      cairo.symbols.cairo_surface_destroy(surface); // GTK keeps its own reference
+    }
+    gobject.symbols.g_object_unref(loader);
   }
 
   // Messages from a page: window.webkit.messageHandlers.phil.postMessage(...)
