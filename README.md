@@ -395,8 +395,8 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
 | right-click a text or JSON file → Add to Config | a link to it in `Documents/Config`, for config files used often but kept all over (a name that's taken gets its folder's in front: `waybar-config`) |
 | right-click → Properties, Alt+Enter | type, size (a folder's: everything in it), dates, owner, permissions and what you can do with it; and, for a file, phil's own: a **description** shown above the name, and an **on-change hook**: a command run when the file changes (below) |
-| right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, the sidebar) |
-| middle-drag onto a folder | move there right away |
+| right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, the sidebar); out of the window, the files go on being dragged, for the app they're dropped on to copy, move or ask |
+| middle-drag onto a folder | move there right away; out of the window, the files go on being dragged, for the app they're dropped on to move (or copy) |
 | Backspace, Esc | parent folder |
 | Alt+← / Alt+→ | back / forward |
 | Ctrl+L | type a path (`~` works) |

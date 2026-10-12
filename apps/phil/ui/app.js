@@ -1735,7 +1735,36 @@ function moveDrag(e) {
     if (Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 6) return;
     startDrag();
   }
+  if (outsideWindow(e) && native) return dragOut();
   updateDrag();
+}
+
+const native = window.webkit?.messageHandlers?.phil; // the engine's window (not --browser)
+document.documentElement.addEventListener("mouseleave", () => drag?.active && native && dragOut()); // in case moves outside aren't reported
+const outsideWindow = (e) => e.clientX < 0 || e.clientY < 0 || e.clientX >= innerWidth || e.clientY >= innerHeight;
+
+// A right- or middle-drag leaving the window goes on as the desktop's drag of
+// the files (the engine starts it: engine/window.js), like a left-drag (see
+// fileDrag below): a middle-drag lets the place it's dropped on move them, a
+// right-drag lets it ask (or copy, or move).
+function dragOut() {
+  const d = drag;
+  removeEventListener("pointermove", moveDrag);
+  removeEventListener("pointerup", endDrag);
+  removeEventListener("pointercancel", endDrag);
+  drag = null;
+  d.ghost.remove();
+  document.body.classList.remove("dragging");
+  d.target?.el.classList.remove("drop-target");
+  fileDrag = { items: d.items, paths: d.paths, dirs: d.dirs, button: d.button };
+  const kinds = new Set(d.items.map((m) => m.kind));
+  native.postMessage("drag:" + JSON.stringify({
+    uris: d.items.map((m) => fileUri(m.path)),
+    paths: d.items.map((m) => m.path),
+    button: d.button + 1, // GTK's numbering: 2 middle, 3 right
+    actions: d.button === 1 ? ["move", "copy"] : ["ask", "copy", "move"],
+    icon: kinds.size > 1 ? "edit-copy" : { dir: "folder", image: "image-x-generic", video: "video-x-generic", pdf: "application-pdf" }[d.items[0].kind] ?? "text-x-generic",
+  }));
 }
 
 function startDrag() {
@@ -1812,10 +1841,11 @@ function endDrag(e) {
 // Dragging files out of phil: a left-drag that starts on a selected tile (no
 // Ctrl or Shift) is the webview's own drag, carrying the selection as files
 // (their file:// URIs), for a browser's page, another file manager, a chat...
-// to take. Dropped on a folder in phil itself, it asks "Move to / Copy to",
-// like a right-drag. (Started anywhere else, a left-drag draws the selection
-// rectangle.)
-let fileDrag = null; // { items, paths, dirs, target }
+// to take. A right- or middle-drag becomes one when it leaves the window
+// (dragOut). Dropped on a folder in phil itself, a middle-drag moves there
+// and the others ask "Move to / Copy to". (Started anywhere else, a left-drag
+// draws the selection rectangle.)
+let fileDrag = null; // { items, paths, dirs, button, target }
 
 function startsFileDrag(e) {
   if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || inRename(e)) return false;
@@ -1830,7 +1860,7 @@ grid.addEventListener("dragstart", (e) => {
   if (i === -1 || !state.marked.has(state.view[i].path)) return e.preventDefault();
   hideContextMenu();
   const items = markedEntries();
-  fileDrag = { items, paths: new Set(items.map((m) => m.path)), dirs: items.filter((m) => m.kind === "dir").map((m) => m.path + "/") };
+  fileDrag = { items, paths: new Set(items.map((m) => m.path)), dirs: items.filter((m) => m.kind === "dir").map((m) => m.path + "/"), button: 0 };
   e.dataTransfer.effectAllowed = "copyMove";
   e.dataTransfer.setData("text/uri-list", items.map((m) => fileUri(m.path)).join("\r\n"));
   e.dataTransfer.setData("text/plain", items.map((m) => m.path).join("\n"));
@@ -1851,18 +1881,24 @@ addEventListener("dragover", (e) => {
 addEventListener("drop", (e) => {
   e.preventDefault();
   const target = fileDrag?.target;
+  const { items, button } = fileDrag ?? {};
+  endFileDrag();
   if (!target) return;
-  const { items } = fileDrag;
+  if (button === 1) return transfer("move", items, target.path);
   const name = target.path.split("/").pop() || "/";
   showMenu(e.clientX, e.clientY, [
     [`Move to “${name}”`, () => transfer("move", items, target.path)],
     [`Copy to “${name}”`, () => transfer("copy", items, target.path)],
   ]);
 });
-addEventListener("dragend", () => {
+function endFileDrag() {
   fileDrag?.target?.el.classList.remove("drop-target");
   fileDrag = null;
-});
+}
+addEventListener("dragend", endFileDrag);
+// A drag the engine started ends without telling the page: the pointer
+// moving in the window again means it's over.
+addEventListener("pointermove", (e) => fileDrag && fileDrag.button !== 0 && !outsideWindow(e) && endFileDrag());
 
 // A link to the file in Documents/Config (see addToConfig in server.js).
 async function addToConfig(entry) {
