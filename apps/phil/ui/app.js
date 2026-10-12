@@ -1331,7 +1331,7 @@ function onTagged({ tagged, tags = {}, left = 0, error }) {
   if (tagged !== state.path) return;
   if (error) {
     return showTagStatus(error === "setup"
-      ? "Auto-tagging isn't set up yet: run scripts/install-tagging.sh in phil's source folder (it downloads about 3 GB)."
+      ? "Auto-tagging isn't set up yet: run scripts/install-tagging.sh in phil's source folder (several GB: PyTorch and the model)."
       : `Tagging stopped: ${error}`);
   }
   for (const [path, t] of Object.entries(tags)) {

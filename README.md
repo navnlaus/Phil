@@ -180,9 +180,9 @@ clicking tags shows only what has all of them. Tags come two ways:
   pictures (and videos) in the folder you're in with
   [SigLIP 2](https://huggingface.co/google/siglip2-base-patch16-224), on this
   computer. Set it up once with `scripts/install-tagging.sh`: a Python
-  environment in `~/.local/share/phil/tagging` and the model, about 3 GB in all
-  (it picks the PyTorch that works with your GPU, down to the GTX 10 series, or
-  the CPU's). A Python helper does the work, started when there's tagging to do
+  environment in `~/.local/share/phil/tagging` (it picks the PyTorch that works
+  with your GPU, down to the GTX 10 series, or the CPU's) and the model: about
+  8 GB with PyTorch for an NVIDIA GPU, much less for the CPU. A Python helper does the work, started when there's tagging to do
   and gone when idle. A picture is looked at once and remembered (by an
   embedding, next to the thumbnails), so coming back to a folder is instant;
   on a GTX 1080 Ti new pictures take a few seconds a folder, and most of that
