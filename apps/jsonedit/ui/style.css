@@ -79,6 +79,14 @@ button.icon { font-size: 16px; }
 .row.selected { background: var(--accent-bg); }
 .row.cursor { box-shadow: inset 2px 0 var(--accent); }
 #tree:not(:focus) .row.cursor { box-shadow: inset 2px 0 var(--text-dim); }
+/* Just the key or the value selected (← →): that part outlined. */
+.row.cursor.part-key, .row.cursor.part-value { background: none; }
+.row.cursor.part-key .key, .row.cursor.part-value .value {
+  border-radius: 3px;
+  background: var(--accent-bg);
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
 #tree .selecting { user-select: text; cursor: text; }
 .row.match .key, .row.match .value { background: var(--match-bg); border-radius: 3px; }
 .toggle { flex: none; width: 14px; color: var(--text-dim); text-align: center; cursor: pointer; }

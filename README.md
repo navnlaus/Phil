@@ -463,7 +463,10 @@ file it starts a new one. Opened from phil, it shows in phil's window.
 
 | | |
 |---|---|
-| ↑ ↓ Home End PgUp PgDn, ← → | move; close and open |
+| ↑ ↓ PgUp PgDn, Ctrl+Home / Ctrl+End | move (up and down keep to the key or value, if that's what's selected); the first / last row |
+| → / ← | step through a row: the whole line, its key, its value; past the value → opens an object or array, before the line ← closes it (or goes to its parent) |
+| Home / End | the whole line / its last part (the value) |
+| with a key or value selected: Ctrl+C, Ctrl+V, Enter, typing | copy just it, paste over it (a key: renamed; a value: replaced), edit it, start editing it with what's typed; Esc: the whole line again |
 | Shift + those, Shift+click, drag | select rows; Ctrl+A everything, Esc one again |
 | Enter / F2 / Space / typing | edit the value (open or close an object or array) / rename the key / toggle / replace the value |
 | Ctrl+Enter, Insert | add inside, add after |
