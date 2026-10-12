@@ -1991,11 +1991,17 @@ function fitText(ctx, text, max) {
 
 // The folder under the pointer, if the dragged items (`drag`, or a file drag
 // below) can go there.
+// Where a drag would drop: a folder (its tile, a place, a part of the path).
+// A right-drag can also go to the folder it came from (the tiles' empty space,
+// a file's tile, that folder in the path), for copies there (`here`).
 function dropTargetAt(x, y, drag) {
   const el = document.elementFromPoint(x, y);
   const tile = el?.closest(".tile");
   const target = tile ? state.view[tile.dataset.index] : null;
   const path = target ? (target.kind === "dir" ? target.path : null) : el?.closest("[data-path]")?.dataset.path;
+  if (drag.button === 2 && (path === state.path || (!path && el?.closest("#files")) || (target && drag.paths.has(target.path)))) {
+    return { path: state.path, el: path === state.path ? el.closest("[data-path]") : $("#files"), here: true };
+  }
   if (!path || path === state.path || drag.paths.has(path)) return null;
   if (drag.dirs.some((d) => (path + "/").startsWith(d))) return null; // into itself
   return { path, el: tile ?? el.closest("[data-path]") };
@@ -2011,7 +2017,7 @@ function updateDrag() {
   }
   drag.target = target;
   const verb = drag.button === 1 ? "Move" : "Move or copy";
-  drag.label.textContent = target ? `${verb} to ${target.path.split("/").pop() || "/"}` : "";
+  drag.label.textContent = target?.here ? "Copy here" : target ? `${verb} to ${target.path.split("/").pop() || "/"}` : "";
 }
 
 function endDrag(e) {
@@ -2036,6 +2042,7 @@ function endDrag(e) {
   if (!d.target) return;
   const name = d.target.path.split("/").pop() || "/";
   if (d.button === 1) return transfer("move", d.items, d.target.path);
+  if (d.target.here) return showMenu(e.clientX, e.clientY, [["Copy here", () => transfer("copy", d.items, d.target.path)]]);
   showMenu(e.clientX, e.clientY, [
     [`Move to “${name}”`, () => transfer("move", d.items, d.target.path)],
     [`Copy to “${name}”`, () => transfer("copy", d.items, d.target.path)],
@@ -2146,6 +2153,14 @@ async function transfer(op, items, dest) {
   progress.textContent = "";
   updateProgress();
   await load(state.path);
+  // What's made here (copies in the same folder) is selected.
+  const made = new Set(result.made ?? []);
+  const first = state.view.findIndex((e) => made.has(e.path));
+  if (first !== -1) {
+    select(first);
+    setMarked(state.view.filter((e) => made.has(e.path)).map((e) => e.path));
+    updateStatus();
+  }
   if (result.errors.length) {
     alert(`Couldn't ${op} ${result.errors.length} item(s):\n` +
       result.errors.map((e) => `${e.path.split("/").pop()}: ${e.error}`).join("\n"));

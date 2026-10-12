@@ -811,30 +811,48 @@ async function create({ dir, kind }) {
 
 // Drag and drop: move or copy items into `dest`. mv/cp handle folders,
 // symlinks (copied as links) and moves across filesystems. Nothing is ever
-// overwritten: a name that already exists in `dest` is reported and skipped.
+// overwritten: a name that already exists in `dest` is reported and skipped,
+// except a copy into the item's own folder, which gets a number ("photo
+// 2.jpg"). `made`: the paths of what's there now.
 async function transfer({ op, paths = [], dest }) {
   if (op !== "move" && op !== "copy") throw httpError(400, "bad op");
   requirePath(dest);
   if (!(await isDir(dest))) throw httpError(400, "destination is not a folder");
-  const errors = [];
+  const errors = [], made = [];
   for (const src of paths) {
     try {
       requirePath(src);
       if (normalize(src) !== src || src === "/") throw new Error("invalid path");
-      if (dest === src || dest.startsWith(src + "/")) throw new Error("can't put a folder inside itself");
-      if (dirname(src) === dest) throw new Error("it's already in that folder");
-      const target = join(dest, basename(src));
+      const copyHere = op === "copy" && dirname(src) === dest;
+      if (!copyHere && (dest === src || dest.startsWith(src + "/"))) throw new Error("can't put a folder inside itself");
+      if (dirname(src) === dest && !copyHere) throw new Error("it's already in that folder");
+      const target = copyHere ? await freeName(src) : join(dest, basename(src));
       if (await Deno.lstat(target).then(() => true, () => false)) throw new Error("an item with that name already exists there");
       const [cmd, ...args] = op === "move" ? ["mv", "-n", "-T"] : ["cp", "-a", "-n", "-T"];
       const result = await new Deno.Command(cmd, { args: [...args, "--", src, target], stdin: "null", stdout: "null", stderr: "piped" }).output();
       if (!result.success) {
         throw new Error(new TextDecoder().decode(result.stderr).trim().split("\n").at(-1) || `${cmd} failed`);
       }
+      made.push(target);
     } catch (err) {
       errors.push({ path: src, error: err.message });
     }
   }
-  return { errors };
+  return { errors, made };
+}
+
+// A name for a copy of `path` beside it: the next number after the name, before
+// the extension ("photo.jpg" → "photo 2.jpg"; "photo 2.jpg" → "photo 3.jpg").
+async function freeName(path) {
+  const name = basename(path);
+  const isFolder = await isDir(path) && !(await Deno.lstat(path)).isSymlink;
+  const dot = isFolder ? -1 : name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+  const [, base, number] = stem.match(/^(.*?) (\d+)$/) ?? [, stem, "1"];
+  for (let n = Number(number) + 1; ; n++) {
+    const target = join(dirname(path), `${base} ${n}${ext}`);
+    if (!(await Deno.lstat(target).then(() => true, () => false))) return target;
+  }
 }
 
 function openExternal({ path, app }) {
