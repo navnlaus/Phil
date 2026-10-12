@@ -99,6 +99,8 @@ export function createServer({ profile, controlSocket }) {
         await hooks.moved(body.path, result.path);
         return json(result);
       }
+      case "POST /api/create": // {dir, kind: "dir" | "file"}: a new folder or file there
+        return json(await create(await req.json()));
       case "GET /api/properties":
         return json({ ...await properties(requirePath(path)), meta: await hooks.get(path) });
       case "GET /api/folder-size":
@@ -784,6 +786,27 @@ async function deletePaths(paths) {
     }
   }
   return { errors };
+}
+
+// The + button, Insert, Super+Insert: a new, empty folder ("Folder") or file
+// ("File.txt") in `dir`, numbered ("Folder 2", "File 2.txt") when the name is
+// taken. Made so it can't take the place of anything already there.
+async function create({ dir, kind }) {
+  if (kind !== "dir" && kind !== "file") throw httpError(400, "bad kind");
+  requirePath(dir);
+  if (!(await isDir(dir))) throw httpError(400, "not a folder");
+  for (let n = 1; n < 10_000; n++) {
+    const name = kind === "dir" ? `Folder${n > 1 ? ` ${n}` : ""}` : `File${n > 1 ? ` ${n}` : ""}.txt`;
+    const path = join(dir, name);
+    try {
+      if (kind === "dir") await Deno.mkdir(path);
+      else (await Deno.open(path, { createNew: true, write: true })).close();
+      return { path, name };
+    } catch (err) {
+      if (!(err instanceof Deno.errors.AlreadyExists)) throw httpError(err instanceof Deno.errors.PermissionDenied ? 403 : 500, err.message);
+    }
+  }
+  throw httpError(409, "too many with that name already");
 }
 
 // Drag and drop: move or copy items into `dest`. mv/cp handle folders,

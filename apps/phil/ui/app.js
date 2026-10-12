@@ -243,7 +243,7 @@ function onFolderTotal(path, bytes) {
 // Sorted by size, folders move as their totals come in: once they stop for a moment.
 function resortSoon() {
   clearTimeout(resortSoon.timer);
-  resortSoon.timer = setTimeout(() => render(), 300);
+  resortSoon.timer = setTimeout(() => (renaming ? resortSoon() : render()), 300); // moving a tile being renamed would end that
 }
 
 function showThumb(tile, entry) {
@@ -850,7 +850,7 @@ function renderCrumbs() {
     // Right-click: that folder's Properties (the way to the one you're in, whose tile isn't shown).
     b.oncontextmenu = (e) => {
       e.preventDefault();
-      showMenu(e.clientX, e.clientY, [["Properties", () => showProperties({ path, name: label, kind: "dir" })]]);
+      showMenu(e.clientX, e.clientY, [["Properties", () => showProperties({ path, name: label, kind: "dir" })], ...newItemsIn(path, " inside")]);
     };
     crumbs.append(b);
   };
@@ -922,14 +922,20 @@ function renderPlaces() {
     a.append(p.name);
     a.classList.toggle("active", p.path === state.path);
     // A network share: double-click (or the menu) for a terminal on that machine.
-    if (remoteOf(p.path)) {
-      a.title += `\nDouble-click: SSH to ${remoteOf(p.path).host}`;
+    const remote = remoteOf(p.path);
+    if (remote) {
+      a.title += `\nDouble-click: SSH to ${remote.host}`;
       a.ondblclick = (e) => (e.preventDefault(), sshTo(p.path));
-      a.oncontextmenu = (e) => {
-        e.preventDefault();
-        showMenu(e.clientX, e.clientY, [["Open", () => navigate(p.path)], [`SSH here (${remoteOf(p.path).host})`, () => sshTo(p.path)]]);
-      };
     }
+    a.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation(); // not the sidebar's menu
+      showMenu(e.clientX, e.clientY, [
+        ["Open", () => navigate(p.path)],
+        ...(remote ? [[`SSH here (${remote.host})`, () => sshTo(p.path)]] : []),
+        ...newItemsIn(p.path, " inside"),
+      ]);
+    };
     return a;
   }));
 }
@@ -1323,7 +1329,7 @@ const inRename = (e) => e.target.closest?.(".rename");
 
 function showContextMenu(x, y, entry) {
   const items = [["Properties", () => showProperties(entry)]];
-  if (entry.kind === "dir") items.push(["Open", () => navigate(entry.path)]);
+  if (entry.kind === "dir") items.push(["Open", () => navigate(entry.path)], ...newItemsIn(entry.path, " inside"));
   if (entry.kind === "dir" && remoteOf(entry.path)) items.push([`SSH here (${remoteOf(entry.path).host})`, () => sshTo(entry.path)]);
   if (entry.kind === "image") items.push(["View", () => open(state.view.indexOf(entry))]);
   if (entry.kind === "image") items.push(["Resize, crop, compress…", () => openInApp("imageresize", { file: entry.path })]);
@@ -1367,6 +1373,33 @@ function showMenu(x, y, items) {
 function hideContextMenu() {
   contextMenu.hidden = true;
 }
+
+// ---------------------------------------------------------------- new folders and files
+
+// The + button and Insert: a new folder, "Folder" (numbered when there's one
+// already); Super+Insert: a new file, "File.txt". In the folder shown, it's
+// selected with its name ready to type over (Enter keeps it); in another (a
+// folder's menu), the status bar says so.
+async function createIn(dir, kind) {
+  let made;
+  try {
+    made = await api("/api/create", { method: "POST", body: JSON.stringify({ dir, kind }) });
+  } catch (err) {
+    return alert(`Couldn't make a new ${kind === "dir" ? "folder" : "file"}: ${err.message}`);
+  }
+  if (dir !== state.path) return flashStatus(`Made “${made.name}” in ${dir.split("/").pop() || "/"}`);
+  await load(state.path);
+  const i = state.view.findIndex((e) => e.path === made.path);
+  if (i === -1) return flashStatus(`Made “${made.name}”`); // filtered out
+  select(i);
+  startRename(i);
+}
+
+// The menu's items for that: "New folder" and "New file" (+ `where`).
+const newItemsIn = (dir, where = "") => [
+  [`New folder${where}`, () => createIn(dir, "dir")],
+  [`New file${where}`, () => createIn(dir, "file")],
+];
 
 // ---------------------------------------------------------------- themes
 
@@ -2137,8 +2170,10 @@ function endBand(e) {
 grid.addEventListener("dblclick", (e) => inRename(e) || open(tileIndex(e.target)));
 grid.addEventListener("contextmenu", (e) => {
   const i = tileIndex(e.target);
-  if (i === -1 || inRename(e)) return; // keep the webview's own menu (Inspect Element, or Paste in the name field)
+  // The webview's own menu: Paste in the name field; Shift+right-click on empty space for Inspect Element.
+  if (inRename(e) || (i === -1 && e.shiftKey)) return;
   e.preventDefault();
+  if (i === -1) return showMenu(e.clientX, e.clientY, newItemsIn(state.path)); // the empty space
   // On Linux this fires when the button goes down. A right press may become a
   // drag, so the menu waits for the release (see endDrag).
   if (drag?.button === 2) return void (drag.wantsMenu = true);
@@ -2159,6 +2194,13 @@ $("#btn-back").onclick = () => history.back();
 $("#btn-close").onclick = closeWindow;
 $("#btn-forward").onclick = () => history.forward();
 $("#btn-up").onclick = () => parentOf(state.path) && navigate(parentOf(state.path));
+$("#btn-new").onclick = () => createIn(state.path, "dir");
+// The sidebar's empty space (the places have their own menu): new in the folder shown.
+$("#sidebar").addEventListener("contextmenu", (e) => {
+  if (e.target.closest("a, button, input") || e.shiftKey) return;
+  e.preventDefault();
+  showMenu(e.clientX, e.clientY, newItemsIn(state.path));
+});
 
 crumbs.addEventListener("click", editLocation);
 locationInput.addEventListener("blur", closeLocation);
@@ -2294,6 +2336,10 @@ document.addEventListener("keydown", (e) => {
   if (e.altKey && e.key === "ArrowLeft") return history.back(), handled();
   if (e.altKey && e.key === "ArrowRight") return history.forward(), handled();
   if ((e.key === "Backspace" || e.key === "Escape") && e.target === grid) return $("#btn-up").click(), handled();
+  // Insert: a new folder; Super+Insert: a new file (Ctrl+ and Shift+Insert are the clipboard's).
+  if (e.key === "Insert" && !e.ctrlKey && !e.shiftKey && !e.altKey && (e.target === grid || e.target === document.body)) {
+    return createIn(state.path, e.metaKey ? "file" : "dir"), handled();
+  }
   if (ctrl && e.key === "l") return editLocation(), handled();
   if ((ctrl && e.key === "f") || (e.key === "/" && e.target === grid)) return filterInput.focus(), filterInput.select(), handled();
   if (ctrl && e.key === "h") return toggleHidden(), handled();
