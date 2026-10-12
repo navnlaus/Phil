@@ -327,6 +327,8 @@ main {
 }
 .marks .badge svg { width: 12px; height: 12px; stroke: none; }
 .marks .badge.line svg { fill: none; stroke: currentColor; stroke-width: 2.6; }
+.marks .badge.fill svg { fill: currentColor; }
+.marks .badge.folder { display: none; } /* a folder's: for themes without the tab */
 /* ⚡: the file has an on-change hook (Properties) */
 .label .hook-mark {
   position: absolute;
