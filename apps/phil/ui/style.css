@@ -101,6 +101,8 @@ body.sidebar { grid-template-columns: 180px minmax(0, 1fr); }
 }
 #btn-sidebar svg { color: var(--accent); fill: color-mix(in srgb, var(--accent) 18%, transparent); }
 #btn-sidebar:hover { background: var(--bg-hover); }
+/* Hovering it shows the top bar too, as hovering the bar itself does. */
+body:has(#btn-sidebar:hover) #toolbar { opacity: 1; transition: opacity 0.08s ease; }
 #btn-sidebar[aria-pressed="true"] { background: var(--accent-bg); }
 #btn-sidebar[aria-pressed="true"] svg { fill: color-mix(in srgb, var(--accent) 45%, transparent); }
 body.sidebar #sidebar { position: static; transform: none; visibility: visible; box-shadow: none; transition: none; }
