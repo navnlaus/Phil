@@ -675,6 +675,14 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   box-shadow: inset 0 0 0 3px var(--accent);
   pointer-events: none;
 }
+#files.drop-target::after { /* a right-drag's copy here */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  box-shadow: inset 0 0 0 3px var(--accent);
+  pointer-events: none;
+}
 #crumbs button.drop-target, #places a.drop-target {
   background: var(--accent-bg);
   box-shadow: inset 0 0 0 2px var(--accent);
