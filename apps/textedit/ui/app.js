@@ -18,6 +18,7 @@ const doc = {
   mode: "code", // or "view": Markdown as it reads
   blocks: [], // the rendered Markdown's blocks (markdown.js)
   viewEdited: false, // changed in the view since it was turned into Markdown
+  document: null, // "RTF", "DOCX", ...: a document, read as Markdown, read-only (engine/documents.js)
 };
 
 // ---------------------------------------------------------------- files
@@ -37,7 +38,8 @@ async function openFile(path) {
     return;
   }
   showMessage("");
-  Object.assign(doc, { path: file.path, mtime: file.missing ? null : file.mtime, saved: file.missing ? "" : file.text });
+  Object.assign(doc, { path: file.path, mtime: file.missing ? null : file.mtime, saved: file.missing ? "" : file.text, document: file.document ?? null });
+  showReadOnly();
   ta.value = doc.saved;
   ta.setSelectionRange(0, 0);
   ta.scrollTop = ta.scrollLeft = 0;
@@ -49,6 +51,11 @@ async function openFile(path) {
 }
 
 async function save({ as = false } = {}) {
+  if (doc.document) { // its Markdown, beside it
+    const path = await askPath("Save as", doc.path.replace(/\.[^./]*$/, "") + ".md");
+    if (!path) return;
+    return write(path, { isNew: true });
+  }
   if (!doc.path || as) {
     const path = await askPath(as ? "Save as" : "Save to", doc.path ?? `${home}/untitled.txt`);
     if (!path) return;
@@ -67,7 +74,8 @@ async function write(path, { isNew = false, force = false, sudo }) {
       body: JSON.stringify({ path, text, mtime: isNew ? null : doc.mtime, force, sudo }),
     });
     const renamed = path !== doc.path;
-    Object.assign(doc, { path, mtime, saved: text });
+    Object.assign(doc, { path, mtime, saved: text, document: null }); // a document's Markdown, saved: a file like any
+    showReadOnly();
     if (renamed && doc.lang === "plaintext") setLanguage(detectLanguage(path, text));
     showFile();
   } catch (err) {
@@ -94,6 +102,22 @@ function showFile() {
   $("#file-dir").textContent = doc.path ? doc.path.slice(0, -name.length - 1).replace(home, "~") || "/" : "";
   $("#dirty").hidden = !isDirty();
   document.title = `${isDirty() ? "● " : ""}${name} — textedit`;
+}
+
+// A document (doc.document) is read-only: its Markdown can be saved as a new
+// file, and the document itself edited in its own app.
+function showReadOnly() {
+  const ro = !!doc.document;
+  ta.readOnly = ro;
+  mdEl.contentEditable = ro ? "false" : "true";
+  mdEl.tabIndex = 0; // focusable, for the keys that scroll, when not editable
+  $("#doc-note").hidden = !ro;
+  $("#doc-note").textContent = ro ? `${doc.document}, read-only` : "";
+  $("#doc-note").title = ro ? `Converted to Markdown for reading: headings, emphasis, lists, tables, links and pictures, but not fonts, colors or layout` : "";
+  $("#btn-original").hidden = !ro;
+  $("#btn-save").textContent = ro ? "Save as Markdown…" : "Save";
+  $("#btn-save").title = ro ? "Save what's shown as a Markdown file (Ctrl+S)" : "Save (Ctrl+S); Save as: Ctrl+Shift+S";
+  $("#find-form").classList.toggle("read-only", ro);
 }
 
 function showMessage(text) {
@@ -254,6 +278,7 @@ document.addEventListener("selectionchange", () => document.activeElement === ta
 // Replaces text[start, end) with `text` so that Ctrl+Z undoes it, then
 // selects [selStart, selEnd).
 function replace(start, end, text, selStart = start + text.length, selEnd = selStart) {
+  if (doc.document) return; // read-only
   ta.focus();
   ta.setSelectionRange(start, end);
   const done = text ? document.execCommand("insertText", false, text) : start === end || document.execCommand("delete");
@@ -435,6 +460,7 @@ const findInput = $("#find-input");
 let found = null; // { start, end } of the current match, drawn while the field has focus
 
 function openFind({ replacing = false } = {}) {
+  if (doc.document) replacing = false; // read-only
   $("#find-form").hidden = false;
   $("#find-form").classList.toggle("replacing", replacing || $("#find-form").classList.contains("replacing"));
   const sel = doc.mode === "code" ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : String(getSelection());
@@ -747,6 +773,7 @@ $("#indent").onchange = () => focusText();
 $("#btn-find").onclick = () => openFind();
 $("#btn-open").onclick = openDialog;
 $("#btn-save").onclick = () => save();
+$("#btn-original").onclick = () => api("api/open", { method: "POST", body: JSON.stringify({ path: doc.path }) }).catch((err) => alert(err.message));
 $("#btn-close").onclick = close;
 $("#btn-close").title = embedded ? "Close (Esc)" : "Close";
 onCloseRequest(close);

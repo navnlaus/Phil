@@ -21,6 +21,8 @@ main { position: relative; height: 100%; }
 #file-name { font-weight: 600; }
 #dirty { margin-left: 6px; color: var(--accent); }
 #file-dir { margin-left: 10px; color: var(--text-dim); }
+#doc-note { margin-left: 10px; padding: 1px 7px; border-radius: 4px; font-size: 11px; color: var(--text-dim); background: var(--bg-hover); }
+#find-form.read-only .replace-part { display: none; }
 #find-form, #path-form { display: flex; flex-basis: 100%; align-items: center; gap: 6px; padding: 2px 0; }
 #find-form input[type=text], #path-input { font-family: var(--mono); }
 #find-input, #replace-input { width: 220px; }

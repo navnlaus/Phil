@@ -2,7 +2,9 @@
 //   GET /api/init         { home }
 //   GET /api/file?path=   read()
 //   PUT /api/file         write()
+//   POST /api/open        { path }: opens the file with its default app
 import { basename, dirname, join } from "@std/path";
+import { documentMarkdown, documentType, isDocument } from "./documents.js";
 import { httpError, json } from "./http.js";
 
 const MAX_SIZE = 64 * 1024 * 1024;
@@ -13,6 +15,7 @@ export async function fileRoutes(req, url) {
   if (route === "GET /api/init") return json({ home: Deno.env.get("HOME") ?? "/" });
   if (route === "GET /api/file") return json(await read(absolute(url.searchParams.get("path"))));
   if (route === "PUT /api/file") return json(await write(await req.json()));
+  if (route === "POST /api/open") return json(openExternal(absolute((await req.json()).path)));
   return null;
 }
 
@@ -22,6 +25,8 @@ function absolute(path) {
 }
 
 // { path, text, mtime }, or { path, missing: true } for a file to be created.
+// A document (Word, RTF, ...: documents.js) comes as Markdown, for reading,
+// with `document`: what kind it is.
 async function read(path) {
   let stat;
   try {
@@ -32,6 +37,15 @@ async function read(path) {
   }
   if (!stat.isFile) throw httpError(400, `${path} isn't a file`);
   if (stat.size > MAX_SIZE) throw httpError(413, `${basename(path)} is too large to edit here (over 64 MB)`);
+  if (isDocument(path)) {
+    let text;
+    try {
+      text = await documentMarkdown(path, { urgent: true });
+    } catch (err) {
+      throw httpError(415, err.message);
+    }
+    return { path, text, mtime: stat.mtime?.getTime() ?? 0, document: documentType(path) };
+  }
   const bytes = await Deno.readFile(path);
   let text;
   try {
@@ -55,6 +69,8 @@ async function write({ path, text, mtime = null, force = false, sudo }) {
   if (typeof text !== "string") throw httpError(400, "text required");
   const stat = await Deno.stat(path).catch(() => null);
   if (stat && !stat.isFile) throw httpError(400, `${path} isn't a file`);
+  // It's read as Markdown: saved over it, the document would be lost.
+  if (stat && isDocument(path)) throw httpError(400, `${basename(path)} is a ${documentType(path)} document; save the Markdown as a new file`);
   if (!force) {
     if (stat && mtime === null) throw httpError(409, `${basename(path)} already exists.`);
     if (stat && mtime !== null && (stat.mtime?.getTime() ?? 0) !== mtime) throw httpError(409, `${basename(path)} changed on disk since it was opened.`);
@@ -107,4 +123,11 @@ async function sudoWrite(real, text, password) {
   } finally {
     await Deno.remove(tmp).catch(() => {});
   }
+}
+
+function openExternal(path) {
+  const child = new Deno.Command("xdg-open", { args: [path], stdin: "null", stdout: "null", stderr: "null" }).spawn();
+  child.unref();
+  child.status.catch(() => {});
+  return { ok: true };
 }

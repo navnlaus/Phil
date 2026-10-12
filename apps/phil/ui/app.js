@@ -1047,10 +1047,13 @@ function open(index) {
   else if (entry.kind === "video") openExternal(entry.path, "mpv");
   else if (entry.kind === "pdf") openExternal(entry.path);
   else if (isJson(entry)) openInApp("jsonedit", { file: entry.path });
+  else if (isDocument(entry)) openInApp("textedit", { file: entry.path }); // to read, as Markdown; "Open with default app" to edit
   else openFile(entry);
 }
 
 const isJson = (entry) => entry.kind === "file" && /\.json$/i.test(entry.name);
+// Word, RTF, OpenDocument...: what engine/documents.js converts.
+const isDocument = (entry) => entry.kind === "file" && /\.(rtf|docx?|docm|dotx?|odt|ott|fodt|wps|wpd|abw|pages)$/i.test(entry.name);
 
 // Text files (anything that reads as text: notes, code, configs, logs) open in
 // textedit in this window, other files with their default app. A tile that
