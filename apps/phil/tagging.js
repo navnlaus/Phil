@@ -1,4 +1,4 @@
-// Auto-tagging pictures (optional, off until turned on in the sidebar):
+// Auto-tagging pictures (optional, per folder: turned on in its Properties):
 // SigLIP 2 base, in a Python helper (tagging/tagger.py) that phil starts
 // while there's tagging to do and stops when idle. scripts/install-tagging.sh
 // sets up its environment; without it, tagging says what to run.
@@ -8,11 +8,15 @@
 // (per folder, next to the thumbnails). Its tags are scored from that against
 // the tag list each time, so a tag added to the list tags every picture
 // right away: the list is tagging/tags.txt plus ~/.config/phil/tags.txt,
-// where tags added to pictures by hand go too.
+// where tags added to pictures by hand go too. Keywords and a description
+// the file carries itself (EXIF, XMP, IPTC) come along: keywords as tags.
+// The same embeddings answer searches by description (search()).
 import { basename, dirname, join } from "@std/path";
 import { mediaKind } from "../../engine/media.js";
 
 const CUTOFF = 0.05; // the probability a tag needs
+const SEARCH_CUTOFF = 0.01; // and a picture, to match a search (what's there scores 0.04 and up, the rest under 0.003)
+const SUMMARY = 12; // a folder's most common tags, kept for its tile
 const MOST = 5; // tags per picture at most
 const BATCH = 32;
 const IDLE = 5 * 60 * 1000; // ms without work before the helper goes (it holds GPU memory)
@@ -32,6 +36,7 @@ export class Tagging {
   #persist;
   #memory = new Map(); // "texts" or "folder <dir>" -> its data (read once; incognito: only here)
   #extraTags = new Set(); // incognito: tags added this session
+  #summaries = new Map(); // folder -> its most common tags
 
   constructor({ cacheDir, userTagsFile, persist = true }) {
     this.#cacheDir = cacheDir;
@@ -68,8 +73,9 @@ export class Tagging {
 
   /**
    * Tags the pictures in `files` ([{path, size, mtime}], one folder's): yields
-   * {tags: {path: [[tag, probability], ...]}, left} as it goes, first for the
-   * ones already embedded, then batch by batch. `thumbnail(path, signal)`
+   * {tags: {path: [[tag, probability], ...]}, descriptions: {path: text},
+   * left} as it goes, first for the ones already embedded, then batch by
+   * batch; then saves the folder's most common tags for its tile (summary()). `thumbnail(path, signal)`
    * gives a picture's thumbnail file (or null): what's looked at for videos,
    * and for pictures the helper can't read.
    */
@@ -77,17 +83,23 @@ export class Tagging {
     const vocab = await this.vocabulary();
     const { scale, bias, texts } = await this.#textEmbeddings(vocab);
     const tagEmb = vocab.map((t) => texts[t]);
-    const score = (emb) => scoreTags(emb, vocab, tagEmb, scale, bias);
+    // A picture's tags: its own keywords, then the ones found.
+    const score = (item) => {
+      const own = (item.meta?.keywords ?? []).map((k) => [k, 1]);
+      return [...own, ...scoreTags(decode(item.emb), vocab, tagEmb, scale, bias).filter(([t]) => !own.some(([k]) => k === t))];
+    };
+    const all = {}; // path -> tags, for the summary
+    const described = (items) => Object.fromEntries(items.filter(([, it]) => it.meta?.description).map(([p, it]) => [p, it.meta.description]));
 
     const store = await this.#load(`folder ${dir}`, this.#folderFile(dir));
     store.items ??= {};
     const ready = {}, todo = [];
     for (const f of files) {
       const known = store.items[basename(f.path)];
-      if (known?.sig === sig(f)) ready[f.path] = score(decode(known.emb));
+      if (known?.sig === sig(f)) ready[f.path] = all[f.path] = score(known);
       else todo.push(f);
     }
-    yield { tags: ready, left: todo.length };
+    yield { tags: ready, descriptions: described(files.map((f) => [f.path, store.items[basename(f.path)]]).filter(([p, it]) => ready[p] && it)), left: todo.length };
 
     for (let i = 0; i < todo.length; i += BATCH) {
       signal?.throwIfAborted();
@@ -95,7 +107,7 @@ export class Tagging {
       const thumb = (f) => thumbnail(f.path, signal).catch(() => null);
       // The pictures themselves, then thumbnails for what that didn't work for.
       const sources = await Promise.all(batch.map((f) => (mediaKind(f.path) === "image" ? f.path : thumb(f))));
-      let { embeddings } = await this.#helper.request("images", { paths: sources.map((s) => s ?? "") });
+      let { embeddings, meta } = await this.#helper.request("images", { paths: sources.map((s) => s ?? "") });
       const retry = batch.map((f, j) => (!embeddings[j] && sources[j] === f.path ? j : -1)).filter((j) => j !== -1);
       if (retry.length) {
         const thumbs = await Promise.all(retry.map((j) => thumb(batch[j])));
@@ -104,15 +116,52 @@ export class Tagging {
         retry.forEach((j, k) => (embeddings[j] = thumbs[k] ? again[k] : null));
       }
       signal?.throwIfAborted();
-      const tags = {};
+      const tags = {}, items = [];
       batch.forEach((f, j) => {
         if (!embeddings[j]) return;
-        store.items[basename(f.path)] = { sig: sig(f), emb: embeddings[j] };
-        tags[f.path] = score(decode(embeddings[j]));
+        const item = { sig: sig(f), emb: embeddings[j], ...(meta?.[j] ? { meta: meta[j] } : {}) };
+        store.items[basename(f.path)] = item;
+        tags[f.path] = all[f.path] = score(item);
+        items.push([f.path, item]);
       });
       await this.#save(this.#folderFile(dir), store);
-      yield { tags, left: Math.max(0, todo.length - i - BATCH) };
+      yield { tags, descriptions: described(items), left: Math.max(0, todo.length - i - BATCH) };
     }
+    // Done: the folder's most common tags, for its tile.
+    const counts = new Map();
+    for (const list of Object.values(all)) for (const [t] of list) counts.set(t, (counts.get(t) ?? 0) + 1);
+    const summary = [...counts].sort((a, b) => b[1] - a[1]).slice(0, SUMMARY);
+    this.#summaries.set(dir, summary);
+    if (this.#cacheDir && this.#persist) await this.#save(this.#summaryFile(dir), { tags: summary });
+  }
+
+  /** A tagged folder's most common tags, [[tag, count]] (empty if it wasn't tagged). */
+  async summary(dir) {
+    if (!this.#summaries.has(dir)) {
+      const file = this.#summaryFile(dir);
+      this.#summaries.set(dir, file ? (await Deno.readTextFile(file).then(JSON.parse, () => ({}))).tags ?? [] : []);
+    }
+    return this.#summaries.get(dir);
+  }
+
+  /**
+   * Searching a tagged folder's pictures by description: {path: probability}
+   * for the ones that match `text` (the helper embeds it), best first.
+   */
+  async search(dir, text) {
+    const store = await this.#load(`folder ${dir}`, this.#folderFile(dir));
+    const items = Object.entries(store.items ?? {});
+    if (!items.length) return {};
+    const { scale, bias } = await this.#textEmbeddings([]);
+    const [query] = (await this.#helper.request("texts", { texts: [text] })).embeddings;
+    const q = decode(query);
+    const found = items.map(([name, item]) => {
+      const e = decode(item.emb);
+      let dot = 0;
+      for (let k = 0; k < e.length; k++) dot += e[k] * q[k];
+      return [join(dir, name), 1 / (1 + Math.exp(-(dot * scale + bias)))];
+    }).filter(([, p]) => p >= SEARCH_CUTOFF).sort((a, b) => b[1] - a[1]);
+    return Object.fromEntries(found.map(([p, s]) => [p, Math.round(s * 1000) / 1000]));
   }
 
   // The tags' embeddings, asking the helper for the ones not seen before.
@@ -131,6 +180,10 @@ export class Tagging {
 
   #folderFile(dir) {
     return this.#cacheDir && join(this.#cacheDir, `${hashOf(dir)}.json`);
+  }
+
+  #summaryFile(dir) {
+    return this.#cacheDir && join(this.#cacheDir, `${hashOf(dir)}.summary.json`);
   }
 
   // `key`'s data, from `file` the first time (incognito: none, kept in memory).

@@ -37,10 +37,35 @@
     </defs>
   </svg>
 
+  <!-- Across the whole window, over the sidebar too: its button stays put. -->
+  <header id="toolbar" class="overlay-bar">
+    <div class="nav-buttons">
+      <button id="btn-sidebar" class="icon toggle" title="Places sidebar: hover to look, click to keep it open (F9)"><svg><use href="#i-sidebar"/></svg></button>
+      <button id="btn-back" class="icon" title="Back (Alt+←)"><svg><use href="#i-back"/></svg></button>
+      <button id="btn-forward" class="icon" title="Forward (Alt+→)"><svg><use href="#i-forward"/></svg></button>
+      <button id="btn-up" class="icon" title="Parent folder (Backspace)"><svg><use href="#i-up"/></svg></button>
+    </div>
+    <div id="location-wrap">
+      <nav id="crumbs" title="Ctrl+L to type a path"></nav>
+      <input id="location" type="text" spellcheck="false" autocomplete="off" hidden>
+    </div>
+    <input id="filter" type="search" placeholder="Filter  /" spellcheck="false" autocomplete="off">
+    <select id="sort" title="Sort">
+      <option value="name">Name</option>
+      <option value="mtime">Date</option>
+      <option value="size">Size</option>
+      <option value="kind">Type</option>
+    </select>
+    <button id="btn-terminal" class="icon toggle" title="Terminal (F4)"><svg><use href="#i-terminal"/></svg></button>
+    <button id="btn-hidden" class="icon toggle" title="Show hidden files (Ctrl+H)"><svg><use href="#i-eye"/></svg></button>
+    <input id="zoom" type="range" min="128" max="480" step="8" title="Thumbnail size (Ctrl +/−)">
+    <button id="btn-close" class="icon close-button" title="Close phil"><svg><use href="#i-close"/></svg></button>
+  </header>
+
   <aside id="sidebar">
     <nav id="places" aria-label="Places"></nav>
     <section id="tags-panel">
-      <label class="check" title="Tag pictures automatically, with SigLIP 2 on this computer (scripts/install-tagging.sh)"><input type="checkbox" id="tags-on"> Tags</label>
+      <h3 class="heading">Tags</h3>
       <p id="tags-status" class="hint" hidden></p>
       <nav id="tags" aria-label="Tags"></nav>
     </section>
@@ -48,29 +73,6 @@
 
   <main>
     <div id="files">
-      <header id="toolbar" class="overlay-bar">
-        <div class="nav-buttons">
-          <button id="btn-sidebar" class="icon toggle" title="Places sidebar (F9)"><svg><use href="#i-sidebar"/></svg></button>
-          <button id="btn-back" class="icon" title="Back (Alt+←)"><svg><use href="#i-back"/></svg></button>
-          <button id="btn-forward" class="icon" title="Forward (Alt+→)"><svg><use href="#i-forward"/></svg></button>
-          <button id="btn-up" class="icon" title="Parent folder (Backspace)"><svg><use href="#i-up"/></svg></button>
-        </div>
-        <div id="location-wrap">
-          <nav id="crumbs" title="Ctrl+L to type a path"></nav>
-          <input id="location" type="text" spellcheck="false" autocomplete="off" hidden>
-        </div>
-        <input id="filter" type="search" placeholder="Filter  /" spellcheck="false" autocomplete="off">
-        <select id="sort" title="Sort">
-          <option value="name">Name</option>
-          <option value="mtime">Date</option>
-          <option value="size">Size</option>
-          <option value="kind">Type</option>
-        </select>
-        <button id="btn-terminal" class="icon toggle" title="Terminal (F4)"><svg><use href="#i-terminal"/></svg></button>
-        <button id="btn-hidden" class="icon toggle" title="Show hidden files (Ctrl+H)"><svg><use href="#i-eye"/></svg></button>
-        <input id="zoom" type="range" min="128" max="480" step="8" title="Thumbnail size (Ctrl +/−)">
-        <button id="btn-close" class="icon close-button" title="Close phil"><svg><use href="#i-close"/></svg></button>
-      </header>
 
       <section id="grid" tabindex="0" aria-label="Files"></section>
 
@@ -115,6 +117,10 @@
         <label for="props-tags" class="tags-label">Tags</label>
         <input id="props-tags" type="text" autocomplete="off" placeholder="separated by commas">
         <p class="hint" id="props-found" hidden></p>
+        <div class="autotag">
+          <label class="check"><input type="checkbox" id="props-autotag"> Tag the pictures in it automatically, and make them findable by what they show</label>
+          <p class="hint" id="props-autotag-hint"></p>
+        </div>
         <div class="hook">
           <label for="props-hook">When it changes, run</label>
           <div class="hook-row">
