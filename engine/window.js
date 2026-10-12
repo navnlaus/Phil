@@ -59,6 +59,14 @@ const gtk = Deno.dlopen("libgtk-3.so.0", {
   gtk_widget_destroy: { parameters: ["pointer"], result: "void" },
   gtk_main: { parameters: [], result: "void" },
   gtk_main_quit: { parameters: [], result: "void" },
+  gtk_target_list_new: { parameters: ["pointer", "u32"], result: "pointer" },
+  gtk_target_list_add_uri_targets: { parameters: ["pointer", "u32"], result: "void" },
+  gtk_target_list_add_text_targets: { parameters: ["pointer", "u32"], result: "void" },
+  gtk_target_list_unref: { parameters: ["pointer"], result: "void" },
+  gtk_drag_begin_with_coordinates: { parameters: ["pointer", "pointer", "i32", "i32", "pointer", "i32", "i32"], result: "pointer" },
+  gtk_drag_set_icon_name: { parameters: ["pointer", "buffer", "i32", "i32"], result: "void" },
+  gtk_selection_data_set_uris: { parameters: ["pointer", "buffer"], result: "i32" },
+  gtk_selection_data_set_text: { parameters: ["pointer", "buffer", "i32"], result: "i32" },
 });
 const webkit = Deno.dlopen("libwebkit2gtk-4.1.so.0", {
   webkit_web_view_new: { parameters: [], result: "pointer" },
@@ -141,9 +149,48 @@ export function createApp({ name, ephemeral = false, keepRunning = false, trace 
     if (w) show(w, "timeout");
     return 0;
   });
+  // Dragging files out of a window (startDrag): what each window's drag
+  // carries, handed over when the place it's dropped on asks.
+  const URI_TARGET = 0, TEXT_TARGET = 1;
+  const onDragDataGet = new Deno.UnsafeCallback(
+    { parameters: ["pointer", "pointer", "pointer", "u32", "u32", "pointer"], result: "void" },
+    (win, _context, selection, info) => {
+      const drag = byWin.get(key(win))?.drag;
+      if (!drag) return;
+      if (info === URI_TARGET) gtk.symbols.gtk_selection_data_set_uris(selection, drag.uriArray);
+      else gtk.symbols.gtk_selection_data_set_text(selection, drag.text, -1);
+    },
+  );
+  const onDragEnd = new Deno.UnsafeCallback({ parameters: ["pointer", "pointer", "pointer"], result: "void" }, (win) => {
+    const w = byWin.get(key(win));
+    if (w) w.drag = null;
+  });
+
+  // A drag of files out of window `w`, started while the page's own drag (a
+  // right- or middle-drag, which WebKit doesn't turn into one) leaves the
+  // window, its button still held. `uris`: file:// URIs; `actions`: what the
+  // place it's dropped on may do ("copy", "move", "ask"); `icon`: an icon name.
+  function startDrag(w, { uris, paths, button, actions, icon }) {
+    const strings = uris.map(cstr);
+    const uriArray = new BigUint64Array(strings.length + 1); // a NULL-terminated char**
+    strings.forEach((s, i) => (uriArray[i] = BigInt(Deno.UnsafePointer.value(Deno.UnsafePointer.of(s)))));
+    w.drag = { strings, uriArray, text: cstr(paths.join("\n")) }; // kept alive while GTK may ask
+    const targets = gtk.symbols.gtk_target_list_new(null, 0);
+    gtk.symbols.gtk_target_list_add_uri_targets(targets, URI_TARGET);
+    gtk.symbols.gtk_target_list_add_text_targets(targets, TEXT_TARGET);
+    const mask = { copy: 2, move: 4, ask: 32 }; // GdkDragAction
+    const context = gtk.symbols.gtk_drag_begin_with_coordinates(
+      w.win, targets, actions.reduce((m, a) => m | (mask[a] ?? 0), 0), button, null, -1, -1,
+    );
+    gtk.symbols.gtk_target_list_unref(targets);
+    if (context && icon) gtk.symbols.gtk_drag_set_icon_name(context, cstr(icon), 0, 0);
+    if (!context) w.drag = null;
+  }
+
   // Messages from a page: window.webkit.messageHandlers.phil.postMessage(...)
   //   "ready[:timings]"  page styled and running
   //   "close"            its close button (scripts may not window.close() a window they didn't open)
+  //   "drag:{json}"      drag files out of the window (startDrag)
   const onMessage = new Deno.UnsafeCallback({ parameters: ["pointer", "pointer", "pointer"], result: "void" }, (manager, result) => {
     const w = byManager.get(key(manager));
     if (!w) return;
@@ -151,6 +198,7 @@ export function createApp({ name, ephemeral = false, keepRunning = false, trace 
     const message = str ? Deno.UnsafePointerView.getCString(str) : "";
     glib.symbols.g_free(str);
     if (message === "close") gtk.symbols.gtk_widget_destroy(w.win);
+    else if (message.startsWith("drag:")) startDrag(w, JSON.parse(message.slice(5)));
     else if (message.startsWith("ready")) {
       if (message.length > 6) trace(`page ready ${message.slice(6)}`);
       show(w, "page ready");
@@ -187,6 +235,8 @@ export function createApp({ name, ephemeral = false, keepRunning = false, trace 
       gobject.symbols.g_signal_connect_data(manager, cstr("script-message-received::phil"), onMessage.pointer, null, null, 0);
       gobject.symbols.g_signal_connect_data(win, cstr("destroy"), onDestroy.pointer, null, null, 0);
       gobject.symbols.g_signal_connect_data(view, cstr("notify::title"), onTitle.pointer, null, null, 0);
+      gobject.symbols.g_signal_connect_data(win, cstr("drag-data-get"), onDragDataGet.pointer, null, null, 0);
+      gobject.symbols.g_signal_connect_data(win, cstr("drag-end"), onDragEnd.pointer, null, null, 0);
 
       webkit.symbols.webkit_web_view_load_uri(view, cstr(url));
       trace("loading page");
