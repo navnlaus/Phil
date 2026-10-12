@@ -40,9 +40,11 @@ document.addEventListener("keydown", (e) => {
 
 // A theme edited while the app runs (in ~/.config/phil/themes, see
 // engine/themes.js) is loaded again: the page's stylesheets are, each new one
-// replacing the old once it has loaded, so nothing flickers.
+// replacing the old once it has loaded, so nothing flickers. The document
+// gets a "themes-changed" event, also for a theme added or removed.
 if (globalThis.EventSource) {
   new EventSource(new URL("../styles", import.meta.url)).onmessage = () => {
+    document.dispatchEvent(new Event("themes-changed")); // for a page that lists them (phil)
     for (const link of document.querySelectorAll("link[rel=stylesheet]")) {
       const url = new URL(link.href);
       url.searchParams.set("v", Date.now());

@@ -1,8 +1,9 @@
 # phil
 
-A small file manager for folders full of pictures and videos, and the engine it
+A scopemaxed, vibecoded file manager and the engine it
 runs on. The UI is plain HTML/CSS/JS rendered by the system WebKitGTK; the
-backend is JavaScript running on Deno. No bundled browser, no npm dependencies.
+backend is JavaScript running on Deno. No bundled browser, no npm dependencies.\
+Developed and tested on Omarchy, the install scripts assumes a similar setup.
 
 ## The engine and its apps
 
@@ -173,8 +174,8 @@ up to 400 lines), when its tile comes into view.
 
 ### Themes
 
-How names and details sit on the tiles is a theme, set by hand in
-`~/.config/phil/settings.json`:
+How names and details sit on the tiles is a theme, picked in the bottom bar
+(every phil window follows), or set by hand in `~/.config/phil/settings.json`:
 
 ```json
 { "theme": "overlay", ... }
@@ -187,8 +188,14 @@ How names and details sit on the tiles is a theme, set by hand in
 | `below` | centered under rounded pictures, on the page (taller tiles) |
 | `chips` | the name in a small chip; details in another, on hover and for the selection |
 
-phil never changes the theme itself (it writes the rest of the file around
-it), and open windows pick up an edit right away.
+Open windows pick up an edit to the file right away.
+
+A theme is any stylesheet in `~/.config/phil/themes` (but base.css): drop a
+new `.css` file there and it's in the picker. "New theme…" in the picker
+makes one from scratch, from a template with notes on the tiles' parts and
+what to change, picks it and opens it in a window of its own: every save
+shows in phil. Only the theme in use is loaded, after phil's own styles, so
+plain selectors (`.label .name { ... }`) are enough.
 
 The themes are stylesheets in `~/.config/phil/themes`: `overlay.css`,
 `strip.css`, ... (a theme's name is its file's; add one by copying one and
@@ -483,6 +490,10 @@ box over it; the settings on the right; the result is made as you change them
   other with the lock on). A size with another shape than the picture is
   either filled (cropped to its shape; you get exactly that size) or fitted
   inside. "Enlarge if smaller" lets the others grow a small picture.
+- **Turn**: a quarter turn left or right (Shift+R, R), a mirror image (M),
+  and straightening by up to 45° either way (double-click the slider: back
+  to straight), which crops away the corners it leaves. The crop is made on
+  the turned picture.
 - **Crop**: drag the box, its edges or corners; it keeps the preset's shape,
   or one you pick (1:1, 4:3, 3:2, 16:9, 21:9, 4:5, 2:3, 9:16, the picture's),
   or any. "All" takes the whole picture.

@@ -410,6 +410,7 @@ body[data-theme] .tile.has-hook .label { padding-right: 28px; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+#theme-pick { height: 22px; padding: 0 4px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); font-size: 12px; }
 
 /* Viewer */
 

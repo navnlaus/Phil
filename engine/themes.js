@@ -68,6 +68,17 @@ async function hash(bytes) {
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** The themes' names (phil's tile themes: every stylesheet but base.css), sorted. */
+export async function themeNames() {
+  const names = new Set(BUILTIN_FILES.filter((f) => f !== "base.css").map((f) => f.slice(0, -4)));
+  try {
+    for await (const e of Deno.readDir(themesDir())) {
+      if (e.isFile && /^[\w-]+\.css$/.test(e.name) && e.name !== "base.css") names.add(e.name.slice(0, -4));
+    }
+  } catch { /* no folder yet: the built-in ones */ }
+  return [...names].sort();
+}
+
 /** GET /themes/<name>: the one in the themes folder, or the built-in one. */
 export async function themeFile(name) {
   if (!/^[\w-]+\.css$/.test(name)) return text(404, "Not found");

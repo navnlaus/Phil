@@ -2,7 +2,9 @@
 // engine's server worker (engine/server.js).
 //   GET  /api/info?path=     the image (upright: EXIF rotation applied), its
 //                            size and format, and the monitors' resolutions
-//   GET  /api/source?path=   it as a JPEG to show and crop on (≤ 2560 px)
+//   GET  /api/source?path=&turns=&flip=&angle=
+//                            it as a JPEG to show and crop on (≤ 2560 px), turned
+//                            as asked (orient())
 //   POST /api/render         the result's bytes, for the preview (render())
 //   POST /api/save           the result written to `dest`
 // The image is turned upright once into a vips file in workDir (a tmpfs), and
@@ -22,7 +24,7 @@ export function createServer() {
         case "GET /api/info":
           return json(await info(absolute(path)));
         case "GET /api/source":
-          return await source(absolute(path));
+          return await source(absolute(path), url.searchParams);
         case "POST /api/render": {
           const job = await req.json();
           const { bytes, width, height, quality } = await serially(() => render(job));
@@ -75,11 +77,11 @@ async function upright(path) {
   const mtime = stat.mtime?.getTime() ?? 0;
   const known = uprights.get(path);
   if (known?.mtime === mtime) return { ...known, size: stat.size };
-  if (known) await Deno.remove(known.file).catch(() => {});
+  if (known) for (const f of [known.file, known.small]) if (f) await Deno.remove(f).catch(() => {});
   uprights.delete(path);
   for (const [old, entry] of [...uprights].slice(0, Math.max(0, uprights.size - 2))) { // the last few images only
     uprights.delete(old);
-    await Deno.remove(entry.file).catch(() => {});
+    for (const f of [entry.file, entry.small]) if (f) await Deno.remove(f).catch(() => {});
   }
   await Deno.mkdir(workDir(), { recursive: true, mode: 0o700 });
   const file = join(workDir(), `${crypto.randomUUID()}.v`);
@@ -117,24 +119,104 @@ async function monitors() {
   }
 }
 
-async function source(path) {
+async function source(path, params) {
   const u = await upright(path);
-  const bytes = await vips(["thumbnail", u.file, ".jpg[Q=90]", "2560", "--size", "down"], { stdout: true });
-  return new Response(bytes, { headers: { "content-type": "image/jpeg", "cache-control": "no-cache" } });
+  const entry = uprights.get(path);
+  entry.smaller ??= (async () => { // the upright copy, small enough to show; made once
+    const file = join(workDir(), `${crypto.randomUUID()}.v`);
+    await vips(["thumbnail", u.file, file, "2560", "--size", "down"]);
+    return (entry.small = file);
+  })();
+  const small = await entry.smaller;
+  const ops = turning({ turns: params.get("turns"), flip: params.get("flip") === "1", angle: params.get("angle") });
+  const turned = await turn(small, ops);
+  try {
+    const bytes = await vips(["copy", turned, ".jpg[Q=90]"], { stdout: true });
+    return new Response(bytes, { headers: { "content-type": "image/jpeg", "cache-control": "no-cache" } });
+  } finally {
+    if (turned !== small) await Deno.remove(turned).catch(() => {});
+  }
+}
+
+// Turning: quarter turns clockwise (0–3), then a mirror image (left to right),
+// then straightening by `angle` degrees (−45 to 45, clockwise), which crops
+// away the corners that leaves: the largest rectangle of the same shape.
+const turning = ({ turns = 0, flip = false, angle = 0 } = {}) => ({
+  turns: ((Math.round(Number(turns) || 0) % 4) + 4) % 4,
+  flip: !!flip,
+  angle: Math.round(Math.max(-45, Math.min(45, Number(angle) || 0)) * 10) / 10,
+});
+const turned = (ops) => ops.turns || ops.flip || ops.angle;
+
+/** The size of a `width` × `height` image after `ops` (as turn() makes it). */
+export function turnedSize(width, height, ops) {
+  const [w, h] = ops.turns % 2 ? [height, width] : [width, height];
+  if (!ops.angle) return { width: w, height: h };
+  const a = Math.abs(ops.angle) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  const f = Math.min(w / (w * c + h * s), h / (w * s + h * c));
+  return { width: Math.max(1, Math.floor(w * f)), height: Math.max(1, Math.floor(h * f)) };
+}
+
+// `file` turned by `ops`: a new vips file (or `file` itself, for none).
+async function turn(file, ops) {
+  if (!turned(ops)) return file;
+  const temps = [];
+  const next = () => (temps.push(join(workDir(), `${crypto.randomUUID()}.v`)), temps.at(-1));
+  let at = file;
+  try {
+    if (ops.turns) {
+      const out = next();
+      await vips(["rot", at, out, ["", "d90", "d180", "d270"][ops.turns]]);
+      at = out;
+    }
+    if (ops.flip) {
+      const out = next();
+      await vips(["flip", at, out, "horizontal"]);
+      at = out;
+    }
+    if (ops.angle) {
+      const width = Number(await header(at, "width")), height = Number(await header(at, "height"));
+      const rotated = next();
+      await vips(["rotate", at, rotated, String(ops.angle)]);
+      const bw = Number(await header(rotated, "width")), bh = Number(await header(rotated, "height"));
+      const size = turnedSize(width, height, { turns: 0, angle: ops.angle });
+      const out = next();
+      await vips(["extract_area", rotated, out, String(Math.floor((bw - size.width) / 2)), String(Math.floor((bh - size.height) / 2)), String(size.width), String(size.height)]);
+      at = out;
+    }
+    return at;
+  } finally {
+    for (const t of temps) if (t !== at) await Deno.remove(t).catch(() => {});
+  }
+}
+
+// The upright image turned by `ops`, at full size: the last one is kept.
+let oriented = null; // { key, file, width, height }
+async function orient(path, ops) {
+  const u = await upright(path);
+  if (!turned(ops)) return u;
+  const key = JSON.stringify([u.file, ops]);
+  if (oriented?.key === key) return oriented;
+  if (oriented) await Deno.remove(oriented.file).catch(() => {});
+  oriented = null;
+  const file = await turn(u.file, ops);
+  oriented = { key, file, width: Number(await header(file, "width")), height: Number(await header(file, "height")) };
+  return oriented;
 }
 
 // The last crop + resize, kept for re-encoding at other qualities.
-let scaled = null; // { key, file, width, height }
+let scaled = null; // { key, file, width, height, own: made here (not the turned or upright copy) }
 
 /**
- * The result of `job`: {path, crop: {x, y, width, height} in the upright
- * image's pixels, width, height (the output's), format: "jpeg" | "webp" |
- * "png", quality (1–100) or targetKB (the best quality that fits), progressive,
- * keepMetadata}. Resolves to {bytes, width, height, quality}.
+ * The result of `job`: {path, turn: {turns, flip, angle} (turning), crop:
+ * {x, y, width, height} in the turned image's pixels, width, height (the
+ * output's), format: "jpeg" | "webp" | "png", quality (1–100) or targetKB (the
+ * best quality that fits), progressive, keepMetadata}. Resolves to {bytes,
+ * width, height, quality}.
  */
 async function render(job) {
   const path = absolute(job.path);
-  const u = await upright(path);
+  const u = await orient(path, turning(job.turn));
   const crop = job.crop ?? { x: 0, y: 0, width: u.width, height: u.height };
   const c = {
     x: clampInt(crop.x, 0, u.width - 1),
@@ -145,7 +227,7 @@ async function render(job) {
   const width = clampInt(job.width ?? c.width, 1, 20000), height = clampInt(job.height ?? c.height, 1, 20000);
   const key = JSON.stringify([u.file, c, width, height]);
   if (scaled?.key !== key) {
-    if (scaled && scaled.file !== u.file) await Deno.remove(scaled.file).catch(() => {}); // not the upright copy itself
+    if (scaled?.own) await Deno.remove(scaled.file).catch(() => {});
     scaled = null;
     let file = u.file;
     const temps = [];
@@ -161,7 +243,7 @@ async function render(job) {
       file = out;
     }
     for (const t of temps) if (t !== file) await Deno.remove(t).catch(() => {});
-    scaled = { key, file, width, height };
+    scaled = { key, file, width, height, own: file !== u.file };
   }
   const encode = (q) => vips(["copy", scaled.file, target(job, q)], { stdout: true });
   if (job.format === "png") return { bytes: await encode(null), width, height, quality: null };

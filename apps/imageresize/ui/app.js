@@ -37,7 +37,8 @@ const S = {
   fit: "fill",
   enlarge: false,
   aspect: "free",
-  crop: null, // {x, y, width, height} in the picture's pixels
+  turn: { turns: 0, flip: false, angle: 0 }, // quarter turns clockwise, mirrored, straightened by degrees (clockwise)
+  crop: null, // {x, y, width, height} in the turned picture's pixels
   format: "jpeg",
   by: "quality",
   quality: 82,
@@ -51,6 +52,17 @@ const S = {
 
 // ---------------------------------------------------------------- the math
 
+// The picture's size once turned (as the server's turnedSize()): a quarter
+// turn swaps the sides; straightening crops away the corners it leaves.
+function picture() {
+  const { turns, angle } = S.turn;
+  const [w, h] = turns % 2 ? [S.info.height, S.info.width] : [S.info.width, S.info.height];
+  if (!angle) return { width: w, height: h };
+  const a = Math.abs(angle) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  const f = Math.min(w / (w * c + h * s), h / (w * s + h * c));
+  return { width: Math.max(1, Math.floor(w * f)), height: Math.max(1, Math.floor(h * f)) };
+}
+
 const preset = () => presetById(S.preset);
 const box = () => { // the w × h a box preset (or your own size) asks for
   const p = preset();
@@ -62,7 +74,7 @@ const filling = () => !!box() && S.fit === "fill";
 function aspect() {
   if (filling()) return box().w / box().h;
   if (S.aspect === "free") return null;
-  if (S.aspect === "original") return S.info.width / S.info.height;
+  if (S.aspect === "original") return picture().width / picture().height;
   const [a, b] = S.aspect.split(":").map(Number);
   return a / b;
 }
@@ -85,7 +97,7 @@ const round = (c, s) => ({ width: Math.max(1, Math.round(c.width * s)), height: 
 
 // The largest box of shape `a` in the middle of the picture (all of it for none).
 function centeredCrop(a) {
-  const { width: W, height: H } = S.info;
+  const { width: W, height: H } = picture();
   if (!a) return { x: 0, y: 0, width: W, height: H };
   const w = W / H > a ? Math.round(H * a) : W, h = W / H > a ? H : Math.round(W / a);
   return { x: Math.round((W - w) / 2), y: Math.round((H - h) / 2), width: w, height: h };
@@ -106,8 +118,9 @@ function layoutFrame() {
   if (!S.info) return;
   const pad = 24, top = 44; // under the bar
   const availW = view.clientWidth - pad * 2, availH = view.clientHeight - top - pad;
-  k = Math.min(availW / S.info.width, availH / S.info.height);
-  const w = S.info.width * k, h = S.info.height * k;
+  const p = picture();
+  k = Math.min(availW / p.width, availH / p.height);
+  const w = p.width * k, h = p.height * k;
   Object.assign(frame.style, { width: `${w}px`, height: `${h}px`, left: `${(view.clientWidth - w) / 2}px`, top: `${top + (availH - h) / 2}px` });
   if (S.crop) drawCrop();
 }
@@ -126,7 +139,7 @@ const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 // keeping the shape when there is one: the opposite side or corner stays put
 // (the middle, for a side's handle), and it shrinks to stay in the picture.
 function dragCrop(start, dir, dx, dy) {
-  const { width: W, height: H } = S.info, MIN = 8;
+  const { width: W, height: H } = picture(), MIN = 8;
   if (dir === "move") return { ...start, x: clamp(start.x + dx, 0, W - start.width), y: clamp(start.y + dy, 0, H - start.height) };
   let l = start.x, t = start.y, r = start.x + start.width, b = start.y + start.height;
   if (dir.includes("w")) l = clamp(l + dx, 0, r - MIN);
@@ -200,6 +213,10 @@ function update({ render = true } = {}) {
   $("#enlarge").checked = S.enlarge;
   $("#enlarge").parentElement.hidden = p.kind === "original" || filling();
   $("#aspect").value = S.aspect;
+  $("#mirror").classList.toggle("on", S.turn.flip);
+  $("#angle").value = S.turn.angle;
+  $("#angle-out").textContent = `${S.turn.angle > 0 ? "+" : ""}${S.turn.angle}°`;
+  $("#turn-info").textContent = S.turn.turns ? `${S.turn.turns * 90}°` : "";
   $("#aspect").disabled = filling();
   $("#crop-hint").textContent = filling() ? `Shaped like ${box().w} × ${box().h}. Drag the box, or its edges and corners.` : "Drag the box, or its edges and corners.";
   for (const b of document.querySelectorAll("#format button")) b.classList.toggle("on", b.dataset.format === S.format);
@@ -225,7 +242,7 @@ const EXT = { jpeg: "jpg", webp: "webp", png: "png" };
 
 function defaultName({ width, height }) {
   const stem = S.info.name.replace(/\.[^.]+$/, "");
-  const sameSize = width === S.info.width && height === S.info.height;
+  const sameSize = width === picture().width && height === picture().height;
   return `${stem}-${sameSize ? "small" : `${width}x${height}`}.${EXT[S.format]}`;
 }
 
@@ -250,6 +267,7 @@ function job() {
   const out = outputSize();
   return {
     path: S.info.path,
+    turn: S.turn,
     crop: S.crop,
     width: out.width,
     height: out.height,
@@ -355,6 +373,34 @@ $("#lock").onclick = () => ((S.lock = !S.lock), update({ render: false }));
 for (const b of document.querySelectorAll("#fit button")) b.onclick = () => ((S.fit = b.dataset.fit), (S.crop = null), update());
 $("#enlarge").onchange = (e) => ((S.enlarge = e.target.checked), update());
 $("#aspect").onchange = (e) => ((S.aspect = e.target.value), (S.crop = null), update());
+// Turning: the picture shown comes again from the server, turned; the crop
+// starts over. Straightening while the slider moves asks for it at most every
+// 150 ms.
+let sourceTimer = null, sourceToken = 0;
+function turnBy(change) {
+  Object.assign(S.turn, change);
+  S.crop = null;
+  clearTimeout(sourceTimer);
+  sourceTimer = setTimeout(loadSource, "angle" in change ? 150 : 0);
+  layoutFrame();
+  update();
+}
+
+async function loadSource() {
+  const token = ++sourceToken;
+  const { turns, flip, angle } = S.turn;
+  const next = new Image();
+  next.src = `api/source?path=${encodeURIComponent(S.info.path)}&turns=${turns}&flip=${flip ? 1 : 0}&angle=${angle}`;
+  await next.decode().catch(() => {});
+  if (token === sourceToken) $("#src").src = next.src; // decoded: swapped in without a blank moment
+}
+
+// Turned right on a mirror image, the picture turns the other way round.
+$("#turn-right").onclick = () => turnBy({ turns: (S.turn.turns + (S.turn.flip ? 3 : 1)) % 4 });
+$("#turn-left").onclick = () => turnBy({ turns: (S.turn.turns + (S.turn.flip ? 1 : 3)) % 4 });
+$("#mirror").onclick = () => turnBy({ flip: !S.turn.flip });
+$("#angle").oninput = (e) => turnBy({ angle: Number(e.target.value) });
+$("#angle").ondblclick = () => turnBy({ angle: 0 });
 $("#crop-all").onclick = () => {
   if (filling()) S.fit = "inside"; // the whole picture can't be cropped to the box's shape
   S.aspect = "free";
@@ -381,10 +427,13 @@ document.addEventListener("keydown", (e) => {
   const typing = e.target.matches?.("input[type=text], input[type=number]");
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") return e.preventDefault(), save();
   if (e.key === "Escape") return e.preventDefault(), closeWindow();
-  if (!typing && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "v") {
+  if (typing || e.ctrlKey || e.altKey || e.metaKey) return;
+  const key = e.key.toLowerCase();
+  if (key === "v") {
     S.show = S.show === "crop" ? "result" : "crop";
     update({ render: false });
-  }
+  } else if (key === "r") (e.shiftKey ? $("#turn-left") : $("#turn-right")).click();
+  else if (key === "m") $("#mirror").click();
 });
 
 new ResizeObserver(layoutFrame).observe(view);
