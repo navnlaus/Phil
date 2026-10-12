@@ -3,6 +3,8 @@
 #  - phil-engine, the engine, and a small command per app (phil, jsonedit,
 #    textedit, imageview, imageresize, and phil-editor, which picks jsonedit
 #    or textedit for a file)
+#  - the themes (shared styles, phil's tile themes) in ~/.config/phil/themes,
+#    where they can be edited; open windows follow the edits
 #  - phil as the default file manager: folders opened with xdg-open and most
 #    apps (the inode/directory MIME default), and "Show in folder" from
 #    browsers, file pickers and portals, which use the
@@ -19,6 +21,8 @@ engine=$bindir/phil-engine
 
 deno task compile
 install -Dm755 phil-engine "$engine"
+# The themes, where they can be edited (~/.config/phil/themes).
+"$engine" --install-themes
 # An app's command runs the engine with the app's name.
 for app in phil jsonedit textedit imageview imageresize phil-editor; do
   printf '#!/bin/sh\nexec "%s" %s "$@"\n' "$engine" "$app" > "$bindir/$app.tmp"
