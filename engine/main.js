@@ -7,6 +7,8 @@
 //                              engine in the background.
 //   phil-engine --retire       every running engine stops taking new windows and
 //                              exits once its windows are closed
+//   phil-engine --install-themes  copies the built-in themes to ~/.config/phil/themes
+//                              (engine/themes.js; scripts/install.sh runs it)
 //   phil-engine --serve JSON   the background engine itself (internal)
 //
 // Engine options, given with any app: --browser, --standalone, --quit (see
@@ -16,12 +18,13 @@ import { APPS } from "./apps.js";
 import { ask, engineCommand, socketDir, socketPath } from "./instance.js";
 
 const NAME = "phil-engine";
-const ENGINE_OPTIONS = ["--browser", "--standalone", "--quit", "--retire"];
+const ENGINE_OPTIONS = ["--browser", "--standalone", "--quit", "--retire", "--install-themes"];
 
 const HELP = `${NAME} — runs apps (${Object.keys(APPS).join(", ")}) in one background process
 
 Usage: ${NAME} <app> [options] [arguments]
        ${NAME} --retire
+       ${NAME} --install-themes
 
 The app commands run \`${NAME} <app> ...\`; see \`<app> --help\` for theirs.
 
@@ -32,6 +35,10 @@ Engine options, with any app:
   --quit         Stop the background engine (the one the app's options pick)
   --retire       Ask every running engine to stop taking new windows and exit once
                  its windows are closed, so the next launch runs a new build
+  --install-themes
+                 Copy the built-in themes to ~/.config/phil/themes, where they can
+                 be edited (open windows follow edits); copies that were edited
+                 are left alone
 `;
 
 // PHIL_TRACE=1 prints startup milestones (ms since the process started).
@@ -46,6 +53,18 @@ else await launch(Deno.args);
 async function launch(argv) {
   const flags = new Set(argv.filter((a) => ENGINE_OPTIONS.includes(a)));
   const [name, ...args] = argv.filter((a) => !ENGINE_OPTIONS.includes(a));
+  if (flags.has("--install-themes")) {
+    const { installThemes, themesDir } = await import("./themes.js");
+    const { copied, updated, kept } = await installThemes();
+    const list = (names) => names.join(", ");
+    const done = [
+      copied.length && `copied ${list(copied)}`,
+      updated.length && `updated ${list(updated)}`,
+      kept.length && `kept your edited ${list(kept)} (this build's are in the source's themes/)`,
+    ].filter(Boolean);
+    console.log(`Themes in ${themesDir()}: ${done.join("; ") || "up to date"}`);
+    Deno.exit(0);
+  }
   if (flags.has("--retire")) {
     try {
       for await (const entry of Deno.readDir(socketDir())) {

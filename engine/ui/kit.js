@@ -38,6 +38,22 @@ document.addEventListener("keydown", (e) => {
   document.execCommand(command);
 });
 
+// A theme edited while the app runs (in ~/.config/phil/themes, see
+// engine/themes.js) is loaded again: the page's stylesheets are, each new one
+// replacing the old once it has loaded, so nothing flickers.
+if (globalThis.EventSource) {
+  new EventSource(new URL("../styles", import.meta.url)).onmessage = () => {
+    for (const link of document.querySelectorAll("link[rel=stylesheet]")) {
+      const url = new URL(link.href);
+      url.searchParams.set("v", Date.now());
+      const fresh = link.cloneNode();
+      fresh.href = url.href;
+      fresh.onload = fresh.onerror = () => link.remove();
+      link.after(fresh);
+    }
+  };
+}
+
 /**
  * The page is styled and running: the engine shows its window
  * (engine/window.js); shown inside another app, that app gives it the keyboard

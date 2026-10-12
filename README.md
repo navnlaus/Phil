@@ -190,14 +190,22 @@ How names and details sit on the tiles is a theme, set by hand in
 phil never changes the theme itself (it writes the rest of the file around
 it), and open windows pick up an edit right away.
 
-The themes are files in `themes/`, at the top of the repository:
-`overlay.css`, `strip.css`, ... (a theme's name is its file's), next to
-`base.css`, what every app shares: the colors, dark and light (with the
-desktop's), syntax colors, buttons, fields, segmented buttons, checkboxes,
-section headings, the bars that float over a page and fade out, and the X.
-Apps keep only what's their own in their `ui/style.css`; base.css's element
-defaults weigh nothing (`:where()`), so an app's rules always win. The engine
-serves the folder at `/themes/` to every app.
+The themes are stylesheets in `~/.config/phil/themes`: `overlay.css`,
+`strip.css`, ... (a theme's name is its file's; add one by copying one and
+renaming its `body[data-theme="..."]`), next to `base.css`, what every app
+shares: the colors, dark and light (with the desktop's), syntax colors,
+buttons, fields, segmented buttons, checkboxes, section headings, the bars
+that float over a page and fade out, and the X. Edit them and every open
+window of every app follows right away.
+
+`deno task install` copies the built-in ones there (`themes/` in the
+repository; `phil-engine --install-themes`). A later install updates the
+copies you haven't edited and leaves the ones you have (it says so). Delete
+one to use the built-in one instead (a file that isn't there is served from
+the build). Apps keep only what's
+their own in their `ui/style.css`; base.css's element defaults weigh nothing
+(`:where()`), so an app's rules always win. The engine serves the themes at
+`/themes/` to every app, and `/engine/styles` tells pages when one changes.
 
 `--browser` prints a URL instead of opening a window. That's handy for using
 Chromium's devtools while working on the UI. In the window, right-click on empty
@@ -223,8 +231,10 @@ engine/ui/          scripts every app's pages share: kit.js (windows, showing
                     another app inside a window, the clipboard), syntax
                     highlighting (syntax.js, with highlight.js in vendor/,
                     BSD-3-Clause; syntax-worker.js)
-themes/             styles every app's pages share (base.css) and phil's tile
-                    themes (overlay.css, strip.css, below.css, chips.css)
+themes/             the built-in themes: styles every app's pages share
+                    (base.css) and phil's tile themes (overlay.css, ...), copied
+                    to ~/.config/phil/themes on install; engine/themes.js serves
+                    and watches them
 apps/phil/          launch.js (options, window URL), server.js (listing, files,
                     thumbnails, terminal), thumbs.js (cache + LIFO job pool:
                     vipsthumbnail / ffmpegthumbnailer), folders.js (folder
@@ -243,7 +253,8 @@ An app is a folder in `apps/` with a `launch.js` (its command line and window
 URL; loaded by every command, so it stays small), a `server.js` (its routes, in
 the engine's server worker) and a `ui/` folder (`index.html` at `/`, the rest
 under `/ui/`); `engine/apps.js` lists them. Pages also get `/engine/ui/` (the
-shared scripts), `/themes/` (the shared styles), `/engine/clipboard` and `/engine/embed/<app>/`: every other app
+shared scripts), `/themes/` (the shared styles), `/engine/styles` (theme
+edits), `/engine/clipboard` and `/engine/embed/<app>/`: every other app
 on the page's own origin, to show inside it in an `<iframe>` with `?embedded`
 (WebKit won't give keyboard focus to a page in a frame from another origin).
 Apps that can be shown that way use relative URLs. The engine handles the session
