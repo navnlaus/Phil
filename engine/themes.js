@@ -45,6 +45,10 @@ export async function installThemes() {
     const builtin = await Deno.readFile(new URL(name, BUILTIN));
     const theirs = await Deno.readFile(join(dir, name)).catch(() => null);
     const builtinHash = await hash(builtin);
+    if (theirs && await hash(theirs) === builtinHash) { // the same as this build's: it follows the next ones
+      if (record[name] !== builtinHash) (record[name] = builtinHash), (changed = true);
+      continue;
+    }
     if (theirs && record[name] !== await hash(theirs)) { // edited (or theirs from the start)
       if (record[name] !== builtinHash && await hash(theirs) !== builtinHash) report.kept.push(name); // a newer built-in one they don't get
       continue;

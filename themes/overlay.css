@@ -11,7 +11,8 @@ body[data-theme="overlay"] .label {
   background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.45) 45%, rgba(0, 0, 0, 0.8));
 }
 body[data-theme="overlay"] .label .name { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
-body[data-theme="overlay"] .label .meta { color: rgba(255, 255, 255, 0.72); }
+body[data-theme="overlay"] .label .meta { font-size: 9.5px; color: rgba(255, 255, 255, 0.72); }
+body[data-theme="overlay"] .label .desc { color: rgba(255, 255, 255, 0.72); font-style: normal; font-size: 13px; margin: 2px 0px; }
 body[data-theme="overlay"] .label { --locked: #ff6b6b; } /* on the dark shadow, light desktop or not */
 body[data-theme="overlay"] .tile.dir { --face: 13% 0 0 0; }
 body[data-theme="overlay"] .tile.dir .thumb::before { left: 0; }
