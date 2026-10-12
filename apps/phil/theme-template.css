@@ -125,11 +125,12 @@ body {
 /* The name. */
 .tile .label .name {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  font-size: 12px;
 }
 
 /* Size and date, or what a folder holds. */
 .tile .label .meta {
-  font-size: 9.5px;
+  font-size: 10px;
   color: rgba(255, 255, 255, 0.72);
 }
 
@@ -139,6 +140,13 @@ body {
   font-size: 13px;
   font-style: normal;
   color: rgba(255, 255, 255, 0.72);
+}
+
+/* Its tags (a folder's: its most common ones), under the details; cut
+   with "…" at the tile's edge. */
+.tile .label .tags {
+  font-size: 12px;
+  /* opacity: 0.75; */
 }
 
 /* The lock and link marks before a name (red: can't be changed without sudo):
