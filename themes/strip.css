@@ -1,0 +1,15 @@
+/* One of phil's themes: how names and details sit on the tiles. Picked with
+   "theme" in ~/.config/phil/settings.json (its file name, without .css);
+   shared colors and controls are in base.css. The rules start with
+   body[data-theme="..."] so they outweigh phil's own tile rules. */
+
+/* strip: a solid strip under the thumbnail, the tile a card. */
+body[data-theme="strip"] .tile { --label-h: 34px; background: var(--bg-raised); }
+body[data-theme="strip"] .label { height: 34px; justify-content: center; padding: 0 8px; }
+body[data-theme="strip"] .tile.has-desc { --label-h: 46px; }
+body[data-theme="strip"] .tile.has-desc .label { height: 46px; }
+body[data-theme="strip"] .label .meta { color: var(--text-dim); }
+body[data-theme="strip"] .tile.dir { background: color-mix(in srgb, var(--folder) 9%, var(--bg-raised)); }
+body[data-theme="strip"] .tile.dir .thumb { background: none; }
+body[data-theme="strip"] .tile.dir { --face: 16% 6% 0 6%; }
+body[data-theme="strip"] .tile.dir .thumb::before { top: calc(16% - 6px); left: 6%; }

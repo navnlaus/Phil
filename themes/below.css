@@ -1,0 +1,16 @@
+/* One of phil's themes: how names and details sit on the tiles. Picked with
+   "theme" in ~/.config/phil/settings.json (its file name, without .css);
+   shared colors and controls are in base.css. The rules start with
+   body[data-theme="..."] so they outweigh phil's own tile rules. */
+
+/* below: the caption under the tile, on the page, centered. */
+body[data-theme="below"] #grid { gap: 10px 6px; padding: 8px 6px; }
+body[data-theme="below"] .tile { aspect-ratio: auto; overflow: visible; border-radius: 6px; }
+body[data-theme="below"] .thumb { position: relative; inset: auto; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; }
+body[data-theme="below"] .label { position: static; padding: 4px 6px 3px; text-align: center; }
+body[data-theme="below"] .label .name { font-weight: 500; font-size: 11.5px; }
+body[data-theme="below"] .label .meta { color: var(--text-dim); }
+body[data-theme="below"] .tile:hover::after, body[data-theme="below"] .tile.selected::after { border-radius: 6px; }
+body[data-theme="below"] .tile.dir .thumb { background: none; overflow: visible; }
+body[data-theme="below"] .tile.dir { --face: 10% 4% 0 4%; }
+body[data-theme="below"] .tile.dir .thumb::before { top: calc(10% - 6px); left: 4%; }

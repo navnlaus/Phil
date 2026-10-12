@@ -1,0 +1,18 @@
+/* One of phil's themes: how names and details sit on the tiles. Picked with
+   "theme" in ~/.config/phil/settings.json (its file name, without .css);
+   shared colors and controls are in base.css. The rules start with
+   body[data-theme="..."] so they outweigh phil's own tile rules. */
+
+/* overlay: over the thumbnail, on a fading shadow; name and details left. */
+body[data-theme="overlay"] .label {
+  gap: 2px; /* between the name and the details */
+  padding: 22px 8px 5px;
+  color: #fff;
+  background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.45) 45%, rgba(0, 0, 0, 0.8));
+}
+body[data-theme="overlay"] .label .name { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
+body[data-theme="overlay"] .label .meta { color: rgba(255, 255, 255, 0.72); }
+body[data-theme="overlay"] .label { --locked: #ff6b6b; } /* on the dark shadow, light desktop or not */
+body[data-theme="overlay"] .tile.dir { --face: 13% 0 0 0; }
+body[data-theme="overlay"] .tile.dir .thumb::before { left: 0; }
+body[data-theme="overlay"] .tile.dir .face { border-radius: 0 6px 0 0; }

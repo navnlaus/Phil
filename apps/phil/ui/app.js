@@ -14,8 +14,9 @@ const stage = viewerEl.querySelector(".stage");
 const contextMenu = $("#context");
 
 const KIND_ICON = { dir: "folder", image: "image", video: "video", pdf: "file", file: "file" };
-// How names and details sit on the tiles (ui/style.css). Chosen with "theme" in
-// ~/.config/phil/settings.json; phil only reads it.
+// How names and details sit on the tiles: themes/<theme>.css, from the
+// repository's themes folder. Chosen with "theme" in ~/.config/phil/settings.json;
+// phil only reads it.
 const THEMES = ["overlay", "strip", "below", "chips"];
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
@@ -903,7 +904,10 @@ function applySettings() {
   hiddenButton.setAttribute("aria-pressed", String(s.showHidden));
   $("#btn-sidebar").setAttribute("aria-pressed", String(s.sidebar));
   document.body.classList.toggle("sidebar", s.sidebar);
-  document.body.dataset.theme = THEMES.includes(s.theme) ? s.theme : "overlay";
+  const theme = THEMES.includes(s.theme) ? s.theme : "overlay";
+  document.body.dataset.theme = theme;
+  const link = $("#theme");
+  if (link.getAttribute("href") !== `/themes/${theme}.css`) link.setAttribute("href", `/themes/${theme}.css`);
   redrawTexts();
   termPanel.style.height = `${s.termHeight}px`;
 }

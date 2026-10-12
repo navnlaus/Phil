@@ -1,0 +1,28 @@
+/* One of phil's themes: how names and details sit on the tiles. Picked with
+   "theme" in ~/.config/phil/settings.json (its file name, without .css);
+   shared colors and controls are in base.css. The rules start with
+   body[data-theme="..."] so they outweigh phil's own tile rules. */
+
+/* chips: the name in a frosted chip at the bottom; details in one at the top,
+   shown on hover and for the selection. */
+body[data-theme="chips"] .label { --locked: #ff6b6b; }
+body[data-theme="chips"] .label { inset: 0; padding: 6px; justify-content: space-between; align-items: flex-start; flex-direction: column-reverse; }
+/* bottom up: the name, the description over it, the details at the top */
+body[data-theme="chips"] .label { justify-content: flex-start; gap: 3px; }
+body[data-theme="chips"] .label .desc { order: 1; align-self: flex-start; }
+body[data-theme="chips"] .label .meta { order: 2; margin-bottom: auto; }
+body[data-theme="chips"] .label .name, body[data-theme="chips"] .label .meta, body[data-theme="chips"] .label .desc {
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 6px;
+  color: #fff;
+  background: rgba(20, 22, 26, 0.62);
+  backdrop-filter: blur(6px);
+}
+body[data-theme="chips"] .label .meta { align-self: flex-end; font-size: 9.5px; color: rgba(255, 255, 255, 0.85); opacity: 0; transition: opacity 0.12s; }
+body[data-theme="chips"] .tile:is(:hover, .selected) .label .meta { opacity: 1; }
+body[data-theme="chips"] .tile.video .label .meta { margin-right: 24px; } /* beside the ▶ */
+body[data-theme="chips"] .tile.dir { --face: 13% 4% 4% 4%; }
+body[data-theme="chips"] .tile.dir .thumb::before { left: 4%; }
+body[data-theme="chips"] .tile.dir .label { padding: calc(13% + 5px) calc(4% + 5px) calc(4% + 5px); }
+body[data-theme="chips"] .label .rename { align-self: stretch; }

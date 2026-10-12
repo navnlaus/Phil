@@ -30,7 +30,7 @@ Each app gets its own server on 127.0.0.1, with its own port and origin; its
 windows get its own Wayland app id (`phil`, `jsonedit`) for window rules. Apps
 share a look: a top (and bottom) bar that floats over the page and fades out
 until hovered, with an X at the right that closes the window
-(`engine/ui/kit.css`, `kit.js`). One app can show another inside its window:
+(`themes/base.css`, `engine/ui/kit.js`). One app can show another inside its window:
 phil opens `.json` files in jsonedit, other text files in textedit and images
 in imageview that way, and the app's X (or Esc) goes back to the folder. Copying and pasting go through
 the desktop's clipboard (`wl-copy` / `wl-paste`), so they show up in Omarchy's
@@ -190,6 +190,15 @@ How names and details sit on the tiles is a theme, set by hand in
 phil never changes the theme itself (it writes the rest of the file around
 it), and open windows pick up an edit right away.
 
+The themes are files in `themes/`, at the top of the repository:
+`overlay.css`, `strip.css`, ... (a theme's name is its file's), next to
+`base.css`, what every app shares: the colors, dark and light (with the
+desktop's), syntax colors, buttons, fields, segmented buttons, checkboxes,
+section headings, the bars that float over a page and fade out, and the X.
+Apps keep only what's their own in their `ui/style.css`; base.css's element
+defaults weigh nothing (`:where()`), so an app's rules always win. The engine
+serves the folder at `/themes/` to every app.
+
 `--browser` prints a URL instead of opening a window. That's handy for using
 Chromium's devtools while working on the UI. In the window, right-click on empty
 space → Inspect Element works too.
@@ -210,10 +219,12 @@ engine/server.js    the apps' 127.0.0.1 HTTP servers (a worker): session, static
 engine/http.js      responses, files with Range
 engine/pty.js       pseudo-terminals via libc FFI (Deno has no PTY API)
 engine/apps.js      the apps, and what an app consists of
-engine/ui/          what every app's pages share: the fading bars, the close
-                    button, showing another app inside a window, syntax
+engine/ui/          scripts every app's pages share: kit.js (windows, showing
+                    another app inside a window, the clipboard), syntax
                     highlighting (syntax.js, with highlight.js in vendor/,
                     BSD-3-Clause; syntax-worker.js)
+themes/             styles every app's pages share (base.css) and phil's tile
+                    themes (overlay.css, strip.css, below.css, chips.css)
 apps/phil/          launch.js (options, window URL), server.js (listing, files,
                     thumbnails, terminal), thumbs.js (cache + LIFO job pool:
                     vipsthumbnail / ffmpegthumbnailer), folders.js (folder
@@ -221,6 +232,9 @@ apps/phil/          launch.js (options, window URL), server.js (listing, files,
                     (FileManager1), shell-init.bash, ui/ (ui/vendor: xterm.js 6, MIT)
 apps/jsonedit/      launch.js, server.js, ui/ (json.js: a parser that keeps positions)
 apps/textedit/      launch.js, server.js, ui/ (markdown.js: Markdown to HTML and back)
+apps/imageview/     launch.js, server.js, ui/
+apps/imageresize/   launch.js, server.js (vips), ui/
+engine/media.js     media kinds by name, vips previews of images WebKit can't show
 engine/files.js     reading and saving files for the editors
 data/, scripts/install.sh  desktop entries, D-Bus service file, installer
 ```
@@ -229,7 +243,7 @@ An app is a folder in `apps/` with a `launch.js` (its command line and window
 URL; loaded by every command, so it stays small), a `server.js` (its routes, in
 the engine's server worker) and a `ui/` folder (`index.html` at `/`, the rest
 under `/ui/`); `engine/apps.js` lists them. Pages also get `/engine/ui/` (the
-shared kit), `/engine/clipboard` and `/engine/embed/<app>/`: every other app
+shared scripts), `/themes/` (the shared styles), `/engine/clipboard` and `/engine/embed/<app>/`: every other app
 on the page's own origin, to show inside it in an `<iframe>` with `?embedded`
 (WebKit won't give keyboard focus to a page in a frame from another origin).
 Apps that can be shown that way use relative URLs. The engine handles the session

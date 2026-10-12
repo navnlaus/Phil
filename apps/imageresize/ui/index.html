@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>imageresize</title>
   <!-- Relative URLs: imageresize is also served inside other apps (engine/server.js). -->
-  <link rel="stylesheet" href="engine/ui/kit.css">
+  <link rel="stylesheet" href="themes/base.css">
   <link rel="stylesheet" href="ui/style.css">
   <script type="module" src="ui/app.js"></script>
 </head>
@@ -36,7 +36,7 @@
 
     <aside id="panel">
       <section>
-        <h3>Size</h3>
+        <h3 class="heading">Size</h3>
         <select id="preset" aria-label="Size preset"></select>
         <div class="row">
           <input id="w" type="number" min="1" max="20000" aria-label="Width"><span class="x">×</span><input id="h" type="number" min="1" max="20000" aria-label="Height">
@@ -49,7 +49,7 @@
       </section>
 
       <section>
-        <h3>Crop</h3>
+        <h3 class="heading">Crop</h3>
         <div class="row">
           <select id="aspect" aria-label="Crop shape">
             <option value="free">Any shape</option>
@@ -69,7 +69,7 @@
       </section>
 
       <section>
-        <h3>Compression</h3>
+        <h3 class="heading">Compression</h3>
         <div class="seg" id="format">
           <button data-format="jpeg" class="on">JPEG</button><button data-format="webp">WebP</button><button data-format="png">PNG</button>
         </div>
@@ -90,7 +90,7 @@
       </section>
 
       <section>
-        <h3>Save as</h3>
+        <h3 class="heading">Save as</h3>
         <input id="dest" type="text" spellcheck="false" autocomplete="off" aria-label="File name">
         <p class="hint" id="dest-dir"></p>
         <button id="save" class="primary" title="Ctrl+S">Save</button>

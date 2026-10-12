@@ -1,70 +1,21 @@
+/* jsonedit's own; the colors and shared controls are in themes/base.css. */
+
 :root {
-  --bg: #16171a;
-  --bg-side: #121316;
-  --bg-raised: #1f2125;
-  --bg-hover: #23262b;
-  --border: #2c2f35;
-  --text: #e6e7ea;
-  --text-dim: #8d929b;
-  --accent: #5b9dff;
-  --accent-bg: rgba(91, 157, 255, 0.16);
   --match-bg: rgba(232, 179, 107, 0.22);
-  --error: #ff6b6b;
-  --error-bg: rgba(255, 107, 107, 0.14);
-  --key: #9cc4ff;
-  --string: #a8d68f;
-  --number: #e8b36b;
-  --literal: #d79bea;
-  --mono: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", monospace;
-  color-scheme: dark;
+  --key: var(--s-attr);
+  --string: var(--s-string);
+  --number: var(--s-number);
+  --literal: var(--s-literal);
 }
 
 @media (prefers-color-scheme: light) {
-  :root {
-    --bg: #fafafa;
-    --bg-side: #f2f3f5;
-    --bg-raised: #ffffff;
-    --bg-hover: #eef0f3;
-    --border: #dcdfe4;
-    --text: #1c1e22;
-    --text-dim: #6a707a;
-    --accent: #2f6fe0;
-    --accent-bg: rgba(47, 111, 224, 0.12);
-    --match-bg: rgba(200, 130, 20, 0.18);
-    --error: #c93636;
-    --error-bg: rgba(201, 54, 54, 0.1);
-    --key: #2257b8;
-    --string: #3d7a24;
-    --number: #a3620c;
-    --literal: #8a3fa6;
-    color-scheme: light;
-  }
+  :root { --match-bg: rgba(200, 130, 20, 0.18); }
 }
 
-* { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; }
-body {
-  background: var(--bg);
-  color: var(--text);
-  font: 13px/1.35 system-ui, sans-serif;
-}
-/* The tree fills the window; the bars float over it and fade out (kit.css). */
+/* The tree fills the window; the bars float over it and fade out (themes/base.css). */
 main { position: relative; height: 100%; }
 
-button, input, select, textarea { font: inherit; color: inherit; }
-button, select {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-raised);
-  cursor: pointer;
-}
-button.icon { display: inline-grid; place-items: center; width: 30px; padding: 0; font-size: 16px; }
-button.icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-button:hover:not(:disabled) { background: var(--bg-hover); }
-button:disabled { opacity: 0.4; cursor: default; }
-button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.icon { font-size: 16px; }
 
 /* Top bar */
 
@@ -79,14 +30,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 #file-name { font-weight: 600; }
 #dirty { margin-left: 6px; color: var(--accent); }
 #file-dir { margin-left: 10px; color: var(--text-dim); }
-#search {
-  width: 200px;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-}
+#search { width: 200px; }
 #search-count { min-width: 4em; color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 #path-form { /* a second line of the bar, while open */

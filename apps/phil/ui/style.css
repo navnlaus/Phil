@@ -1,81 +1,23 @@
+/* phil's own; the colors and shared controls are in themes/base.css, how
+   names sit on tiles in the theme (themes/<theme>.css). */
+
 :root {
-  --bg: #16171a;
-  --bg-side: #111214;
-  --bg-raised: #1f2125;
-  --bg-hover: #26292e;
-  --border: #2c2f35;
-  --text: #e6e7ea;
-  --text-dim: #8d929b;
-  --accent: #5b9dff;
-  --accent-bg: rgba(91, 157, 255, 0.18);
   --thumb-bg: #1b1d21;
   --folder: #7fb0ff;
-  --locked: #ff6b6b; /* can't change it without sudo */
   --tile: 224px;
-  /* syntax colors for text tiles (as in textedit) */
-  --s-comment: #6f7682;
-  --s-string: #a8d68f;
-  --s-number: #e8b36b;
-  --s-keyword: #c792ea;
-  --s-literal: #d79bea;
-  --s-type: #7fd6c2;
-  --s-fn: #82aaff;
-  --s-attr: #9cc4ff;
-  --s-variable: #f07178;
-  --s-meta: #89ddff;
-  --s-heading: #ffcb6b;
-  color-scheme: dark;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #fafafa;
-    --bg-side: #f0f1f3;
-    --bg-raised: #ffffff;
-    --bg-hover: #e8eaee;
-    --border: #dcdfe4;
-    --text: #1c1e22;
-    --text-dim: #6a707a;
-    --accent: #2f6fe0;
-    --accent-bg: rgba(47, 111, 224, 0.14);
     --thumb-bg: #eceef1;
-    --locked: #d33a3a;
     --folder: #3d7ee8;
-    --s-comment: #8a909b;
-    --s-string: #3d7a24;
-    --s-number: #a3620c;
-    --s-keyword: #8a3fa6;
-    --s-literal: #8a3fa6;
-    --s-type: #16807a;
-    --s-fn: #2257b8;
-    --s-attr: #2257b8;
-    --s-variable: #b8323f;
-    --s-meta: #1b7aa8;
-    --s-heading: #9a5b00;
-    color-scheme: light;
   }
-}
-
-* { box-sizing: border-box; }
-
-html, body {
-  margin: 0;
-  height: 100%;
-  overflow: hidden;
 }
 
 body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  background: var(--bg);
-  color: var(--text);
-  font: 13px/1.35 system-ui, sans-serif;
   user-select: none;
-}
-
-button, input, select {
-  font: inherit;
-  color: inherit;
 }
 
 svg {
@@ -176,7 +118,7 @@ main {
 }
 
 /* Top and bottom bars float over the grid (.overlay-bar, from the engine's
-   kit.css), invisible until hovered or something inside them has focus. */
+   themes/base.css), invisible until hovered or something inside them has focus. */
 
 #toolbar {
   top: 0;
@@ -444,65 +386,6 @@ body[data-theme] .tile.has-hook .label { padding-right: 28px; }
   user-select: text;
 }
 .tile.hidden-file { opacity: 0.6; }
-
-/* strip: a solid strip under the thumbnail, the tile a card. */
-body[data-theme="strip"] .tile { --label-h: 34px; background: var(--bg-raised); }
-body[data-theme="strip"] .label { height: 34px; justify-content: center; padding: 0 8px; }
-body[data-theme="strip"] .tile.has-desc { --label-h: 46px; }
-body[data-theme="strip"] .tile.has-desc .label { height: 46px; }
-body[data-theme="strip"] .label .meta { color: var(--text-dim); }
-body[data-theme="strip"] .tile.dir { background: color-mix(in srgb, var(--folder) 9%, var(--bg-raised)); }
-body[data-theme="strip"] .tile.dir .thumb { background: none; }
-body[data-theme="strip"] .tile.dir { --face: 16% 6% 0 6%; }
-body[data-theme="strip"] .tile.dir .thumb::before { top: calc(16% - 6px); left: 6%; }
-
-/* below: the caption under the tile, on the page, centered. */
-body[data-theme="below"] #grid { gap: 10px 6px; padding: 8px 6px; }
-body[data-theme="below"] .tile { aspect-ratio: auto; overflow: visible; border-radius: 6px; }
-body[data-theme="below"] .thumb { position: relative; inset: auto; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; }
-body[data-theme="below"] .label { position: static; padding: 4px 6px 3px; text-align: center; }
-body[data-theme="below"] .label .name { font-weight: 500; font-size: 11.5px; }
-body[data-theme="below"] .label .meta { color: var(--text-dim); }
-body[data-theme="below"] .tile:hover::after, body[data-theme="below"] .tile.selected::after { border-radius: 6px; }
-body[data-theme="below"] .tile.dir .thumb { background: none; overflow: visible; }
-body[data-theme="below"] .tile.dir { --face: 10% 4% 0 4%; }
-body[data-theme="below"] .tile.dir .thumb::before { top: calc(10% - 6px); left: 4%; }
-
-/* overlay: over the thumbnail, on a fading shadow; name and details left. */
-body[data-theme="overlay"] .label {
-  padding: 22px 8px 5px;
-  color: #fff;
-  background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.45) 45%, rgba(0, 0, 0, 0.8));
-}
-body[data-theme="overlay"] .label .name { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
-body[data-theme="overlay"] .label .meta { color: rgba(255, 255, 255, 0.72); }
-body[data-theme="overlay"] .label, body[data-theme="chips"] .label { --locked: #ff6b6b; }
-body[data-theme="overlay"] .tile.dir { --face: 13% 0 0 0; }
-body[data-theme="overlay"] .tile.dir .thumb::before { left: 0; }
-body[data-theme="overlay"] .tile.dir .face { border-radius: 0 6px 0 0; }
-
-/* chips: the name in a frosted chip at the bottom; details in one at the top,
-   shown on hover and for the selection. */
-body[data-theme="chips"] .label { inset: 0; padding: 6px; justify-content: space-between; align-items: flex-start; flex-direction: column-reverse; }
-/* bottom up: the name, the description over it, the details at the top */
-body[data-theme="chips"] .label { justify-content: flex-start; gap: 3px; }
-body[data-theme="chips"] .label .desc { order: 1; align-self: flex-start; }
-body[data-theme="chips"] .label .meta { order: 2; margin-bottom: auto; }
-body[data-theme="chips"] .label .name, body[data-theme="chips"] .label .meta, body[data-theme="chips"] .label .desc {
-  max-width: 100%;
-  padding: 2px 7px;
-  border-radius: 6px;
-  color: #fff;
-  background: rgba(20, 22, 26, 0.62);
-  backdrop-filter: blur(6px);
-}
-body[data-theme="chips"] .label .meta { align-self: flex-end; font-size: 9.5px; color: rgba(255, 255, 255, 0.85); opacity: 0; transition: opacity 0.12s; }
-body[data-theme="chips"] .tile:is(:hover, .selected) .label .meta { opacity: 1; }
-body[data-theme="chips"] .tile.video .label .meta { margin-right: 24px; } /* beside the ▶ */
-body[data-theme="chips"] .tile.dir { --face: 13% 4% 4% 4%; }
-body[data-theme="chips"] .tile.dir .thumb::before { left: 4%; }
-body[data-theme="chips"] .tile.dir .label { padding: calc(13% + 5px) calc(4% + 5px) calc(4% + 5px); }
-body[data-theme="chips"] .label .rename { align-self: stretch; }
 
 .empty {
   grid-column: 1 / -1;
