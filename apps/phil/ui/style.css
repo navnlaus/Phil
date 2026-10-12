@@ -572,7 +572,8 @@ body[data-theme] .tile.has-hook .label { padding-right: 28px; }
 }
 #confirm::backdrop { background: rgba(0, 0, 0, 0.45); }
 #confirm .title { margin: 0 0 8px; font-weight: 600; font-size: 14px; word-break: break-word; }
-#confirm .detail { margin: 0 0 16px; color: var(--text-dim); white-space: pre-line; word-break: break-word; }
+#confirm .detail { margin: 0 0 16px; color: var(--text-dim); white-space: pre-line; word-break: break-word; user-select: text; }
+#confirm .buttons .copy { margin-right: auto; }
 #confirm .buttons { display: flex; justify-content: flex-end; gap: 8px; }
 #confirm .buttons button { border-color: var(--border); }
 #confirm .buttons button.danger { background: #c94b4b; border-color: #c94b4b; color: #fff; }
