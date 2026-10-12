@@ -166,7 +166,7 @@ export function createServer({ profile, controlSocket }) {
       if (e.kind === "dir") { // its most common tags, for its tile: found when it was last tagged, and given by hand
         const counts = new Map(await tagging.summary(e.path));
         for (const [t, n] of byHand.get(e.path) ?? []) counts.set(t, Math.max(counts.get(t) ?? 0, n));
-        if (counts.size) e.folderTags = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 8);
+        if (counts.size) e.folderTags = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 12);
       }
     }
     // While we're here, this folder's own summary, from thumbnails already cached.

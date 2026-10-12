@@ -683,12 +683,14 @@ function showMarks(tile, entry) {
   tile.append(el);
 }
 
-// A tile's tags, under its details; a folder's: its most common, cut short.
+// A tile's tags, under its details; a folder's: its most common, as many as
+// fit across the tile (the line ends in "…" where it's cut).
 function showTileTags(tile, entry) {
   const label = tile.querySelector(".label");
   const tags = entry.kind === "dir" ? (entry.folderTags ?? []).map(([t]) => t) : tagsOf(entry);
-  const shown = entry.kind === "dir" ? 3 : 5;
-  const text = tags.slice(0, shown).join(" · ") + (tags.length > shown ? (entry.kind === "dir" ? " …" : ` +${tags.length - shown}`) : "");
+  const text = entry.kind === "dir"
+    ? tags.join(" · ")
+    : tags.slice(0, 5).join(" · ") + (tags.length > 5 ? ` +${tags.length - 5}` : "");
   let el = label.querySelector(":scope > .tags");
   if (!el) el = label.appendChild(Object.assign(document.createElement("span"), { className: "tags" }));
   if (el.textContent !== text) el.textContent = text;
