@@ -141,6 +141,9 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 #tags button.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
 #tags button.mine { border-style: dashed; } /* given by hand somewhere here */
 #places a.active { background: var(--accent-bg); color: var(--accent); }
+#places a.unmounted { color: var(--text-dim); opacity: .7; } /* a drive not mounted: a click mounts it */
+#places a.unmounted:hover { opacity: 1; }
+#places a.busy { cursor: progress; }
 #places svg { width: 16px; height: 16px; color: var(--text-dim); }
 #places a.active svg { color: inherit; }
 
