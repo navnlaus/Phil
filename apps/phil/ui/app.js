@@ -1642,15 +1642,16 @@ function contentPoint(clientX, clientY) {
 // action stops both; the grid then has to take focus itself.
 grid.addEventListener("mousedown", (e) => {
   if (inRename(e)) return; // clicks in the name field place the cursor
+  if (startsFileDrag(e)) return void grid.focus({ preventScroll: true }); // the native drag, of files (below)
   if (e.target === grid && e.offsetX >= grid.clientWidth) return; // the scrollbar
   if (e.button === 0 || e.button === 1) e.preventDefault(); // no native drag; middle: no autoscroll or paste
   if (e.button !== 2) grid.focus({ preventScroll: true });
 });
-grid.addEventListener("dragstart", (e) => e.preventDefault());
 grid.addEventListener("selectstart", (e) => inRename(e) || e.preventDefault());
 
 grid.addEventListener("pointerdown", (e) => {
   if (e.button !== 0 || inRename(e) || (e.target === grid && e.offsetX >= grid.clientWidth)) return; // not the scrollbar
+  if (startsFileDrag(e)) return;
   addEventListener("pointermove", moveBand);
   addEventListener("pointerup", endBand);
   addEventListener("pointercancel", endBand);
@@ -1756,8 +1757,9 @@ function startDrag() {
   edgeScroll(() => drag?.active && drag.client[1], updateDrag);
 }
 
-// The folder under the pointer, if the dragged items can go there.
-function dropTargetAt(x, y) {
+// The folder under the pointer, if the dragged items (`drag`, or a file drag
+// below) can go there.
+function dropTargetAt(x, y, drag) {
   const el = document.elementFromPoint(x, y);
   const tile = el?.closest(".tile");
   const target = tile ? state.view[tile.dataset.index] : null;
@@ -1770,7 +1772,7 @@ function dropTargetAt(x, y) {
 function updateDrag() {
   const [x, y] = drag.client;
   drag.ghost.style.transform = `translate(${x + 14}px, ${y + 14}px)`;
-  const target = dropTargetAt(x, y);
+  const target = dropTargetAt(x, y, drag);
   if (target?.el !== drag.target?.el) {
     drag.target?.el.classList.remove("drop-target");
     target?.el.classList.add("drop-target");
@@ -1806,6 +1808,61 @@ function endDrag(e) {
     [`Copy to “${name}”`, () => transfer("copy", d.items, d.target.path)],
   ]);
 }
+
+// Dragging files out of phil: a left-drag that starts on a selected tile (no
+// Ctrl or Shift) is the webview's own drag, carrying the selection as files
+// (their file:// URIs), for a browser's page, another file manager, a chat...
+// to take. Dropped on a folder in phil itself, it asks "Move to / Copy to",
+// like a right-drag. (Started anywhere else, a left-drag draws the selection
+// rectangle.)
+let fileDrag = null; // { items, paths, dirs, target }
+
+function startsFileDrag(e) {
+  if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || inRename(e)) return false;
+  const i = tileIndex(e.target);
+  return i !== -1 && state.marked.has(state.view[i].path);
+}
+
+const fileUri = (path) => "file://" + path.split("/").map(encodeURIComponent).join("/");
+
+grid.addEventListener("dragstart", (e) => {
+  const i = tileIndex(e.target);
+  if (i === -1 || !state.marked.has(state.view[i].path)) return e.preventDefault();
+  hideContextMenu();
+  const items = markedEntries();
+  fileDrag = { items, paths: new Set(items.map((m) => m.path)), dirs: items.filter((m) => m.kind === "dir").map((m) => m.path + "/") };
+  e.dataTransfer.effectAllowed = "copyMove";
+  e.dataTransfer.setData("text/uri-list", items.map((m) => fileUri(m.path)).join("\r\n"));
+  e.dataTransfer.setData("text/plain", items.map((m) => m.path).join("\n"));
+});
+
+// Whatever is dragged over the window, nothing dropped on it loads in it (the
+// webview would open a dropped file in place of phil).
+addEventListener("dragover", (e) => {
+  e.preventDefault();
+  const target = fileDrag && dropTargetAt(e.clientX, e.clientY, fileDrag);
+  if (target?.el !== fileDrag?.target?.el) {
+    fileDrag.target?.el.classList.remove("drop-target");
+    target?.el.classList.add("drop-target");
+  }
+  if (fileDrag) fileDrag.target = target;
+  e.dataTransfer.dropEffect = target ? "move" : "none";
+});
+addEventListener("drop", (e) => {
+  e.preventDefault();
+  const target = fileDrag?.target;
+  if (!target) return;
+  const { items } = fileDrag;
+  const name = target.path.split("/").pop() || "/";
+  showMenu(e.clientX, e.clientY, [
+    [`Move to “${name}”`, () => transfer("move", items, target.path)],
+    [`Copy to “${name}”`, () => transfer("copy", items, target.path)],
+  ]);
+});
+addEventListener("dragend", () => {
+  fileDrag?.target?.el.classList.remove("drop-target");
+  fileDrag = null;
+});
 
 // A link to the file in Documents/Config (see addToConfig in server.js).
 async function addToConfig(entry) {

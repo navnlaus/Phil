@@ -253,6 +253,7 @@ main {
   --label-h: 0px; /* room the label takes under the thumbnail */
 }
 .tile, .tile * { -webkit-user-drag: none; }
+.tile.selected { -webkit-user-drag: element; } /* dragged out as files (startsFileDrag in app.js) */
 
 .rubber-band {
   position: absolute;
