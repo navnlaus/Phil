@@ -765,15 +765,38 @@ function driveName({ label, size, fstype }) {
 
 // Mounting a partition listed as not mounted (for the user, by udisks: under
 // /run/media/<user>; a system drive asks for the password, the desktop's
-// polkit agent's dialog). Gives where it is.
-async function mountDrive({ device }) {
+// polkit agent's dialog). Gives where it is. An NTFS drive Windows (or Linux)
+// didn't close properly is a 409: it can only be mounted `readOnly`.
+async function mountDrive({ device, readOnly = false }) {
   const drive = (await unmountedDrives(await blockDevices())).find((d) => d.path === device);
   if (!drive) throw httpError(404, "That drive isn't there to mount (mounted already?)");
-  const { stdout } = await udisksctl(["mount", "-b", device]);
+  let stdout;
+  try {
+    ({ stdout } = await udisksctl(["mount", "-b", device, ...(readOnly ? ["-o", "ro"] : [])]));
+  } catch (err) {
+    if (/^ntfs/.test(drive.fstype) && !readOnly && await kernelSaid(new RegExp(`${basename(device)}\\): volume is dirty`))) {
+      throw httpError(
+        409,
+        "It's marked as not closed properly: the computer stopped while it was mounted, or Windows' Fast Startup or hibernation has it. " +
+          "Until it's checked, Linux only mounts it read-only. Starting Windows checks it (or chkdsk /f on it there).",
+      );
+    }
+    throw err;
+  }
   const path = /\bat (\/.+?)\.?\s*$/.exec(stdout)?.[1] ??
     (await blockDevices()).find((d) => d.path === device)?.mountpoints[0];
   if (!path) throw httpError(500, "Mounted, but couldn't tell where");
   return { path };
+}
+
+// Whether the kernel's last messages (a mount's reasons) have one like `pattern`.
+async function kernelSaid(pattern) {
+  try {
+    const out = await new Deno.Command("journalctl", { args: ["-k", "-n", "40", "-o", "cat", "--no-pager"], stdin: "null", stdout: "piped", stderr: "null" }).output();
+    return pattern.test(new TextDecoder().decode(out.stdout));
+  } catch {
+    return false;
+  }
 }
 
 // Unmounting a drive mounted under /run/media/<user> (by udisks).

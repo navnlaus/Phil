@@ -58,7 +58,7 @@ function formatDate(ms) {
 
 async function api(path, options) {
   const res = await fetch(path, options);
-  if (!res.ok) throw new Error((await res.text()) || res.statusText);
+  if (!res.ok) throw Object.assign(new Error((await res.text()) || res.statusText), { status: res.status });
   return res.json();
 }
 
@@ -962,18 +962,22 @@ function unmountedPlace(p) {
   return a;
 }
 
-async function mount(p, a) {
+// A drive that wasn't closed properly (NTFS) can be mounted read-only: asked.
+async function mount(p, a, readOnly = false) {
   if (a.classList.contains("busy")) return;
   a.classList.add("busy");
   flashStatus(`Mounting ${p.name}…`, 60_000);
   try {
-    const { path } = await api("/api/mount", { method: "POST", body: JSON.stringify({ device: p.device }) });
-    flashStatus(`Mounted ${p.name}`);
+    const { path } = await api("/api/mount", { method: "POST", body: JSON.stringify({ device: p.device, readOnly }) });
+    flashStatus(`Mounted ${p.name}${readOnly ? " (read-only)" : ""}`);
     await refreshPlaces();
     navigate(path);
   } catch (err) {
     flashStatus("", 0);
-    alert(`Couldn't mount ${p.name}: ${err.message}`);
+    if (err.status !== 409) return alert(`Couldn't mount ${p.name}\n${err.message}`);
+    a.classList.remove("busy");
+    const ok = await askConfirm({ title: `${p.name} can only be mounted read-only`, detail: err.message, ok: "Mount read-only", danger: false, copyable: true });
+    if (ok) return mount(p, a, true);
   } finally {
     a.classList.remove("busy");
   }
@@ -1290,15 +1294,42 @@ viewerEl.querySelector(".open-mpv").onclick = () => {
 
 const confirmDialog = $("#confirm");
 
-function askConfirm({ title, detail, ok }) {
-  confirmDialog.querySelector(".title").textContent = title;
-  confirmDialog.querySelector(".detail").textContent = detail;
-  confirmDialog.querySelector("[value=ok]").textContent = ok;
-  confirmDialog.returnValue = "";
-  confirmDialog.showModal();
-  return new Promise((resolve) => {
+// `cancel`: null for a message with only OK; `danger`: OK in red (deleting);
+// `copyable`: a Copy button for the message.
+// One at a time: another waits for this one to close.
+let confirmShown = Promise.resolve();
+function askConfirm({ title, detail, ok, cancel = "Cancel", danger = true, copyable = false }) {
+  const shown = confirmShown.then(() => new Promise((resolve) => {
+    confirmDialog.querySelector(".title").textContent = title;
+    confirmDialog.querySelector(".detail").textContent = detail;
+    const okButton = confirmDialog.querySelector("[value=ok]"), cancelButton = confirmDialog.querySelector("[value=cancel]");
+    okButton.textContent = ok;
+    okButton.classList.toggle("danger", danger);
+    cancelButton.hidden = !cancel;
+    cancelButton.textContent = cancel ?? "";
+    // Copy: the message, for pasting somewhere (it stays open).
+    const copy = confirmDialog.querySelector("[value=copy]");
+    copy.hidden = !copyable;
+    copy.textContent = "Copy";
+    copy.onclick = (e) => {
+      e.preventDefault();
+      copyText(detail ? `${title}\n${detail}` : title);
+      copy.textContent = "Copied";
+    };
+    confirmDialog.returnValue = "";
+    confirmDialog.showModal();
+    okButton.focus(); // Enter: OK (not Copy, before it)
     confirmDialog.addEventListener("close", () => resolve(confirmDialog.returnValue === "ok"), { once: true });
-  });
+  }));
+  confirmShown = shown.catch(() => {});
+  return shown;
+}
+
+// phil's messages in the page, not the webview's dialog: its text can be
+// selected and copied. (In place of window.alert for this module.)
+function alert(message) {
+  const [title, ...rest] = String(message).split("\n");
+  return askConfirm({ title, detail: rest.join("\n").trim(), ok: "OK", cancel: null, danger: false, copyable: true });
 }
 
 // Shift+Delete: permanent, no trash. Asks first; Enter confirms, Esc cancels.
