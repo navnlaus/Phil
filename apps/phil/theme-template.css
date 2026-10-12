@@ -86,9 +86,13 @@
   }
 }
 
-/* The type everywhere, and the editors'. */
-/* body { font-family: "Inter", system-ui, sans-serif; } */
-/* :root { --mono: "JetBrains Mono", ui-monospace, monospace; } */
+/* The type everywhere, and the code font (editors, text tiles). */
+body {
+  /* font-family: "Inter", system-ui, sans-serif; */
+}
+:root {
+  /* --mono: "JetBrains Mono", ui-monospace, monospace; */
+}
 
 /* ---------------------------------------------------------------- phil's tiles
 
@@ -98,30 +102,65 @@
    from Properties), .name, then .meta (size and date, or what a folder
    holds). --tile is a tile's width, set by the zoom. The label is laid over
    the bottom of the picture; for it to sit under the picture instead, give
-   .tile a --label-h (its height). */
+   .tile a --label-h (its height). Rules are under .tile: other apps have
+   labels too. */
 
-/* The label: over the picture, on a shadow that fades in from the top.
-   (Under .tile: other apps have labels too.) */
+/* The tiles: their corners, and the space between them. */
+.tile {
+  /* border-radius: 8px; */
+}
+#grid {
+  /* gap: 2px; */
+}
+
+/* The label: over the picture, on a shadow that fades in from the top. */
 .tile .label {
   gap: 2px;
   padding: 22px 8px 6px;
   color: #fff;
   background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.75));
 }
-.tile .label .name { font-size: 11px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
-.tile .label .meta { font-size: 10px; color: rgba(255, 255, 255, 0.7); }
-.tile .label .desc { font-size: 10px; color: rgba(255, 255, 255, 0.8); }
-.tile .label .name svg.state.locked { color: #ff6b6b; } /* the lock and link marks, on the shadow */
 
-/* Folders: how far the face is inset from the tile (top right bottom left),
-   and where the tab sits. */
-.tile.dir { --face: 13% 0 0 0; }
-.tile.dir .thumb::before { left: 0; }
+/* The name. */
+.tile .label .name {
+  font-size: 11px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
 
-/* The tiles: the space between them, and their corners. */
-/* #grid { gap: 2px; } */
-/* .tile { border-radius: 8px; } */
+/* Size and date, or what a folder holds. */
+.tile .label .meta {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+}
 
-/* Hovered and selected tiles. */
-/* .tile:hover::after { background: rgba(255, 255, 255, 0.07); } */
-/* .tile.selected::after { background: var(--accent-bg); box-shadow: inset 0 0 0 2px var(--accent); } */
+/* The description, from Properties, over the name. */
+.tile .label .desc {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* The lock and link marks before a name (red: can't be changed without sudo). */
+.tile .label .name svg.state.locked {
+  color: #ff6b6b;
+}
+
+/* Folders: how far the face is inset from the tile (top right bottom left). */
+.tile.dir {
+  --face: 13% 0 0 0;
+}
+
+/* A folder's tab, over the face. */
+.tile.dir .thumb::before {
+  left: 0;
+}
+
+/* A tile under the pointer. */
+.tile:hover::after {
+  /* background: rgba(255, 255, 255, 0.07); */
+}
+
+/* The selected tile. */
+.tile.selected::after {
+  /* background: var(--accent-bg); */
+  /* box-shadow: inset 0 0 0 2px var(--accent); */
+}
