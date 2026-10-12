@@ -37,10 +37,12 @@
     </defs>
   </svg>
 
-  <!-- Across the whole window, over the sidebar too: its button stays put. -->
+  <!-- Always there, in the top left corner, over the top bar. -->
+  <button id="btn-sidebar" class="icon toggle" title="Sidebar: hover to look, click to keep it open (F9)"><svg><use href="#i-folder"/></svg></button>
+
+  <!-- Across the whole window, over the sidebar too, with room for its button. -->
   <header id="toolbar" class="overlay-bar">
     <div class="nav-buttons">
-      <button id="btn-sidebar" class="icon toggle" title="Places sidebar: hover to look, click to keep it open (F9)"><svg><use href="#i-sidebar"/></svg></button>
       <button id="btn-back" class="icon" title="Back (Alt+←)"><svg><use href="#i-back"/></svg></button>
       <button id="btn-forward" class="icon" title="Forward (Alt+→)"><svg><use href="#i-forward"/></svg></button>
       <button id="btn-up" class="icon" title="Parent folder (Backspace)"><svg><use href="#i-up"/></svg></button>
@@ -63,9 +65,9 @@
   </header>
 
   <aside id="sidebar">
-    <!-- Under the top bar: it shows while the bar is faded out. -->
-    <div class="brand" aria-hidden="true"><svg><use href="#i-folder"/></svg>phil</div>
-    <nav id="places" aria-label="Places"></nav>
+    <!-- Beside the sidebar button, under the top bar: it shows while the bar is faded out. -->
+    <div class="brand" aria-hidden="true">PHIL</div>
+    <nav id="places" aria-label="Folders and drives"></nav>
     <section id="tags-panel">
       <h3 class="heading">Tags</h3>
       <p id="tags-status" class="hint" hidden></p>
