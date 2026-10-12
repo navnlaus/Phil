@@ -7,7 +7,8 @@ import { readClipboard, writeClipboard } from "./clipboard.js";
 import { errorResponse, json, staticFile, text } from "./http.js";
 import { listen } from "./instance.js";
 
-const KIT_DIR = new URL("./ui/", import.meta.url); // shared by every app's pages
+const KIT_DIR = new URL("./ui/", import.meta.url); // scripts shared by every app's pages
+const THEMES_DIR = new URL("../themes/", import.meta.url); // styles shared by every app's pages, and phil's themes
 const TRACE = !!Deno.env.get("PHIL_TRACE"); // also logs every request
 
 self.onmessage = (e) => start(e.data);
@@ -46,7 +47,7 @@ async function start({ profile, controlSocket, wakeFd }) {
 
 // Serves app `name`; resolves to its URL with the token (opening it sets the
 // session cookie). Besides the app's own files and routes, its pages get
-// /engine/ui/ (shared styles and scripts), /engine/clipboard (the desktop's
+// /engine/ui/ (shared scripts), /themes/ (shared styles, phil's themes), /engine/clipboard (the desktop's
 // clipboard) and /engine/embed/<app>/: any other app, to show inside this
 // one's window. That's on this origin, since WebKit won't let a page in a
 // frame from another origin take keyboard focus. (Apps that can be shown so
@@ -110,6 +111,7 @@ async function route(req, url, { uiDir, server }) {
   if (req.method === "GET" && url.pathname === "/") return staticFile(uiDir, "index.html");
   if (req.method === "GET" && url.pathname.startsWith("/ui/")) return staticFile(uiDir, url.pathname.slice(4));
   if (req.method === "GET" && url.pathname.startsWith("/engine/ui/")) return staticFile(KIT_DIR, url.pathname.slice(11));
+  if (req.method === "GET" && url.pathname.startsWith("/themes/")) return staticFile(THEMES_DIR, url.pathname.slice(8));
   if (url.pathname === "/engine/clipboard") { // the desktop's clipboard (clipboard.js)
     if (req.method === "GET") return text(200, await readClipboard());
     if (req.method === "PUT") return await writeClipboard(await req.text()), json({ ok: true });

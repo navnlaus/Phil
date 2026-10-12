@@ -12,7 +12,7 @@ import { isTextFile, textHead, textPreview } from "./texthead.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
-const DEFAULT_THEME = "overlay"; // see the themes in ui/style.css
+const DEFAULT_THEME = "overlay"; // see themes/ (overlay.css, ...)
 
 export function createServer({ profile, controlSocket }) {
   const config = serverConfig(profile);

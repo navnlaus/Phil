@@ -1,24 +1,6 @@
-:root {
-  --bg: #16171a;
-  --bg-raised: #1f2125;
-  --bg-hover: #26292e;
-  --border: #2c2f35;
-  --text: #e6e7ea;
-  --text-dim: #8d929b;
-  --accent: #5b9dff;
-  --stage: #0c0d0f; /* behind the image, light theme or not */
-  color-scheme: dark;
-}
+/* imageview's own; the colors and shared controls are in themes/base.css. */
 
-* { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; }
-body { background: var(--stage); color: var(--text); font: 13px/1.35 system-ui, sans-serif; }
-[hidden] { display: none !important; }
-button { font: inherit; color: inherit; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised); cursor: pointer; }
-button:hover { background: var(--bg-hover); }
-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-button.icon { display: inline-grid; place-items: center; width: 30px; padding: 0; }
-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+body { background: var(--stage); }
 
 /* The image: as large as its scale makes it, centered while it's smaller than
    the window, scrolled (without scrollbars) when it's larger. */
@@ -37,11 +19,6 @@ button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke
 #name { font-weight: 600; }
 #count, #info { margin-left: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 #btn-mode { min-width: 92px; }
-.zoom { display: inline-flex; }
-.zoom button { border-radius: 0; }
-.zoom button:first-child { border-radius: 6px 0 0 6px; }
-.zoom button:last-child { border-radius: 0 6px 6px 0; }
-.zoom button + button { border-left: 0; }
 #btn-zoom { min-width: 62px; padding: 0 6px; font-variant-numeric: tabular-nums; }
 
 /* Previous / next, at the sides, on hover. */

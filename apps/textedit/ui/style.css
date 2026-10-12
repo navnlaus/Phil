@@ -1,82 +1,18 @@
+/* textedit's own; the colors (syntax ones too) and shared controls are in
+   themes/base.css. */
+
 :root {
-  --bg: #16171a;
-  --bg-side: #121316;
-  --bg-raised: #1f2125;
-  --bg-hover: #26292e;
-  --border: #2c2f35;
-  --text: #e6e7ea;
-  --text-dim: #8d929b;
-  --accent: #5b9dff;
-  --accent-bg: rgba(91, 157, 255, 0.16);
-  --selection: rgba(91, 157, 255, 0.32);
   --line-bg: rgba(255, 255, 255, 0.035);
-  --error: #ff6b6b;
-  /* syntax */
-  --s-comment: #6f7682;
-  --s-string: #a8d68f;
-  --s-number: #e8b36b;
-  --s-keyword: #c792ea;
-  --s-literal: #d79bea;
-  --s-type: #7fd6c2;
-  --s-fn: #82aaff;
-  --s-attr: #9cc4ff;
-  --s-variable: #f07178;
-  --s-meta: #89ddff;
-  --s-heading: #ffcb6b;
-  --mono: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", monospace;
   --line: 20px;
   --pad-top: 40px; /* the text starts below the bar that floats over it */
   --pad-x: 12px;
-  color-scheme: dark;
 }
 
 @media (prefers-color-scheme: light) {
-  :root {
-    --bg: #fafafa;
-    --bg-side: #f2f3f5;
-    --bg-raised: #ffffff;
-    --bg-hover: #e8eaee;
-    --border: #dcdfe4;
-    --text: #1c1e22;
-    --text-dim: #6a707a;
-    --accent: #2f6fe0;
-    --accent-bg: rgba(47, 111, 224, 0.12);
-    --selection: rgba(47, 111, 224, 0.25);
-    --line-bg: rgba(0, 0, 0, 0.035);
-    --error: #c93636;
-    --s-comment: #8a909b;
-    --s-string: #3d7a24;
-    --s-number: #a3620c;
-    --s-keyword: #8a3fa6;
-    --s-literal: #8a3fa6;
-    --s-type: #16807a;
-    --s-fn: #2257b8;
-    --s-attr: #2257b8;
-    --s-variable: #b8323f;
-    --s-meta: #1b7aa8;
-    --s-heading: #9a5b00;
-    color-scheme: light;
-  }
+  :root { --line-bg: rgba(0, 0, 0, 0.035); }
 }
 
-* { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; }
-body { background: var(--bg); color: var(--text); font: 13px/1.35 system-ui, sans-serif; }
 main { position: relative; height: 100%; }
-button, input, select { font: inherit; color: inherit; }
-button, select {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-raised);
-  cursor: pointer;
-}
-button.icon { display: inline-grid; place-items: center; width: 30px; padding: 0; }
-button.icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-button:hover:not(:disabled) { background: var(--bg-hover); }
-button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-[hidden] { display: none !important; }
 
 /* Bars */
 
@@ -85,27 +21,15 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 #file-name { font-weight: 600; }
 #dirty { margin-left: 6px; color: var(--accent); }
 #file-dir { margin-left: 10px; color: var(--text-dim); }
-.segmented { display: inline-flex; }
-.segmented button { border-radius: 0; }
-.segmented button:first-child { border-radius: 6px 0 0 6px; }
-.segmented button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
-.segmented button.on { background: var(--accent-bg); color: var(--accent); }
 #find-form, #path-form { display: flex; flex-basis: 100%; align-items: center; gap: 6px; padding: 2px 0; }
-#find-form input[type=text], #path-input {
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  font-family: var(--mono);
-}
+#find-form input[type=text], #path-input { font-family: var(--mono); }
 #find-input, #replace-input { width: 220px; }
 #path-input { flex: 1; min-width: 0; }
 #find-input.none { border-color: var(--error); }
 #find-count { min-width: 5em; color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
 #find-form:not(.replacing) .replace-part { display: none; }
 .replace-part { display: inline-flex; gap: 6px; }
-.check { display: inline-flex; align-items: center; gap: 3px; color: var(--text-dim); font-size: 12px; }
+.check { gap: 3px; color: var(--text-dim); font-size: 12px; }
 #path-label { color: var(--text-dim); }
 
 #status { display: flex; align-items: center; gap: 10px; padding: 3px 8px; color: var(--text-dim); font-size: 12px; }

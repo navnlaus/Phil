@@ -1,0 +1,166 @@
+/* What every app's pages share: colors (dark, and light with a light desktop),
+   the page, controls, the bars that float over the page and fade out, and
+   kit.js's password box. Served at /themes/base.css; phil's tile themes are
+   next to it (overlay.css, strip.css, below.css, chips.css).
+
+   Element defaults are wrapped in :where(), so they weigh nothing: an app's
+   own rules always win over them, whatever the order. */
+
+:root {
+  --bg: #16171a;
+  --bg-side: #121316; /* sidebars, panels, gutters */
+  --bg-raised: #1f2125; /* buttons, dialogs, menus */
+  --bg-hover: #26292e;
+  --border: #2c2f35;
+  --text: #e6e7ea;
+  --text-dim: #8d929b;
+  --accent: #5b9dff;
+  --accent-bg: rgba(91, 157, 255, 0.16);
+  --selection: rgba(91, 157, 255, 0.32);
+  --error: #ff6b6b;
+  --error-bg: rgba(255, 107, 107, 0.14);
+  --good: #7fd18b;
+  --danger: #c94b4b; /* buttons that delete or close */
+  --locked: #ff6b6b; /* can't be changed without sudo */
+  --stage: #0c0d0f; /* behind pictures, dark with either */
+  --mono: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  /* syntax colors: textedit, jsonedit, phil's text tiles */
+  --s-comment: #6f7682;
+  --s-string: #a8d68f;
+  --s-number: #e8b36b;
+  --s-keyword: #c792ea;
+  --s-literal: #d79bea;
+  --s-type: #7fd6c2;
+  --s-fn: #82aaff;
+  --s-attr: #9cc4ff;
+  --s-variable: #f07178;
+  --s-meta: #89ddff;
+  --s-heading: #ffcb6b;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fafafa;
+    --bg-side: #f2f3f5;
+    --bg-raised: #ffffff;
+    --bg-hover: #e8eaee;
+    --border: #dcdfe4;
+    --text: #1c1e22;
+    --text-dim: #6a707a;
+    --accent: #2f6fe0;
+    --accent-bg: rgba(47, 111, 224, 0.12);
+    --selection: rgba(47, 111, 224, 0.25);
+    --error: #c93636;
+    --error-bg: rgba(201, 54, 54, 0.1);
+    --good: #2e8a3e;
+    --locked: #d33a3a;
+    --stage: #2a2c30;
+    --s-comment: #8a909b;
+    --s-string: #3d7a24;
+    --s-number: #a3620c;
+    --s-keyword: #8a3fa6;
+    --s-literal: #8a3fa6;
+    --s-type: #16807a;
+    --s-fn: #2257b8;
+    --s-attr: #2257b8;
+    --s-variable: #b8323f;
+    --s-meta: #1b7aa8;
+    --s-heading: #9a5b00;
+    color-scheme: light;
+  }
+}
+
+/* The page: the window, no page scrolling (apps scroll their own parts). */
+
+:where(*, *::before, *::after) { box-sizing: border-box; }
+:where(html, body) { margin: 0; height: 100%; overflow: hidden; }
+:where(body) { background: var(--bg); color: var(--text); font: 13px/1.35 system-ui, sans-serif; }
+[hidden] { display: none !important; }
+
+/* Controls */
+
+:where(button, input, select, textarea) { font: inherit; color: inherit; }
+:where(button, select) {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  cursor: pointer;
+}
+:where(button:hover:not(:disabled)) { background: var(--bg-hover); }
+:where(button:disabled) { opacity: 0.4; cursor: default; }
+:where(button.icon) { display: inline-grid; place-items: center; width: 30px; padding: 0; }
+:where(button) svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+:where(button.primary) { background: var(--accent); border-color: var(--accent); color: #fff; }
+:where(button.primary:hover:not(:disabled)) { background: color-mix(in srgb, var(--accent) 88%, #000); }
+:where(button.danger) { background: var(--danger); border-color: var(--danger); color: #fff; }
+:where(button.on) { background: var(--accent-bg); color: var(--accent); } /* a toggle that's on */
+:where(input:is([type=text], [type=number], [type=search], [type=password], :not([type]))) {
+  height: 28px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+:where(button, select, input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Buttons side by side as one control; the one that's on is .on. */
+.seg { display: inline-flex; }
+.seg > button { border-radius: 0; }
+.seg > button:first-child { border-radius: 6px 0 0 6px; }
+.seg > button:last-child { border-radius: 0 6px 6px 0; }
+.seg > button + button { border-left: 0; }
+
+/* A checkbox with its label: <label class="check"><input type="checkbox"> Text</label> */
+.check { display: inline-flex; align-items: center; gap: 6px; }
+/* Small grey text that explains, and small capitals that head a section. */
+.hint { margin: 0; color: var(--text-dim); font-size: 12px; }
+.heading { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+
+/* Top and bottom bars float over the page, invisible until hovered (or while
+   something inside them has focus, e.g. a search field). */
+.overlay-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  opacity: 0;
+  transition: opacity 0.2s ease 0.25s;
+}
+.overlay-bar:hover, .overlay-bar:focus-within, .overlay-bar.show {
+  opacity: 1;
+  transition: opacity 0.08s ease;
+}
+.overlay-bar.top { top: 0; border-bottom: 1px solid var(--border); }
+.overlay-bar.bottom { bottom: 0; border-top: 1px solid var(--border); }
+
+/* The X at the right end of the top bar. */
+.close-button { margin-left: 2px; }
+.close-button:hover { background: var(--danger) !important; color: #fff; }
+
+/* askPassword() (kit.js): a small box at the top of the page. */
+.kit-password {
+  position: fixed;
+  z-index: 50;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(460px, calc(100vw - 32px));
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  font: 13px/1.4 system-ui, sans-serif;
+}
+.kit-password label { white-space: pre-line; }
+.kit-password div { display: flex; gap: 6px; }
+.kit-password input { flex: 1; }
+.kit-password input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
