@@ -389,6 +389,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; click empty space to clear |
 | Ctrl+C / Ctrl+Insert / Super+C | copy the selected files' paths, one per line |
 | drag (Ctrl/Shift+drag) | select everything the rectangle touches (add to the selection); scrolls at the edges |
+| drag a selected file or folder | drag the selection out as files: onto a browser page (an upload), another file manager, a chat; onto a folder in phil: "Move to" / "Copy to" |
 | type a name | jump to the next entry starting with it (repeat a letter to cycle) |
 | F2 | rename in place (Enter or clicking elsewhere renames, Esc cancels) |
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
