@@ -174,8 +174,9 @@ up to 400 lines), when its tile comes into view.
 
 ### Themes
 
-How names and details sit on the tiles is a theme, picked in the bottom bar
-(every phil window follows), or set by hand in `~/.config/phil/settings.json`:
+The theme, picked in phil's bottom bar or set by hand in
+`~/.config/phil/settings.json`, is how names and details sit on the tiles,
+and can recolor every app (all their windows follow):
 
 ```json
 { "theme": "overlay", ... }
@@ -184,30 +185,30 @@ How names and details sit on the tiles is a theme, picked in the bottom bar
 | theme | |
 |---|---|
 | `overlay` (default) | on the picture, over a shadow fading up from the bottom |
-| `strip` | in a solid strip under the picture, each tile a card |
-| `below` | centered under rounded pictures, on the page (taller tiles) |
 | `chips` | the name in a small chip; details in another, on hover and for the selection |
 
 Open windows pick up an edit to the file right away.
 
 A theme is any stylesheet in `~/.config/phil/themes` (but base.css): drop a
 new `.css` file there and it's in the picker. "New theme…" in the picker
-makes one from scratch, from a template with notes on the tiles' parts and
-what to change, picks it and opens it in a window of its own: every save
-shows in phil. Only the theme in use is loaded, after phil's own styles, so
-plain selectors (`.label .name { ... }`) are enough.
+makes one from scratch, from a template: the whole palette (dark and light:
+backgrounds, text, accent, borders, errors, folders, syntax colors) and the
+tiles' parts, with notes on what each is. It picks it and opens it in a
+window of its own: every save shows. Only the theme in use is loaded, after
+the apps' own styles (phil by name, the others as `/themes/current.css`), so
+plain selectors are enough; its palette colors every app, its tile rules
+(`.tile .label .name { ... }`) only mean something to phil. A theme that's
+gone (deleted, or a setting naming one) gives the default, `overlay`.
 
-The themes are stylesheets in `~/.config/phil/themes`: `overlay.css`,
-`strip.css`, ... (a theme's name is its file's; add one by copying one and
-renaming its `body[data-theme="..."]`), next to `base.css`, what every app
-shares: the colors, dark and light (with the desktop's), syntax colors,
-buttons, fields, segmented buttons, checkboxes, section headings, the bars
-that float over a page and fade out, and the X. Edit them and every open
-window of every app follows right away.
+Next to the themes, `base.css` is what every app shares: the palette's
+defaults, buttons, fields, segmented buttons, checkboxes, section headings,
+the bars that float over a page and fade out, and the X. Edit any of them and
+every open window of every app follows right away.
 
 `deno task install` copies the built-in ones there (`themes/` in the
 repository; `phil-engine --install-themes`). A later install updates the
-copies you haven't edited and leaves the ones you have (it says so). Delete
+copies you haven't edited and leaves the ones you have (it says so), and
+removes copies of themes no longer built in, unless edited. Delete
 one to use the built-in one instead (a file that isn't there is served from
 the build). Apps keep only what's
 their own in their `ui/style.css`; base.css's element defaults weigh nothing

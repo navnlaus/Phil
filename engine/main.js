@@ -55,11 +55,12 @@ async function launch(argv) {
   const [name, ...args] = argv.filter((a) => !ENGINE_OPTIONS.includes(a));
   if (flags.has("--install-themes")) {
     const { installThemes, themesDir } = await import("./themes.js");
-    const { copied, updated, kept } = await installThemes();
+    const { copied, updated, removed, kept } = await installThemes();
     const list = (names) => names.join(", ");
     const done = [
       copied.length && `copied ${list(copied)}`,
       updated.length && `updated ${list(updated)}`,
+      removed.length && `removed ${list(removed)} (no longer built in)`,
       kept.length && `kept your edited ${list(kept)} (this build's are in the source's themes/)`,
     ].filter(Boolean);
     console.log(`Themes in ${themesDir()}: ${done.join("; ") || "up to date"}`);

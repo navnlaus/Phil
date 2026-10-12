@@ -3,7 +3,7 @@
 import { basename, dirname, join, normalize } from "@std/path";
 import { httpError, json, serveFile, text } from "../../engine/http.js";
 import { imagePreview } from "../../engine/media.js";
-import { themeNames, themesDir } from "../../engine/themes.js";
+import { currentTheme, themeNames, themesDir } from "../../engine/themes.js";
 import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
 import { Hooks, metadataFile, runHook } from "./hooks.js";
@@ -48,7 +48,7 @@ export function createServer({ profile, controlSocket }) {
           incognito: config.incognito,
           thumbDir: config.thumbsInMemory ? "in memory" : config.thumbDir,
           thumbSize: thumbs.name,
-          settings: await readSettings(),
+          settings: { ...await readSettings(), theme: await currentTheme() }, // a theme that's gone: the default
         });
       case "GET /api/list": {
         const listing = await listDir(requirePath(path), url.searchParams.get("sort") ?? "name");
@@ -99,7 +99,7 @@ export function createServer({ profile, controlSocket }) {
       case "POST /api/add-to-config":
         return json(await addToConfig(requirePath((await req.json()).path)));
       case "GET /api/themes": // the bottom bar's theme picker
-        return json({ themes: await themeNames(), dir: themesDir(), theme: (await readSettings()).theme ?? DEFAULT_THEME });
+        return json({ themes: await themeNames(), dir: themesDir(), theme: await currentTheme() });
       case "PUT /api/theme": // {theme}: picked there
         return json(await pickTheme((await req.json()).theme));
       case "POST /api/themes": // {name}: a new one, from the template
@@ -456,7 +456,7 @@ export function createServer({ profile, controlSocket }) {
 
   // Editing the theme in the settings file restyles open windows right away.
   async function watchTheme() {
-    let theme = (await readSettings()).theme;
+    let theme = await currentTheme();
     let timer;
     for await (const event of Deno.watchFs(dirname(config.settingsFile), { recursive: false })) {
       if (!event.paths.includes(config.settingsFile)) continue;
@@ -464,7 +464,8 @@ export function createServer({ profile, controlSocket }) {
       timer = setTimeout(async () => {
         let next;
         try {
-          next = JSON.parse(await Deno.readTextFile(config.settingsFile)).theme;
+          JSON.parse(await Deno.readTextFile(config.settingsFile));
+          next = await currentTheme();
         } catch {
           return; // gone, or half-written by an editor: wait for the next change
         }

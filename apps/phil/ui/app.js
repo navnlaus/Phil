@@ -1225,6 +1225,7 @@ async function listThemes() {
   const r = await api("/api/themes").catch(() => null);
   if (!r) return;
   themesFolder = r.dir;
+  if (r.theme !== state.settings.theme) setTheme(r.theme); // the one in use was deleted: the default
   const names = r.themes.includes(state.settings.theme) ? r.themes : [...r.themes, state.settings.theme];
   themePick.replaceChildren(
     ...names.map((t) => new Option(t, t)),
