@@ -1757,13 +1757,14 @@ function dragOut() {
   document.body.classList.remove("dragging");
   d.target?.el.classList.remove("drop-target");
   fileDrag = { items: d.items, paths: d.paths, dirs: d.dirs, button: d.button };
-  const kinds = new Set(d.items.map((m) => m.kind));
   native.postMessage("drag:" + JSON.stringify({
     uris: d.items.map((m) => fileUri(m.path)),
     paths: d.items.map((m) => m.path),
     button: d.button + 1, // GTK's numbering: 2 middle, 3 right
     actions: d.button === 1 ? ["move", "copy"] : ["ask", "copy", "move"],
-    icon: kinds.size > 1 ? "edit-copy" : { dir: "folder", image: "image-x-generic", video: "video-x-generic", pdf: "application-pdf" }[d.items[0].kind] ?? "text-x-generic",
+    image: d.picture.toDataURL("image/png"), // the same picture as inside the window
+    scale: d.picture.scale,
+    hotspot: DRAG_HOTSPOT,
   }));
 }
 
@@ -1776,14 +1777,127 @@ function startDrag() {
   drag.dirs = drag.items.filter((e) => e.kind === "dir").map((e) => e.path + "/");
   const ghost = (drag.ghost = document.createElement("div"));
   ghost.className = "drag-ghost";
-  const first = drag.items[0];
-  if (typeof first.thumb === "string") ghost.append(Object.assign(new Image(), { src: first.thumb, draggable: false }));
-  else ghost.insertAdjacentHTML("beforeend", icon(KIND_ICON[first.kind]));
-  drag.label = document.createElement("span");
-  ghost.append(drag.label);
+  drag.picture = dragPicture(drag.items, state.view[drag.index]);
+  drag.label = Object.assign(document.createElement("span"), { className: "drag-action" });
+  ghost.append(drag.picture, drag.label);
   document.body.append(ghost);
   document.body.classList.add("dragging");
   edgeScroll(() => drag?.active && drag.client[1], updateDrag);
+}
+
+// What a drag of `items` looks like, whichever button and wherever it goes (in
+// the window, or out as files: then WebKit or the engine shows it): up to
+// three of their pictures stacked, with how many there are, and the name (or
+// "4 items") on a card. A canvas, drawn at the screen's scale (`.scale`), so
+// the engine gets the same pixels.
+const DRAG_HOTSPOT = [-12, -12]; // the pointer, from the picture's top left corner
+const STACK = { w: 96, h: 54, step: 7, most: 3 };
+
+// `front`: the item the drag started on, shown in front.
+function dragPicture(items, front = items[0]) {
+  const css = getComputedStyle(document.body);
+  const color = (name) => css.getPropertyValue(name).trim();
+  const scale = Math.max(1, Math.round(devicePixelRatio));
+  const font = `600 13px ${css.fontFamily}`;
+  const label = items.length === 1 ? items[0].name : `${items.length} items`;
+  const shown = [front, ...items.filter((m) => m !== front)].slice(0, STACK.most);
+  const pad = 6, gap = 10;
+  const stackW = STACK.w + (shown.length - 1) * STACK.step, stackH = STACK.h + (shown.length - 1) * STACK.step;
+  const measure = document.createElement("canvas").getContext("2d");
+  measure.font = font;
+  const text = fitText(measure, label, 220);
+  const width = Math.ceil(pad + stackW + gap + measure.measureText(text).width + 12);
+  const height = stackH + 2 * pad;
+  const canvas = Object.assign(document.createElement("canvas"), { width: width * scale, height: height * scale });
+  canvas.style.cssText = `width: ${width}px; height: ${height}px;`;
+  canvas.scale = scale;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+
+  roundRect(ctx, 0.5, 0.5, width - 1, height - 1, 8);
+  ctx.fillStyle = color("--bg-raised");
+  ctx.fill();
+  ctx.strokeStyle = color("--border");
+  ctx.stroke();
+
+  // The stack: the first item in front, at the bottom left; the others behind, up and to the right.
+  for (let j = shown.length - 1; j >= 0; j--) {
+    const x = pad + j * STACK.step, y = pad + (shown.length - 1 - j) * STACK.step;
+    ctx.save();
+    roundRect(ctx, x, y, STACK.w, STACK.h, 4);
+    ctx.clip();
+    ctx.fillStyle = shown[j].kind === "dir" ? color("--folder") : color("--thumb-bg");
+    ctx.fillRect(x, y, STACK.w, STACK.h);
+    const source = pictureOf(shown[j]);
+    if (source) drawCover(ctx, source, x, y, STACK.w, STACK.h);
+    else drawKind(ctx, shown[j], x, y, color, css.fontFamily);
+    ctx.restore();
+    roundRect(ctx, x + 0.5, y + 0.5, STACK.w - 1, STACK.h - 1, 4);
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
+    ctx.stroke();
+  }
+  if (items.length > 1) { // how many, on the stack's top right corner
+    const r = 10, cx = pad + stackW - 4, cy = pad + 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+    ctx.fillStyle = color("--accent");
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.font = `700 ${items.length > 99 ? 9 : 11}px ${css.fontFamily}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(items.length), cx, cy + 0.5);
+  }
+  ctx.font = font;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = color("--text");
+  ctx.fillText(text, pad + stackW + gap, height / 2);
+  return canvas;
+}
+
+// What a tile shows of the item: its thumbnail, its drawn text, or its folder's first preview.
+function pictureOf(item) {
+  const tile = tiles.get(item.path);
+  const el = tile?.querySelector(":scope > .thumb > img, :scope > .thumb > canvas, .face > img, .face > .cell > canvas");
+  if (el instanceof HTMLImageElement) return el.complete && el.naturalWidth ? el : null;
+  return el?.width ? el : null;
+}
+
+// No picture: what kind it is, as on a tile without one (a folder, or the file's extension).
+function drawKind(ctx, item, x, y, color, family) {
+  const cx = x + STACK.w / 2, cy = y + STACK.h / 2;
+  if (item.kind === "dir") { // a folder: its tab, and its front
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.beginPath();
+    ctx.roundRect(cx - 12, cy - 9, 10, 4, 1.5);
+    ctx.roundRect(cx - 12, cy - 6, 24, 15, 2);
+    ctx.fill();
+    return;
+  }
+  ctx.fillStyle = color("--text-dim");
+  ctx.font = `700 10px ${family}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText((item.name.match(/\.([^.]{1,5})$/)?.[1] ?? "file").toUpperCase(), cx, cy);
+}
+
+function drawCover(ctx, source, x, y, w, h) {
+  const sw = source.naturalWidth || source.width, sh = source.naturalHeight || source.height;
+  const k = Math.max(w / sw, h / sh);
+  const cw = w / k, ch = h / k;
+  ctx.drawImage(source, (sw - cw) / 2, (sh - ch) / 2, cw, ch, x, y, w, h);
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+}
+
+function fitText(ctx, text, max) {
+  if (ctx.measureText(text).width <= max) return text;
+  while (text.length > 1 && ctx.measureText(text + "…").width > max) text = text.slice(0, -1);
+  return text + "…";
 }
 
 // The folder under the pointer, if the dragged items (`drag`, or a file drag
@@ -1800,16 +1914,15 @@ function dropTargetAt(x, y, drag) {
 
 function updateDrag() {
   const [x, y] = drag.client;
-  drag.ghost.style.transform = `translate(${x + 14}px, ${y + 14}px)`;
+  drag.ghost.style.transform = `translate(${x - DRAG_HOTSPOT[0]}px, ${y - DRAG_HOTSPOT[1]}px)`;
   const target = dropTargetAt(x, y, drag);
   if (target?.el !== drag.target?.el) {
     drag.target?.el.classList.remove("drop-target");
     target?.el.classList.add("drop-target");
   }
   drag.target = target;
-  const what = drag.items.length === 1 ? drag.items[0].name : `${drag.items.length} items`;
   const verb = drag.button === 1 ? "Move" : "Move or copy";
-  drag.label.textContent = target ? `${verb} ${what} to ${target.path.split("/").pop() || "/"}` : what;
+  drag.label.textContent = target ? `${verb} to ${target.path.split("/").pop() || "/"}` : "";
 }
 
 function endDrag(e) {
@@ -1829,7 +1942,9 @@ function endDrag(e) {
   d.ghost.remove();
   document.body.classList.remove("dragging");
   d.target?.el.classList.remove("drop-target");
-  if (!d.target || e.type === "pointercancel") return;
+  if (e.type === "pointercancel") return;
+  d.target = dropTargetAt(e.clientX, e.clientY, d); // where it's let go
+  if (!d.target) return;
   const name = d.target.path.split("/").pop() || "/";
   if (d.button === 1) return transfer("move", d.items, d.target.path);
   showMenu(e.clientX, e.clientY, [
@@ -1860,6 +1975,13 @@ grid.addEventListener("dragstart", (e) => {
   if (i === -1 || !state.marked.has(state.view[i].path)) return e.preventDefault();
   hideContextMenu();
   const items = markedEntries();
+  // The drag's picture, the same as a right-drag's: WebKit takes it from the
+  // page, so it's put there (where it shows during the drag anyway) for now.
+  const picture = dragPicture(items, state.view[i]);
+  picture.style.cssText += `position: fixed; z-index: 30; left: ${e.clientX - DRAG_HOTSPOT[0]}px; top: ${e.clientY - DRAG_HOTSPOT[1]}px;`;
+  document.body.append(picture);
+  e.dataTransfer.setDragImage(picture, DRAG_HOTSPOT[0], DRAG_HOTSPOT[1]);
+  setTimeout(() => picture.remove());
   fileDrag = { items, paths: new Set(items.map((m) => m.path)), dirs: items.filter((m) => m.kind === "dir").map((m) => m.path + "/"), button: 0 };
   e.dataTransfer.effectAllowed = "copyMove";
   e.dataTransfer.setData("text/uri-list", items.map((m) => fileUri(m.path)).join("\r\n"));
