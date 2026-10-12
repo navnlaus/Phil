@@ -5,6 +5,19 @@ runs on. The UI is plain HTML/CSS/JS rendered by the system WebKitGTK; the
 backend is JavaScript running on Deno. No bundled browser, no npm dependencies.\
 Developed and tested on Omarchy, the install scripts assumes a similar setup.
 
+![phil showing a Pictures folder: photo thumbnails, folders with previews of what's inside, and a description on a folder](docs/screenshots/pictures.webp)
+
+| | |
+|---|---|
+| ![Home folder: each folder's tile previews its first files, photos, code and documents alike](docs/screenshots/home.webp) | ![Documents with text tiles, and the terminal panel following the folder](docs/screenshots/terminal.webp) |
+| Folders preview what's in them: pictures, text, code, PDFs | The terminal panel follows the folder you're in, and the other way round |
+| ![textedit showing Markdown as it reads, editable](docs/screenshots/markdown.webp) | ![textedit with syntax highlighting](docs/screenshots/code.webp) |
+| Markdown, edited as it reads (textedit) | Code, highlighted (textedit) |
+| ![imageresize cropping a photo to an ultrawide wallpaper](docs/screenshots/resize.webp) | ![The chips theme](docs/screenshots/chips.webp) |
+| Resize, crop, turn and compress (imageresize) | Themes: here, chips |
+
+<sub>Photos from [Unsplash](https://unsplash.com).</sub>
+
 ## The engine and its apps
 
 phil is one app of `phil-engine`, which runs apps in one background process:
