@@ -49,15 +49,32 @@ button.toggle[aria-pressed="true"] { background: var(--accent-bg); color: var(--
 
 /* Sidebar */
 
-#sidebar { display: none; }
-body.sidebar { grid-template-columns: 180px minmax(0, 1fr); }
-body.sidebar #sidebar {
-  display: block;
+/* Hidden to the left; hovering the sidebar button slides it out over the
+   folder (body.peek); clicking it keeps it open beside the folder
+   (body.sidebar). It starts below the top bar, which spans the window. */
+#sidebar {
+  position: fixed;
+  z-index: 6;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 180px;
+  padding: 40px 4px 6px;
+  overflow-y: auto;
   background: var(--bg-side);
   border-right: 1px solid var(--border);
-  padding: 6px 4px;
-  overflow-y: auto;
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition: transform 0.16s ease, visibility 0s linear 0.16s;
 }
+body.peek #sidebar {
+  transform: none;
+  visibility: visible;
+  box-shadow: 8px 0 28px rgba(0, 0, 0, 0.35);
+  transition: transform 0.16s ease;
+}
+body.sidebar { grid-template-columns: 180px minmax(0, 1fr); }
+body.sidebar #sidebar { position: static; transform: none; visibility: visible; box-shadow: none; transition: none; }
 
 #places a {
   display: flex;
@@ -75,7 +92,8 @@ body.sidebar #sidebar {
 
 /* Tags: the current folder's, under the places (auto-tagging when on) */
 #tags-panel { margin: 14px 4px 0; padding-top: 10px; border-top: 1px solid var(--border); }
-#tags-panel > .check { padding: 0 6px; color: var(--text-dim); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+#tags-panel[hidden] { display: none; }
+#tags-panel > .heading { padding: 0 6px; }
 #tags-status { margin: 6px 6px 0; white-space: normal; }
 #tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 2px 4px; }
 #tags button {
@@ -133,6 +151,8 @@ main {
    themes/base.css), invisible until hovered or something inside them has focus. */
 
 #toolbar {
+  position: fixed; /* over the whole window: the sidebar too */
+  z-index: 7;
   top: 0;
   display: flex;
   align-items: center;
@@ -373,6 +393,9 @@ body[data-theme] .tile.has-hook .label { padding-right: 28px; }
 .label .name { font-size: 11px; font-weight: 600; }
 .label .desc { order: -2; font-size: 10px; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.9; }
 .label .desc:empty { display: none; }
+/* Its tags (a folder's: the most common in it), a line under the details */
+.label .tags { font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.75; }
+.label .tags:empty { display: none; }
 /* before the name: a link, a lock (showState in app.js) */
 .label .name svg.state { width: 11px; height: 11px; margin-right: 3px; vertical-align: -1.5px; stroke-width: 2.4; opacity: 0.8; }
 .label .name svg.state.locked { color: var(--locked); opacity: 1; }
@@ -541,6 +564,11 @@ body[data-theme] .tile.has-hook .label { padding-right: 28px; }
 #props .phil[hidden], #props .hook[hidden] { display: none; }
 #props .hook { margin-top: 12px; }
 #props .tags-label { margin-top: 10px; }
+#props .autotag { margin-top: 12px; }
+#props .autotag[hidden] { display: none; }
+#props .autotag .check { display: flex; margin: 0; }
+#props .autotag .hint { margin-top: 4px; }
+#props-found { white-space: pre-line; }
 #props-desc, #props-tags {
   width: 100%;
   height: 30px;

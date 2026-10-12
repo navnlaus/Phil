@@ -62,7 +62,7 @@ export function createServer({ profile, controlSocket }) {
           incognito: config.incognito,
           thumbDir: config.thumbsInMemory ? "in memory" : config.thumbDir,
           thumbSize: thumbs.name,
-          tagging: { available: await tagging.available() },
+          tagging: { available: await tagging.available() }, // auto-tagging is set up (scripts/install-tagging.sh)
           settings: { ...await readSettings(), theme: await currentTheme() }, // a theme that's gone: the default
         });
       case "GET /api/list": {
@@ -101,11 +101,12 @@ export function createServer({ profile, controlSocket }) {
         return json({ ...await properties(requirePath(path)), meta: await hooks.get(path) });
       case "GET /api/folder-size":
         return json(await folderSize(requirePath(path)));
-      case "PUT /api/meta": { // {path, description, onChange, tags}: Properties' phil section
+      case "PUT /api/meta": { // {path, description, onChange, tags, autoTags}: Properties' phil section
         const { path, ...changes } = await req.json();
         const clean = (key) => key in changes ? { [key]: String(changes[key] ?? "").trim() } : {};
         const tags = "tags" in changes ? cleanTags(changes.tags) : null;
-        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...(tags ? { tags: tags.length ? tags : "" } : {}) });
+        const auto = "autoTags" in changes ? { autoTags: changes.autoTags ? true : "" } : {}; // a folder's: tag its pictures
+        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...(tags ? { tags: tags.length ? tags : "" } : {}), ...auto });
         if (tags?.length) await tagging.addToVocabulary(tags);
         return json({ ok: true });
       }
@@ -152,17 +153,28 @@ export function createServer({ profile, controlSocket }) {
     const mtime = (await Deno.stat(dir)).mtime?.getTime() ?? 0; // before reading: a change while listing is caught next time
     const entries = await readEntries(dir);
     const meta = await hooks.all();
+    const byHand = new Map(); // folder -> tag -> how many there have it, given by hand
+    for (const [p, m] of Object.entries(meta)) {
+      if (!m.tags?.length) continue;
+      const counts = byHand.get(dirname(p)) ?? byHand.set(dirname(p), new Map()).get(dirname(p));
+      for (const t of m.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
     for (const e of entries) {
       if (meta[e.path]?.onChange) e.onChange = meta[e.path].onChange;
       if (meta[e.path]?.description) e.description = meta[e.path].description;
       if (meta[e.path]?.tags?.length) e.tags = meta[e.path].tags; // given by hand
+      if (e.kind === "dir") { // its most common tags, for its tile: found when it was last tagged, and given by hand
+        const counts = new Map(await tagging.summary(e.path));
+        for (const [t, n] of byHand.get(e.path) ?? []) counts.set(t, Math.max(counts.get(t) ?? 0, n));
+        if (counts.size) e.folderTags = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 8);
+      }
     }
     // While we're here, this folder's own summary, from thumbnails already cached.
     const previewOf = (e) => (e.kind === "file" ? textPreviewOf(e) : typeof e.thumb === "string" ? { url: e.thumb } : e.thumb ?? null);
     makeSummary({ entries, mtime, sort, previewOf })
       .then((summary) => folders.save(dir, summary))
       .catch((err) => console.error(`phil: can't save folder summary: ${err.message}`));
-    return { path: dir, parent: dir === "/" ? null : dirname(dir), entries };
+    return { path: dir, parent: dir === "/" ? null : dirname(dir), entries, autoTags: !!meta[dir]?.autoTags };
   }
 
   // The folder's entries with size and date; with `lookups`, also each media
@@ -250,6 +262,12 @@ export function createServer({ profile, controlSocket }) {
           hookWatch = hooks.watch(msg.watch);
           shown.set(socket, msg.watch);
         }
+      }
+      if (msg.search) { // {search: {dir, text}}: its pictures that look like `text`, as {searched: dir, text, scores}
+        const { dir, text } = msg.search;
+        tagging.available()
+          .then((ok) => (ok ? tagging.search(dir, text) : {}))
+          .then((scores) => send({ searched: dir, text, scores }), (err) => send({ searched: dir, text, scores: {}, error: err.message }));
       }
       if ("tag" in msg) { // {tag: folder} tags its pictures, sending {tagged: folder, tags, left}; {tag: null} stops
         tagJob?.abort();

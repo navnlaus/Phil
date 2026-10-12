@@ -3,7 +3,8 @@
 # environment with PyTorch and transformers in ~/.local/share/phil/tagging,
 # and the SigLIP 2 base model (about 1.5 GB, from Hugging Face, into its
 # usual cache). About 8 GB in all with PyTorch for an NVIDIA GPU (that's
-# 6–7 GB of it), much less for the CPU. Then tick Tags in phil's sidebar.
+# 6–7 GB of it), much less for the CPU. Then turn it on for a folder in
+# its Properties.
 # Run it again to update; delete that folder to remove it.
 set -euo pipefail
 
@@ -43,4 +44,4 @@ AutoProcessor.from_pretrained(sys.argv[1])
 gpu = torch.cuda.is_available()
 print(f"{sys.argv[1]}: ready, on the {'GPU (' + torch.cuda.get_device_name(0) + ')' if gpu else 'CPU'}")
 EOF
-echo "Auto-tagging is set up in $data. Tick Tags in phil's sidebar."
+echo "Auto-tagging is set up in $data. Turn it on for a folder in its Properties (right-click it)."

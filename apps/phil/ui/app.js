@@ -103,6 +103,7 @@ const thumbs = {
       if ("theme" in msg) return setTheme(msg.theme);
       if ("changed" in msg) return onFolderChanged(msg);
       if ("tagged" in msg) return onTagged(msg);
+      if ("searched" in msg) return onSearched(msg);
       if (msg.hook) return onHookRan(msg.hook);
       const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
@@ -131,6 +132,9 @@ const thumbs = {
   watch(path) {
     this.watching = path;
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ watch: path }));
+  },
+  send(msg) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   },
   // Auto-tagging: the folder whose pictures to tag (null: none).
   tag(path) {
@@ -447,9 +451,11 @@ async function load(path) {
   state.path = listing.path;
   terminal.follow(listing.path);
   state.entries = listing.entries;
-  if (previous !== listing.path) changedFolders.clear(), autoTags.clear(), tagFilter.clear();
+  if (previous !== listing.path) changedFolders.clear(), autoTags.clear(), tagFilter.clear(), carried.clear(), searchScores.clear();
+  state.autoTagged = !!listing.autoTags;
   thumbs.watch(listing.path);
-  if (state.settings.tags) thumbs.tag(listing.path);
+  thumbs.tag(state.autoTagged ? listing.path : null);
+  showTagStatus("");
   renderTags();
   document.title = (listing.path === "/" ? "/" : listing.path.split("/").pop()) + (state.init.incognito ? " — phil (incognito)" : " — phil");
   renderCrumbs();
@@ -518,8 +524,9 @@ async function refresh() {
     render();
     grid.scrollTop = top;
     thumbs.watch(path); // new subfolders get watched too
+    state.autoTagged = !!listing.autoTags;
     renderTags();
-    if (state.settings.tags) thumbs.tag(path); // new pictures get tagged (the rest come from the cache)
+    thumbs.tag(state.autoTagged ? path : null); // new pictures get tagged (the rest come from the cache)
   } else if (!listing && state.path === path) {
     showGridMessage(`${path} is gone.`);
   }
@@ -542,11 +549,15 @@ function sortEntries(list) {
 
 function render(selectPath = state.view[state.selected]?.path) {
   const q = filterInput.value.trim().toLowerCase();
+  const named = (e) => e.name.toLowerCase().includes(q);
   state.view = state.entries.filter((e) =>
-    (state.settings.showHidden || !e.name.startsWith(".")) && (!q || e.name.toLowerCase().includes(q)) &&
+    (state.settings.showHidden || !e.name.startsWith(".")) && (!q || named(e) || searchScores.has(e.path)) &&
     (!tagFilter.size || [...tagFilter].every((t) => tagsOf(e).includes(t)))
   );
   sortEntries(state.view);
+  // Searching a tagged folder: what has it in its name first, then the
+  // pictures that look like it, best first.
+  if (q && searchScores.size) state.view.sort((a, b) => (named(b) ? 2 : searchScores.get(b.path) ?? 0) - (named(a) ? 2 : searchScores.get(a.path) ?? 0));
 
   nearObserver.disconnect();
   farObserver.disconnect();
@@ -602,7 +613,7 @@ function fileType(name) {
 }
 
 // A tile is rebuilt when its file changed; a folder's tile is updated in place.
-const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime} ${e.onChange ?? ""} ${e.writable} ${e.target} ${e.description ?? ""}`);
+const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime} ${e.onChange ?? ""} ${e.writable} ${e.target} ${e.description ?? ""} ${e.tags ?? ""}`);
 
 function makeTile(entry, index) {
   const tile = document.createElement("div");
@@ -650,8 +661,10 @@ function makeTile(entry, index) {
 // hook; ▶ in the top right one for a video. (The top left is left alone.)
 function showMarks(tile, entry) {
   const desc = tile.querySelector(".label .desc");
-  desc.textContent = entry.description ?? "";
-  tile.classList.toggle("has-desc", !!entry.description);
+  const description = entry.description ?? carried.get(entry.path) ?? ""; // phil's, or the file's own
+  desc.textContent = description;
+  tile.classList.toggle("has-desc", !!description);
+  showTileTags(tile, entry);
   showState(tile, entry);
   const label = tile.querySelector(".label");
   tile.classList.toggle("has-hook", !!entry.onChange);
@@ -668,6 +681,17 @@ function showMarks(tile, entry) {
   el.dataset.key = key;
   el.innerHTML = marks.map(([name, cls]) => `<span class="badge ${cls}">${icon(name)}</span>`).join("");
   tile.append(el);
+}
+
+// A tile's tags, under its details; a folder's: its most common, cut short.
+function showTileTags(tile, entry) {
+  const label = tile.querySelector(".label");
+  const tags = entry.kind === "dir" ? (entry.folderTags ?? []).map(([t]) => t) : tagsOf(entry);
+  const shown = entry.kind === "dir" ? 3 : 5;
+  const text = tags.slice(0, shown).join(" · ") + (tags.length > shown ? (entry.kind === "dir" ? " …" : ` +${tags.length - shown}`) : "");
+  let el = label.querySelector(":scope > .tags");
+  if (!el) el = label.appendChild(Object.assign(document.createElement("span"), { className: "tags" }));
+  if (el.textContent !== text) el.textContent = text;
 }
 
 function showState(tile, entry) {
@@ -687,7 +711,9 @@ const fileTitle = (entry) => `${entry.name}\n${formatSize(entry.size)} · ${form
 
 function titleNotes(entry) {
   const notes = entry.description ? [entry.description] : [];
-  if (tagsOf(entry).length) notes.push(`Tags: ${tagsOf(entry).join(", ")}`);
+  if (!entry.description && carried.get(entry.path)) notes.push(carried.get(entry.path));
+  const tags = entry.kind === "dir" ? (entry.folderTags ?? []).map(([t]) => t) : tagsOf(entry);
+  if (tags.length) notes.push(`${entry.kind === "dir" ? "Mostly" : "Tags"}: ${tags.join(", ")}`);
   if (entry.symlink) notes.push(`Link to ${entry.target ?? "?"}`);
   if (entry.writable === false) notes.push(entry.kind === "dir" ? "You can't change what's in it without sudo" : "You can't change it without sudo");
   if (entry.onChange) notes.push(`When it changes: ${entry.onChange}`);
@@ -771,6 +797,11 @@ function renderCrumbs() {
     b.onclick = (e) => {
       e.stopPropagation();
       navigate(path);
+    };
+    // Right-click: that folder's Properties (the way to the one you're in, whose tile isn't shown).
+    b.oncontextmenu = (e) => {
+      e.preventDefault();
+      showMenu(e.clientX, e.clientY, [["Properties", () => showProperties({ path, name: label, kind: "dir" })]]);
     };
     crumbs.append(b);
   };
@@ -954,7 +985,6 @@ function updateProgress() {
 
 function applySettings() {
   const s = state.settings;
-  tagsOn.checked = !!s.tags;
   document.documentElement.style.setProperty("--tile", `${s.zoom}px`);
   zoomInput.value = s.zoom;
   sortSelect.value = s.sort;
@@ -977,8 +1007,24 @@ function setTheme(theme) {
 
 function toggleSidebar() {
   state.settings.sidebar = !state.settings.sidebar;
+  document.body.classList.remove("peek");
   applySettings();
   saveSettings();
+}
+
+// Hovering the sidebar button slides the sidebar out over the folder, until
+// the pointer has left both (clicking keeps it open, beside the folder).
+{
+  let leaving = null;
+  const peek = (on) => {
+    clearTimeout(leaving);
+    if (on) return void (!state.settings.sidebar && document.body.classList.add("peek"));
+    leaving = setTimeout(() => document.body.classList.remove("peek"), 250);
+  };
+  for (const el of [$("#btn-sidebar"), $("#sidebar")]) {
+    el.addEventListener("pointerenter", () => peek(true));
+    el.addEventListener("pointerleave", () => peek(false));
+  }
 }
 
 function setZoom(zoom) {
@@ -1317,27 +1363,31 @@ document.addEventListener("themes-changed", listThemes);
 // ---------------------------------------------------------------- tags
 
 // Tags: given by hand (Properties, "Add tags…": entry.tags, kept with a
-// file's description) and, with the sidebar's Tags box ticked, found by
-// auto-tagging (SigLIP 2, apps/phil/tagging.js; the server sends them as
-// pictures get tagged). The sidebar lists the folder's; clicking tags shows
-// only what has all of them.
+// file's description) and, in folders set to (in their Properties: the
+// listing's autoTags), found by auto-tagging (SigLIP 2, apps/phil/tagging.js;
+// the server sends them as pictures get tagged), with the keywords and
+// descriptions the files carry. The sidebar lists the folder's; clicking tags
+// shows only what has all of them. The filter box also finds a tagged
+// folder's pictures by what they show (searchPictures).
 const autoTags = new Map(); // path -> [[tag, probability]], this folder's
+const carried = new Map(); // path -> the description the file carries (EXIF, XMP, IPTC)
+const searchScores = new Map(); // path -> how well it matches the filter text, by what it shows
 const tagFilter = new Set();
-const tagsOn = $("#tags-on");
 const tagsOf = (e) => [...new Set([...(e.tags ?? []), ...(autoTags.get(e.path) ?? []).map(([t]) => t)])];
 const splitTags = (text) => [...new Set(text.split(",").map((t) => t.trim().replace(/\s+/g, " ")).filter(Boolean))];
 
-function onTagged({ tagged, tags = {}, left = 0, error }) {
+function onTagged({ tagged, tags = {}, descriptions = {}, left = 0, error }) {
   if (tagged !== state.path) return;
   if (error) {
     return showTagStatus(error === "setup"
       ? "Auto-tagging isn't set up yet: run scripts/install-tagging.sh in phil's source folder (several GB: PyTorch and the model)."
       : `Tagging stopped: ${error}`);
   }
+  for (const [path, text] of Object.entries(descriptions)) carried.set(path, text);
   for (const [path, t] of Object.entries(tags)) {
     autoTags.set(path, t);
     const tile = tiles.get(path), entry = tile && state.view[tile.dataset.index];
-    if (entry && entry.kind !== "dir") tile.title = fileTitle(entry);
+    if (entry && entry.kind !== "dir") tile.title = fileTitle(entry), showMarks(tile, entry);
   }
   showTagStatus(left ? `Tagging… ${left} to go` : "");
   renderTags();
@@ -1347,6 +1397,7 @@ function onTagged({ tagged, tags = {}, left = 0, error }) {
 function showTagStatus(text) {
   $("#tags-status").textContent = text;
   $("#tags-status").hidden = !text;
+  $("#tags-panel").hidden = !text && !$("#tags").childElementCount;
 }
 
 function renderTags() {
@@ -1356,7 +1407,7 @@ function renderTags() {
     for (const t of e.tags ?? []) mine.add(t);
   }
   for (const t of tagFilter) if (!counts.has(t)) counts.set(t, 0);
-  const list = [...counts].sort((a, b) => tagFilter.has(b[0]) - tagFilter.has(a[0]) || b[1] - a[1] || collator.compare(a[0], b[0]));
+  const list = [...counts].sort((a, b) => b[1] - a[1] || collator.compare(a[0], b[0]));
   $("#tags").replaceChildren(...list.map(([tag, n]) => {
     const b = document.createElement("button");
     b.className = (tagFilter.has(tag) ? "active " : "") + (mine.has(tag) ? "mine" : "");
@@ -1369,17 +1420,28 @@ function renderTags() {
     };
     return b;
   }));
+  $("#tags-panel").hidden = !list.length && $("#tags-status").hidden;
 }
 
-tagsOn.onchange = () => {
-  state.settings.tags = tagsOn.checked;
-  saveSettings();
-  autoTags.clear();
-  showTagStatus("");
-  thumbs.tag(tagsOn.checked ? state.path : null);
-  renderTags();
+// The filter box in a tagged folder: after a moment's pause in typing, the
+// server says which pictures look like what's typed (searchScores).
+let searchTimer = null;
+function searchPictures() {
+  clearTimeout(searchTimer);
+  const text = filterInput.value.trim();
+  if (!text || !state.autoTagged) {
+    if (searchScores.size) searchScores.clear(), render();
+    return;
+  }
+  searchTimer = setTimeout(() => thumbs.send({ search: { dir: state.path, text } }), 300);
+}
+
+function onSearched({ searched, text, scores = {} }) {
+  if (searched !== state.path || text !== filterInput.value.trim()) return; // typed on since
+  searchScores.clear();
+  for (const [p, s] of Object.entries(scores)) searchScores.set(p, s);
   render();
-};
+}
 
 // Right-click → "Add tags…": to the selected items; new tags join the list
 // auto-tagging looks for (~/.config/phil/tags.txt), so it finds them in other
@@ -1394,7 +1456,7 @@ async function addTags() {
     await api("/api/tags", { method: "POST", body: JSON.stringify({ paths: targets.map((e) => e.path), tags }) });
     flashStatus(`Tagged ${targets.length === 1 ? targets[0].name : `${targets.length} items`}: ${tags.join(", ")}`);
     refresh();
-    if (state.settings.tags) thumbs.tag(state.path); // the list grew: everything again (from the saved embeddings)
+    if (state.autoTagged) thumbs.tag(state.path); // the list grew: everything again (from the saved embeddings)
   } catch (err) {
     alert(`Couldn't add the tags: ${err.message}`);
   }
@@ -1454,9 +1516,18 @@ async function showProperties(entry) {
   const input = $p("#props-hook"), output = $p(".output"), descInput = $p("#props-desc"), tagsInput = $p("#props-tags");
   tagsInput.value = (p.meta?.tags ?? []).join(", ");
   const found = (autoTags.get(p.path) ?? []).map(([t]) => t).filter((t) => !(p.meta?.tags ?? []).includes(t));
-  $p("#props-found").textContent = `Found by auto-tagging: ${found.join(", ")}`;
-  $p("#props-found").hidden = !found.length;
+  const ownText = carried.get(p.path);
+  $p("#props-found").textContent = [found.length && `Found by auto-tagging: ${found.join(", ")}`, ownText && `The file's own description: ${ownText}`].filter(Boolean).join("\n");
+  $p("#props-found").hidden = !found.length && !ownText;
   $p(".hook").hidden = p.kind !== "file"; // hooks are for files
+  // A folder: auto-tagging its pictures (tagging.js), if set up.
+  const autoBox = $p("#props-autotag");
+  $p(".autotag").hidden = p.kind !== "folder";
+  autoBox.checked = !!p.meta?.autoTags;
+  $p("#props-autotag-hint").textContent = state.init.tagging?.available
+    ? "With SigLIP 2, on this computer: it stores what each picture shows, so typing a description in the filter box (\u201cfoggy forest\u201d) finds them. Keywords and descriptions saved in the files show too."
+    : "Set it up first: run scripts/install-tagging.sh in phil's source folder (several GB: PyTorch and the model).";
+  autoBox.disabled = !state.init.tagging?.available && !autoBox.checked;
   descInput.value = p.meta?.description ?? "";
   input.value = p.meta?.onChange ?? "";
   output.hidden = true;
@@ -1493,12 +1564,13 @@ async function showProperties(entry) {
     const tags = splitTags(tagsInput.value);
     if (tags.join("\n") !== (p.meta?.tags ?? []).join("\n")) changes.tags = tags;
     if (p.kind === "file" && onChange !== (p.meta?.onChange ?? "")) changes.onChange = onChange;
+    if (p.kind === "folder" && autoBox.checked !== !!p.meta?.autoTags) changes.autoTags = autoBox.checked;
     if (!Object.keys(changes).length) return;
     try {
       await api("/api/meta", { method: "PUT", body: JSON.stringify({ path: p.path, ...changes }) });
       if ("onChange" in changes) flashStatus(onChange ? `${p.name}: when it changes, phil runs ${onChange}` : `${p.name}: nothing runs when it changes`);
       refresh();
-      if (changes.tags?.length && state.settings.tags) thumbs.tag(state.path); // the tag list may have grown
+      if ((changes.tags?.length || "autoTags" in changes) && state.autoTagged) thumbs.tag(state.path); // the tag list may have grown
     } catch (err) {
       alert(`Couldn't save: ${err.message}`);
     }
@@ -1835,7 +1907,10 @@ locationInput.addEventListener("keydown", (e) => {
   }
 });
 
-filterInput.addEventListener("input", () => render());
+filterInput.addEventListener("input", () => {
+  render();
+  searchPictures();
+});
 filterInput.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     filterInput.value = "";

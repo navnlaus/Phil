@@ -171,30 +171,39 @@ session.
 ### Tags
 
 The sidebar lists the tags of what's in the folder, with how many have each;
-clicking tags shows only what has all of them. Tags come two ways:
+clicking tags shows only what has all of them. Tiles show their tags under
+the details, and a folder's tile its most common ones. Tags come two ways:
 
 - **By hand**: select pictures (or any files), right-click → "Add tags…", or
   edit a file's tags in Properties. They're kept with its description (and
   follow it when phil renames or moves it).
-- **Auto-tagging** (optional): tick Tags in the sidebar, and phil tags the
-  pictures (and videos) in the folder you're in with
+- **Auto-tagging** (optional, per folder): in a folder's Properties, tick "Tag
+  the pictures in it automatically, and make them findable by what they show"
+  (for the folder you're in, right-click its name in the path at the top). phil
+  then tags its pictures (and videos) with
   [SigLIP 2](https://huggingface.co/google/siglip2-base-patch16-224), on this
-  computer. Set it up once with `scripts/install-tagging.sh`: a Python
-  environment in `~/.local/share/phil/tagging` (it picks the PyTorch that works
-  with your GPU, down to the GTX 10 series, or the CPU's) and the model: about
-  8 GB with PyTorch for an NVIDIA GPU, much less for the CPU. A Python helper does the work, started when there's tagging to do
-  and gone when idle. A picture is looked at once and remembered (by an
-  embedding, next to the thumbnails), so coming back to a folder is instant;
-  on a GTX 1080 Ti new pictures take a few seconds a folder, and most of that
-  is reading the files.
+  computer, whenever it shows the folder, and the filter box finds them by
+  description as well as by name: "foggy forest", "stars at night". Keywords
+  and a description saved in the files themselves (EXIF, XMP, IPTC) show too:
+  the keywords as tags, the description on the tile when phil has none.
+
+  Set it up once with `scripts/install-tagging.sh`: a Python environment in
+  `~/.local/share/phil/tagging` (it picks the PyTorch that works with your GPU,
+  down to the GTX 10 series, or the CPU's) and the model: about 8 GB with
+  PyTorch for an NVIDIA GPU, much less for the CPU. A Python helper does the
+  work, started when there's tagging to do and gone when idle. A picture is
+  looked at once and remembered (its embedding, next to the thumbnails), so
+  coming back to a folder is instant; on a GTX 1080 Ti new pictures take a few
+  seconds a folder, most of it reading the files.
 
 Auto-tagging picks from a list: phil's (`apps/phil/tagging/tags.txt`, about
 130 everyday ones: mountains, beach, city, night sky, document,
 screenshot...) and yours, `~/.config/phil/tags.txt`, which tags added by hand
 join, so it looks for them in other pictures too. A picture gets up to five,
-those it's at least 5% sure of. Names of people and such won't be recognized
-(that's another kind of model). Properties shows what auto-tagging found next
-to the tags given by hand.
+those it's at least 5% sure of. Searching shows what it's at least 1% sure
+of, best first (what's really there scores far above that). Names of people
+and such won't be recognized (that's another kind of model). Properties shows
+what auto-tagging found next to the tags given by hand.
 
 ### PDFs
 
@@ -388,7 +397,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Ctrl+L | type a path (`~` works) |
 | `/` or Ctrl+F | filter |
 | Ctrl+H | show hidden files |
-| F9 | toggle the places sidebar (home folders, drives in /run/media and /mnt, and /etc/fstab's network shares and other mounts; refreshed when the window gets focus) |
+| hover / click the sidebar button, F9 | the places sidebar slides out over the folder / stays open beside it (home folders, drives in /run/media and /mnt, and /etc/fstab's network shares and other mounts; refreshed when the window gets focus) |
 | F4 / Ctrl+` | toggle the terminal panel |
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
 | Ctrl + / − / wheel | thumbnail size |
