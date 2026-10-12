@@ -1283,7 +1283,9 @@ async function deleteMarked() {
 // extension.
 let renaming = null;
 
-function startRename(index) {
+// `whole`: all of the name selected, the extension too (a new item's); `typed`:
+// typed already, in place of it.
+function startRename(index, { whole = false, typed = "" } = {}) {
   const entry = state.view[index];
   const tile = entry && tiles.get(entry.path);
   if (!tile || renaming) return;
@@ -1293,8 +1295,9 @@ function startRename(index) {
   tile.querySelector(".label").append(input);
   tile.scrollIntoView({ block: "nearest" });
   input.focus();
-  const dot = entry.kind === "dir" ? -1 : entry.name.lastIndexOf(".");
-  input.setSelectionRange(0, dot > 0 ? dot : entry.name.length);
+  const dot = entry.kind === "dir" || whole ? -1 : entry.name.lastIndexOf(".");
+  if (typed) input.value = typed;
+  else input.setSelectionRange(0, dot > 0 ? dot : entry.name.length);
   renaming = { entry, input };
   input.addEventListener("keydown", (e) => {
     e.stopPropagation(); // typing a name isn't navigating
@@ -1379,20 +1382,27 @@ function hideContextMenu() {
 // The + button and Insert: a new folder, "Folder" (numbered when there's one
 // already); Super+Insert: a new file, "File.txt". In the folder shown, it's
 // selected with its name ready to type over (Enter keeps it); in another (a
-// folder's menu), the status bar says so.
+// folder's menu), the status bar says so. What's typed before its name field
+// is there (Insert, then the name straight away) goes in the field.
+let typedAhead = null; // the keys typed meanwhile, while a new item is being made here
 async function createIn(dir, kind) {
+  const here = dir === state.path;
+  if (here) typedAhead = "";
   let made;
   try {
     made = await api("/api/create", { method: "POST", body: JSON.stringify({ dir, kind }) });
+    if (!here) return flashStatus(`Made “${made.name}” in ${dir.split("/").pop() || "/"}`);
+    await load(state.path);
   } catch (err) {
+    typedAhead = null;
     return alert(`Couldn't make a new ${kind === "dir" ? "folder" : "file"}: ${err.message}`);
   }
-  if (dir !== state.path) return flashStatus(`Made “${made.name}” in ${dir.split("/").pop() || "/"}`);
-  await load(state.path);
+  const typed = typedAhead ?? "";
+  typedAhead = null;
   const i = state.view.findIndex((e) => e.path === made.path);
   if (i === -1) return flashStatus(`Made “${made.name}”`); // filtered out
   select(i);
-  startRename(i);
+  startRename(i, { whole: true, typed });
 }
 
 // The menu's items for that: "New folder" and "New file" (+ `where`).
@@ -2318,6 +2328,10 @@ document.addEventListener("keydown", (e) => {
   const handled = () => e.preventDefault();
 
   if (dialogOpen()) return; // a dialog handles its own keys
+  if (typedAhead !== null && !e.ctrlKey && !e.metaKey && !e.altKey) { // a new item's name, before its field is there
+    if (e.key.length === 1) return (typedAhead += e.key), handled();
+    if (e.key === "Backspace") return (typedAhead = typedAhead.slice(0, -1)), handled();
+  }
   if (!contextMenu.hidden && e.key === "Escape") return hideContextMenu(), handled();
   if (e.target.closest?.("#term-panel")) return; // keys typed into the shell are the shell's
 
