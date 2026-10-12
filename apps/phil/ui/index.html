@@ -39,6 +39,11 @@
 
   <aside id="sidebar">
     <nav id="places" aria-label="Places"></nav>
+    <section id="tags-panel">
+      <label class="check" title="Tag pictures automatically, with SigLIP 2 on this computer (scripts/install-tagging.sh)"><input type="checkbox" id="tags-on"> Tags</label>
+      <p id="tags-status" class="hint" hidden></p>
+      <nav id="tags" aria-label="Tags"></nav>
+    </section>
   </aside>
 
   <main>
@@ -107,6 +112,9 @@
         <h3>phil</h3>
         <label for="props-desc">Description</label>
         <input id="props-desc" type="text" autocomplete="off" placeholder="shown above the name">
+        <label for="props-tags" class="tags-label">Tags</label>
+        <input id="props-tags" type="text" autocomplete="off" placeholder="separated by commas">
+        <p class="hint" id="props-found" hidden></p>
         <div class="hook">
           <label for="props-hook">When it changes, run</label>
           <div class="hook-row">

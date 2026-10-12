@@ -168,6 +168,34 @@ counts the folders being read. Summaries live next to the thumbnails
 (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for the
 session.
 
+### Tags
+
+The sidebar lists the tags of what's in the folder, with how many have each;
+clicking tags shows only what has all of them. Tags come two ways:
+
+- **By hand**: select pictures (or any files), right-click → "Add tags…", or
+  edit a file's tags in Properties. They're kept with its description (and
+  follow it when phil renames or moves it).
+- **Auto-tagging** (optional): tick Tags in the sidebar, and phil tags the
+  pictures (and videos) in the folder you're in with
+  [SigLIP 2](https://huggingface.co/google/siglip2-base-patch16-224), on this
+  computer. Set it up once with `scripts/install-tagging.sh`: a Python
+  environment in `~/.local/share/phil/tagging` and the model, about 3 GB in all
+  (it picks the PyTorch that works with your GPU, down to the GTX 10 series, or
+  the CPU's). A Python helper does the work, started when there's tagging to do
+  and gone when idle. A picture is looked at once and remembered (by an
+  embedding, next to the thumbnails), so coming back to a folder is instant;
+  on a GTX 1080 Ti new pictures take a few seconds a folder, and most of that
+  is reading the files.
+
+Auto-tagging picks from a list: phil's (`apps/phil/tagging/tags.txt`, about
+130 everyday ones: mountains, beach, city, night sky, document,
+screenshot...) and yours, `~/.config/phil/tags.txt`, which tags added by hand
+join, so it looks for them in other pictures too. A picture gets up to five,
+those it's at least 5% sure of. Names of people and such won't be recognized
+(that's another kind of model). Properties shows what auto-tagging found next
+to the tags given by hand.
+
 ### PDFs
 
 PDFs get a thumbnail of their first page, cropped from the top so the title
@@ -263,6 +291,8 @@ apps/phil/          launch.js (options, window URL), server.js (listing, files,
                     (FileManager1), shell-init.bash, ui/ (ui/vendor: xterm.js 6, MIT)
 apps/jsonedit/      launch.js, server.js, ui/ (json.js: a parser that keeps positions)
 apps/textedit/      launch.js, server.js, ui/ (markdown.js: Markdown to HTML and back)
+apps/phil/tagging.js, tagging/
+                    auto-tagging: tagger.py (the Python helper: SigLIP 2) and tags.txt
 apps/imageview/     launch.js, server.js, ui/
 apps/imageresize/   launch.js, server.js (vips), ui/
 engine/media.js     media kinds by name, vips previews of images WebKit can't show
