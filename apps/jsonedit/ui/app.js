@@ -18,6 +18,11 @@ const doc = {
 // `cursor` (the same row for a single one). A selected object or array takes
 // everything inside it along.
 let cursor = null, anchor = null;
+// Which part of the cursor's row the keys act on: the whole "line", its "key"
+// (an object member's) or its "value". ← → step through them, Home and End go
+// to the line and the last part; copying, pasting, Enter and typing then
+// take just that part.
+let part = "line";
 const expanded = new Set(); // open objects and arrays
 const shown = new WeakMap(); // big containers: how many children are shown
 let rowOf = new WeakMap(); // node -> its row, for the current render
@@ -358,9 +363,11 @@ function selection() {
 }
 
 // Moves the cursor to `node`; `extend` keeps the anchor (Shift), so the rows
-// between are selected.
-function select(node, { extend = false, scroll = true } = {}) {
+// between are selected. `keepPart` stays on the key or value (moving up and
+// down), where the row has one; otherwise it's the whole line again.
+function select(node, { extend = false, scroll = true, keepPart = false } = {}) {
   if (!node) return;
+  if (node !== cursor || extend) part = keepPart && !extend && partsOf(node).includes(part) ? part : keepPart && part !== "line" && !extend ? "value" : "line";
   cursor = node;
   if (!extend) anchor = node;
   paint();
@@ -369,7 +376,7 @@ function select(node, { extend = false, scroll = true } = {}) {
 
 // Marks the selected rows, and the rows inside selected objects and arrays.
 function paint() {
-  for (const row of tree.querySelectorAll(".row.selected, .row.cursor")) row.classList.remove("selected", "cursor");
+  for (const row of tree.querySelectorAll(".row.selected, .row.cursor")) row.classList.remove("selected", "cursor", "part-key", "part-value");
   const top = new Set(selection());
   for (const row of visibleRows()) {
     for (let n = row.node; n; n = n.parent) {
@@ -380,6 +387,7 @@ function paint() {
     }
   }
   rowOf.get(cursor)?.classList.add("cursor");
+  if (part !== "line") rowOf.get(cursor)?.classList.add(`part-${part}`);
   showWhere();
   showCount();
 }
@@ -621,6 +629,38 @@ function copy(nodes) {
   copyText(nodes.map((n) => (n.parent?.type === "object" ? `${JSON.stringify(n.key)}: ` : "") + serialize(n, indent)).join(",\n"));
 }
 
+// The parts of a row ← → step through: the line, an object member's key,
+// and the value (an object's or array's: its {n} / [n]).
+const partsOf = (node) => ["line", ...(node.parent?.type === "object" ? ["key"] : []), "value"];
+
+function stepPart(dir) {
+  const parts = partsOf(cursor);
+  const i = parts.indexOf(part) + dir;
+  if (i < 0) return false; // before the line: ← does what it always did
+  if (i >= parts.length) return false; // past the value: → opens an object or array
+  part = parts[i];
+  paint();
+  return true;
+}
+
+// The key or value part as text, for copying: a key as it is, a value as
+// it's edited (a string without quotes, unless it'd read as something else;
+// an object or array as JSON).
+const partText = (node, which) => (which === "key" ? node.key : isContainer(node) ? serialize(node, indentUnit()) : editText(node));
+
+// Pasting onto a key renames it; onto a value replaces it (JSON as such,
+// anything else as a string).
+function pasteIntoPart(text) {
+  text = text.replace(/\r?\n$/, "");
+  if (part === "key") {
+    if (cursor.parent.children.some((c) => c !== cursor && c.key === text)) return alert(`There's already a key called ${JSON.stringify(text)} here.`);
+    return change(() => (cursor.key = text));
+  }
+  const { node: value, error } = literal(text);
+  if (error) return alert(`The pasted text isn't valid JSON: ${error}`);
+  change(() => replaceValue(cursor, value));
+}
+
 // Text selected inside a key or value (dragged over), if any.
 function selectedText() {
   if (!tree.querySelector(".selecting") || getSelection().isCollapsed) return "";
@@ -831,6 +871,11 @@ tree.addEventListener("keydown", (e) => {
   if (clip) {
     e.preventDefault();
     const text = selectedText();
+    if (part !== "line" && selection().length === 1) { // just the key or the value
+      if (clip === "paste") pasteText().then((t) => t && pasteIntoPart(t));
+      else copyText(partText(cursor, part));
+      return;
+    }
     if (clip === "paste") pasteText().then(paste);
     else if (text) copyText(text);
     else {
@@ -841,7 +886,7 @@ tree.addEventListener("keydown", (e) => {
   }
   const rows = visibleRows();
   const i = rows.indexOf(rowOf.get(cursor));
-  const go = (j) => select(rows[Math.max(0, Math.min(rows.length - 1, j))]?.node, { extend: shift });
+  const go = (j) => select(rows[Math.max(0, Math.min(rows.length - 1, j))]?.node, { extend: shift, keepPart: true });
   const page = Math.max(1, Math.floor(tree.clientHeight / 24) - 1);
   const node = cursor;
   const nodes = selection();
@@ -853,16 +898,20 @@ tree.addEventListener("keydown", (e) => {
   else if (k === "ArrowDown") go(i + 1);
   else if (k === "PageUp") go(i - page);
   else if (k === "PageDown") go(i + page);
-  else if (k === "Home") go(0);
-  else if (k === "End") go(rows.length - 1);
-  else if (k === "ArrowLeft" && !shift) expanded.has(node) && node.children.length ? toggle(node, false) : select(node.parent);
-  else if (k === "ArrowRight" && !shift) isContainer(node) && node.children.length && (expanded.has(node) ? select(node.children[0]) : toggle(node, true));
+  else if (ctrl && k === "Home") go(0);
+  else if (ctrl && k === "End") go(rows.length - 1);
+  else if (k === "Home" && !shift) (part = "line"), paint();
+  else if (k === "End" && !shift) (part = partsOf(node).at(-1)), paint();
+  else if (k === "ArrowLeft" && !shift) stepPart(-1) || (expanded.has(node) && node.children.length ? toggle(node, false) : select(node.parent));
+  else if (k === "ArrowRight" && !shift) stepPart(1) || (isContainer(node) && node.children.length && (expanded.has(node) ? select(node.children[0]) : toggle(node, true)));
   else if (ctrl && k.toLowerCase() === "a") select(rows[0].node), select(rows.at(-1).node, { extend: true });
+  else if (k === "Escape" && part !== "line") (part = "line"), paint(); // back to the whole line first
   else if (k === "Escape") nodes.length > 1 ? select(cursor) : embedded ? close() : clearTextSelection();
   else if (k === "Delete" || k === "Backspace") remove(nodes);
   else if (ctrl && k.toLowerCase() === "d") duplicate(nodes);
   else if (nodes.length > 1 && (k === "Enter" || k === "F2" || k === " " || k === "Insert")) select(cursor);
   else if (ctrl && k === "Enter") isContainer(node) ? addInside(node) : addAfter(node);
+  else if (k === "Enter" && part !== "line") edit(node, part); // the key or the value, as selected
   else if (k === "Enter") isContainer(node) ? toggle(node) : edit(node, "value");
   else if (k === "F2") node.parent?.type === "object" ? edit(node, "key") : !isContainer(node) && edit(node, "value");
   else if (k === " ") node.type === "boolean" ? change(() => (node.value = !node.value)) : toggle(node);
@@ -871,6 +920,8 @@ tree.addEventListener("keydown", (e) => {
   else if (k === "ContextMenu") {
     const r = rowOf.get(node).getBoundingClientRect();
     showMenu(r.left + 40, r.bottom);
+  } else if (k.length === 1 && !ctrl && !e.altKey && part === "key" && nodes.length === 1) {
+    edit(node, "key", { text: k }); // typing on a key replaces it
   } else if (k.length === 1 && !ctrl && !e.altKey && !isContainer(node) && nodes.length === 1) {
     edit(node, "value", { text: k }); // typing on a value replaces it, like in a spreadsheet
   } else return;
