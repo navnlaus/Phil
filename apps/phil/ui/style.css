@@ -5,6 +5,7 @@
   --thumb-bg: #1b1d21;
   --folder: #7fb0ff;
   --tile: 224px;
+  --bar-h: 37px; /* the top bar: 30px controls, 3px above and below, its 1px border */
 }
 
 @media (prefers-color-scheme: light) {
@@ -59,7 +60,7 @@ button.toggle[aria-pressed="true"] { background: var(--accent-bg); color: var(--
   bottom: 0;
   left: 0;
   width: 180px;
-  padding: 40px 4px 6px;
+  padding: 0 4px 6px;
   overflow-y: auto;
   background: var(--bg-side);
   border-right: 1px solid var(--border);
@@ -74,6 +75,23 @@ body.peek #sidebar {
   transition: transform 0.16s ease;
 }
 body.sidebar { grid-template-columns: 180px minmax(0, 1fr); }
+
+/* The sidebar's header: exactly as tall as the top bar, which covers it
+   whenever it's showing. */
+#sidebar .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--bar-h);
+  margin-bottom: 3px;
+  padding: 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  user-select: none;
+}
+#sidebar .brand svg { width: 17px; height: 17px; color: var(--accent); fill: color-mix(in srgb, var(--accent) 22%, transparent); }
 body.sidebar #sidebar { position: static; transform: none; visibility: visible; box-shadow: none; transition: none; }
 
 #places a {
@@ -154,6 +172,8 @@ main {
   position: fixed; /* over the whole window: the sidebar too */
   z-index: 7;
   top: 0;
+  height: var(--bar-h);
+  background: var(--bg); /* solid: it covers the sidebar's header */
   display: flex;
   align-items: center;
   gap: 4px;
