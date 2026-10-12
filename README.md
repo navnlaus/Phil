@@ -160,7 +160,8 @@ changes inside it. F5 still reloads by hand.
 ### Folder tiles
 
 A folder's tile shows what it holds: how many folders and files, the files'
-total size (not counting subfolders), and previews of its first four files in
+size, then (with subfolders) the size of everything in it, like `du -s`
+("3 folders · 17 files · 56 MB / 1.2 GB"), and previews of its first four files in
 the current sort order that have one: images, videos and text files (files
 without one, like archives, are skipped). When a folder tile scrolls into view
 without that information, or the folder changed since (say a file was deleted
@@ -168,7 +169,10 @@ in the terminal), or the view is sorted differently, phil reads the folder in
 the background, makes those previews and saves the result. The status bar
 counts the folders being read. Summaries live next to the thumbnails
 (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for the
-session.
+session. The total is du's, in the background (… until then), on the folder's
+own file system; it's worked out again when the folder changed or after 10
+minutes, kept in `folder-totals.json` there. Network shares and the kernel's
+folders (`/proc`, `/sys`) get none.
 
 ### Tags
 

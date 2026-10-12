@@ -11,6 +11,7 @@ import { taggable, Tagging } from "./tagging.js";
 import { home, serverConfig } from "./launch.js";
 import { canWrite, folderSize, me, properties } from "./properties.js";
 import { isTextFile, textHead, textPreview } from "./texthead.js";
+import { FolderTotals } from "./foldertotals.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
@@ -23,6 +24,7 @@ export function createServer({ profile, controlSocket }) {
   const sockets = new Set(); // every page's WebSocket, for {theme}
   const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
   const folders = new FolderSummaries(config.incognito ? null : join(thumbs.dir, "folders"));
+  const totals = new FolderTotals(config.incognito ? null : thumbs.dir);
   const shown = new Map(); // page WebSocket -> the folder it shows
   // A hook ran: the windows showing its folder say so.
   const hooks = new Hooks(metadataFile(config.settingsFile), {
@@ -208,7 +210,10 @@ export function createServer({ profile, controlSocket }) {
         entry.writable = canWrite(stat, folder, who);
       }
       if (stat && (kind === "image" || kind === "video" || kind === "pdf")) entry.thumb = await thumbs.lookup(path, stat);
-      if (kind === "dir") entry.summary = await folders.get(path);
+      if (kind === "dir") {
+        entry.summary = await folders.get(path);
+        entry.total = await totals.get(path, entry.mtime); // { bytes, stale } or null; the page asks for stale ones
+      }
       return entry;
     });
   }
@@ -277,6 +282,7 @@ export function createServer({ profile, controlSocket }) {
         tagJob = msg.tag ? new AbortController() : null;
         if (tagJob) tagFolder(msg.tag, tagJob.signal, send).catch(() => {});
       }
+      for (const path of msg.totals ?? []) totals.refresh(path, (bytes) => send({ totalOf: path, bytes })); // {totals: [folder]}: du, then {totalOf, bytes}
       for (const path of msg.cancel ?? []) pending.get(path)?.abort();
       for (const path of msg.want ?? []) {
         if (pending.has(path)) continue;
