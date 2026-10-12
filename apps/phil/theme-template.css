@@ -1,5 +1,6 @@
-/* NAME: a theme, from scratch. Change anything: every window of every phil
-   app follows each save. Pick another theme in phil's bottom bar.
+/* NAME: a theme, from scratch (made from overlay). Change anything: every
+   window of every phil app follows each save. Pick another theme in phil's
+   bottom bar.
 
    Only the theme in use is loaded, after the apps' own styles, so plain
    selectors win over theirs. It's loaded by every app (phil, the editors,
@@ -99,11 +100,11 @@ body {
    A tile is .tile (and .dir, .image, .video, .pdf or .file; .selected;
    .hidden-file) holding .thumb, the picture (a folder's: a tab,
    .thumb::before, over a face, .face), and .label: .desc (a description
-   from Properties), .name, then .meta (size and date, or what a folder
-   holds). --tile is a tile's width, set by the zoom. The label is laid over
-   the bottom of the picture; for it to sit under the picture instead, give
-   .tile a --label-h (its height). Rules are under .tile: other apps have
-   labels too. */
+   from Properties), .name, .meta (size and date, or what a folder holds),
+   then .tags. --tile is a tile's width, set by the zoom. The label is laid
+   over the bottom of the picture; for it to sit under the picture instead,
+   give .tile a --label-h (its height). Rules are under .tile: other apps
+   have labels too. */
 
 /* The tiles: their corners, and the space between them. */
 .tile {
@@ -115,33 +116,35 @@ body {
 
 /* The label: over the picture, on a shadow that fades in from the top. */
 .tile .label {
-  gap: 2px;
-  padding: 22px 8px 6px;
+  gap: 2px; /* between the lines */
+  padding: 22px 8px 5px;
   color: #fff;
-  background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.75));
+  background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.45) 45%, rgba(0, 0, 0, 0.8));
 }
 
 /* The name. */
 .tile .label .name {
-  font-size: 11px;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 /* Size and date, or what a folder holds. */
 .tile .label .meta {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 9.5px;
+  color: rgba(255, 255, 255, 0.72);
 }
 
 /* The description, from Properties, over the name. */
 .tile .label .desc {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.8);
+  margin: 2px 0;
+  font-size: 13px;
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.72);
 }
 
-/* The lock and link marks before a name (red: can't be changed without sudo). */
-.tile .label .name svg.state.locked {
-  color: #ff6b6b;
+/* The lock and link marks before a name (red: can't be changed without sudo):
+   light enough for the shadow, whatever the desktop's colors. */
+.tile .label {
+  --locked: #ff6b6b;
 }
 
 /* Folders: how far the face is inset from the tile (top right bottom left). */
@@ -149,9 +152,12 @@ body {
   --face: 13% 0 0 0;
 }
 
-/* A folder's tab, over the face. */
+/* A folder's tab, over the face; and the face's corners. */
 .tile.dir .thumb::before {
   left: 0;
+}
+.tile.dir .face {
+  border-radius: 0 6px 0 0;
 }
 
 /* A tile under the pointer. */

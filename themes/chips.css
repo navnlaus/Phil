@@ -1,34 +1,136 @@
-/* One of phil's themes: how names and details sit on the tiles. Picked with
-   "theme" in ~/.config/phil/settings.json (its file name, without .css);
-   shared colors and controls are in base.css. The rules start with
-   body[data-theme="..."] so they outweigh phil's own tile rules. */
+/* chips: the name in a frosted chip at the bottom; the details in another at
+   the top, on hover and for the selection. Change anything: every window of
+   every phil app follows each save. Pick another theme in phil's bottom
+   bar.
 
-/* chips: the name in a frosted chip at the bottom; details in one at the top,
-   shown on hover and for the selection. */
-body[data-theme="chips"] .label {
-  --locked: #ff6b6b;
+   Only the theme in use is loaded, after the apps' own styles, so plain
+   selectors win over theirs. It's loaded by every app (phil, the editors,
+   the image viewer and resizer): the palette below colors them all; the
+   tile rules further down only mean something to phil.
+
+   base.css, in this folder, has the controls every app shares (buttons,
+   fields, bars) and the palette's defaults; the variables below override
+   them. A variable left out keeps its default. */
+
+/* ---------------------------------------------------------------- palette */
+
+/* Dark (also when the desktop is light, unless the light block says otherwise). */
+:root {
+  --bg: #16171a;            /* the page */
+  --bg-side: #121316;       /* sidebars, panels, the editors' gutter */
+  --bg-raised: #1f2125;     /* buttons, menus, dialogs */
+  --bg-hover: #26292e;      /* under the pointer */
+  --border: #2c2f35;
+  --text: #e6e7ea;
+  --text-dim: #8d929b;      /* details, hints */
+  --accent: #5b9dff;        /* focus, links, what's on */
+  --accent-bg: rgba(91, 157, 255, 0.16); /* selected, on */
+  --selection: rgba(91, 157, 255, 0.32); /* selected text */
+  --error: #ff6b6b;
+  --error-bg: rgba(255, 107, 107, 0.14);
+  --good: #7fd18b;          /* saved, smaller */
+  --danger: #c94b4b;        /* delete, close */
+  --locked: #ff6b6b;        /* can't be changed without sudo */
+  --stage: #0c0d0f;         /* behind pictures in the viewer and resizer */
+
+  /* phil's tiles */
+  --thumb-bg: #1b1d21;      /* behind a thumbnail, and text tiles */
+  --folder: #7fb0ff;        /* folders' color */
+
+  /* syntax: textedit, jsonedit, phil's text tiles */
+  --s-comment: #6f7682;
+  --s-string: #a8d68f;
+  --s-number: #e8b36b;
+  --s-keyword: #c792ea;
+  --s-literal: #d79bea;     /* true, false, null */
+  --s-type: #7fd6c2;
+  --s-fn: #82aaff;
+  --s-attr: #9cc4ff;        /* JSON keys, attributes */
+  --s-variable: #f07178;
+  --s-meta: #89ddff;
+  --s-heading: #ffcb6b;     /* Markdown headings, bold */
+
+  color-scheme: dark;       /* scrollbars and form controls: dark or light */
 }
-body[data-theme="chips"] .label {
+
+/* Light, when the desktop is (delete this block to stay dark). */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fafafa;
+    --bg-side: #f2f3f5;
+    --bg-raised: #ffffff;
+    --bg-hover: #e8eaee;
+    --border: #dcdfe4;
+    --text: #1c1e22;
+    --text-dim: #6a707a;
+    --accent: #2f6fe0;
+    --accent-bg: rgba(47, 111, 224, 0.12);
+    --selection: rgba(47, 111, 224, 0.25);
+    --error: #c93636;
+    --error-bg: rgba(201, 54, 54, 0.1);
+    --good: #2e8a3e;
+    --locked: #d33a3a;
+    --stage: #2a2c30;
+    --thumb-bg: #eceef1;
+    --folder: #3d7ee8;
+    --s-comment: #8a909b;
+    --s-string: #3d7a24;
+    --s-number: #a3620c;
+    --s-keyword: #8a3fa6;
+    --s-literal: #8a3fa6;
+    --s-type: #16807a;
+    --s-fn: #2257b8;
+    --s-attr: #2257b8;
+    --s-variable: #b8323f;
+    --s-meta: #1b7aa8;
+    --s-heading: #9a5b00;
+    color-scheme: light;
+  }
+}
+
+/* The type everywhere, and the code font (editors, text tiles). */
+body {
+  /* font-family: "Inter", system-ui, sans-serif; */
+}
+:root {
+  /* --mono: "JetBrains Mono", ui-monospace, monospace; */
+}
+
+/* ---------------------------------------------------------------- phil's tiles
+
+   A tile is .tile (and .dir, .image, .video, .pdf or .file; .selected;
+   .hidden-file) holding .thumb, the picture (a folder's: a tab,
+   .thumb::before, over a face, .face), and .label: .desc (a description
+   from Properties), .name, .meta (size and date, or what a folder holds),
+   then .tags. --tile is a tile's width, set by the zoom. The label is laid
+   over the bottom of the picture; for it to sit under the picture instead,
+   give .tile a --label-h (its height). Rules are under .tile: other apps
+   have labels too. */
+
+/* The tiles: their corners, and the space between them. */
+.tile {
+  /* border-radius: 8px; */
+}
+#grid {
+  /* gap: 2px; */
+}
+
+/* The label: chips over the picture. Laid out bottom up: the name, the
+   description over it, and the details at the top. */
+.tile .label {
   inset: 0;
-  padding: 6px;
-  justify-content: space-between;
-  align-items: flex-start;
-  flex-direction: column-reverse;
-}
-/* bottom up: the name, the description over it, the details at the top */
-body[data-theme="chips"] .label {
-  justify-content: flex-start;
   gap: 3px;
+  padding: 6px;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  align-items: flex-start;
+  --locked: #ff6b6b; /* the lock and link marks, light enough for the chips */
 }
-body[data-theme="chips"] .label .desc {
-  order: 1;
-  align-self: flex-start;
-}
-body[data-theme="chips"] .label .meta {
-  order: 2;
-  margin-bottom: auto;
-}
-body[data-theme="chips"] .label .name, body[data-theme="chips"] .label .meta, body[data-theme="chips"] .label .desc {
+
+/* Every chip: name, details, description. */
+.tile .label .name,
+.tile .label .meta,
+.tile .label .desc {
   max-width: 100%;
   padding: 2px 7px;
   border-radius: 6px;
@@ -36,29 +138,55 @@ body[data-theme="chips"] .label .name, body[data-theme="chips"] .label .meta, bo
   background: rgba(20, 22, 26, 0.62);
   backdrop-filter: blur(6px);
 }
-body[data-theme="chips"] .label .meta {
+
+/* The description, from Properties, over the name. */
+.tile .label .desc {
+  order: 1;
+  align-self: flex-start;
+}
+
+/* Size and date, or what a folder holds: at the top right, shown on hover
+   and for the selection. */
+.tile .label .meta {
+  order: 2;
+  margin-bottom: auto;
   align-self: flex-end;
   font-size: 9.5px;
   color: rgba(255, 255, 255, 0.85);
   opacity: 0;
   transition: opacity 0.12s;
 }
-body[data-theme="chips"] .tile:is(:hover, .selected) .label .meta {
+.tile:is(:hover, .selected) .label .meta {
   opacity: 1;
 }
-/* beside the ▶ */
-body[data-theme="chips"] .tile.video .label .meta {
-  margin-right: 24px;
+.tile.video .label .meta {
+  margin-right: 24px; /* beside the ▶ */
 }
-body[data-theme="chips"] .tile.dir {
+
+/* Renaming: the name field as wide as the tile. */
+.tile .label .rename {
+  align-self: stretch;
+}
+
+/* Folders: how far the face is inset from the tile (top right bottom left),
+   where the tab sits, and room for the chips inside the face. */
+.tile.dir {
   --face: 13% 4% 4% 4%;
 }
-body[data-theme="chips"] .tile.dir .thumb::before {
+.tile.dir .thumb::before {
   left: 4%;
 }
-body[data-theme="chips"] .tile.dir .label {
+.tile.dir .label {
   padding: calc(13% + 5px) calc(4% + 5px) calc(4% + 5px);
 }
-body[data-theme="chips"] .label .rename {
-  align-self: stretch;
+
+/* A tile under the pointer. */
+.tile:hover::after {
+  /* background: rgba(255, 255, 255, 0.07); */
+}
+
+/* The selected tile. */
+.tile.selected::after {
+  /* background: var(--accent-bg); */
+  /* box-shadow: inset 0 0 0 2px var(--accent); */
 }

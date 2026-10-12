@@ -1,38 +1,172 @@
-/* One of phil's themes: how names and details sit on the tiles. Picked with
-   "theme" in ~/.config/phil/settings.json (its file name, without .css);
-   shared colors and controls are in base.css. The rules start with
-   body[data-theme="..."] so they outweigh phil's own tile rules. */
+/* overlay: names and details over the bottom of the picture, on a shadow.
+   Change anything: every window of every phil app follows each save. Pick
+   another theme in phil's bottom bar.
 
-/* overlay: over the thumbnail, on a fading shadow; name and details left. */
-body[data-theme="overlay"] .label {
-  gap: 2px; /* between the name and the details */
+   Only the theme in use is loaded, after the apps' own styles, so plain
+   selectors win over theirs. It's loaded by every app (phil, the editors,
+   the image viewer and resizer): the palette below colors them all; the
+   tile rules further down only mean something to phil.
+
+   base.css, in this folder, has the controls every app shares (buttons,
+   fields, bars) and the palette's defaults; the variables below override
+   them. A variable left out keeps its default. */
+
+/* ---------------------------------------------------------------- palette */
+
+/* Dark (also when the desktop is light, unless the light block says otherwise). */
+:root {
+  --bg: #16171a;            /* the page */
+  --bg-side: #121316;       /* sidebars, panels, the editors' gutter */
+  --bg-raised: #1f2125;     /* buttons, menus, dialogs */
+  --bg-hover: #26292e;      /* under the pointer */
+  --border: #2c2f35;
+  --text: #e6e7ea;
+  --text-dim: #8d929b;      /* details, hints */
+  --accent: #5b9dff;        /* focus, links, what's on */
+  --accent-bg: rgba(91, 157, 255, 0.16); /* selected, on */
+  --selection: rgba(91, 157, 255, 0.32); /* selected text */
+  --error: #ff6b6b;
+  --error-bg: rgba(255, 107, 107, 0.14);
+  --good: #7fd18b;          /* saved, smaller */
+  --danger: #c94b4b;        /* delete, close */
+  --locked: #ff6b6b;        /* can't be changed without sudo */
+  --stage: #0c0d0f;         /* behind pictures in the viewer and resizer */
+
+  /* phil's tiles */
+  --thumb-bg: #1b1d21;      /* behind a thumbnail, and text tiles */
+  --folder: #7fb0ff;        /* folders' color */
+
+  /* syntax: textedit, jsonedit, phil's text tiles */
+  --s-comment: #6f7682;
+  --s-string: #a8d68f;
+  --s-number: #e8b36b;
+  --s-keyword: #c792ea;
+  --s-literal: #d79bea;     /* true, false, null */
+  --s-type: #7fd6c2;
+  --s-fn: #82aaff;
+  --s-attr: #9cc4ff;        /* JSON keys, attributes */
+  --s-variable: #f07178;
+  --s-meta: #89ddff;
+  --s-heading: #ffcb6b;     /* Markdown headings, bold */
+
+  color-scheme: dark;       /* scrollbars and form controls: dark or light */
+}
+
+/* Light, when the desktop is (delete this block to stay dark). */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fafafa;
+    --bg-side: #f2f3f5;
+    --bg-raised: #ffffff;
+    --bg-hover: #e8eaee;
+    --border: #dcdfe4;
+    --text: #1c1e22;
+    --text-dim: #6a707a;
+    --accent: #2f6fe0;
+    --accent-bg: rgba(47, 111, 224, 0.12);
+    --selection: rgba(47, 111, 224, 0.25);
+    --error: #c93636;
+    --error-bg: rgba(201, 54, 54, 0.1);
+    --good: #2e8a3e;
+    --locked: #d33a3a;
+    --stage: #2a2c30;
+    --thumb-bg: #eceef1;
+    --folder: #3d7ee8;
+    --s-comment: #8a909b;
+    --s-string: #3d7a24;
+    --s-number: #a3620c;
+    --s-keyword: #8a3fa6;
+    --s-literal: #8a3fa6;
+    --s-type: #16807a;
+    --s-fn: #2257b8;
+    --s-attr: #2257b8;
+    --s-variable: #b8323f;
+    --s-meta: #1b7aa8;
+    --s-heading: #9a5b00;
+    color-scheme: light;
+  }
+}
+
+/* The type everywhere, and the code font (editors, text tiles). */
+body {
+  /* font-family: "Inter", system-ui, sans-serif; */
+}
+:root {
+  /* --mono: "JetBrains Mono", ui-monospace, monospace; */
+}
+
+/* ---------------------------------------------------------------- phil's tiles
+
+   A tile is .tile (and .dir, .image, .video, .pdf or .file; .selected;
+   .hidden-file) holding .thumb, the picture (a folder's: a tab,
+   .thumb::before, over a face, .face), and .label: .desc (a description
+   from Properties), .name, .meta (size and date, or what a folder holds),
+   then .tags. --tile is a tile's width, set by the zoom. The label is laid
+   over the bottom of the picture; for it to sit under the picture instead,
+   give .tile a --label-h (its height). Rules are under .tile: other apps
+   have labels too. */
+
+/* The tiles: their corners, and the space between them. */
+.tile {
+  /* border-radius: 8px; */
+}
+#grid {
+  /* gap: 2px; */
+}
+
+/* The label: over the picture, on a shadow that fades in from the top. */
+.tile .label {
+  gap: 2px; /* between the lines */
   padding: 22px 8px 5px;
   color: #fff;
   background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.45) 45%, rgba(0, 0, 0, 0.8));
 }
-body[data-theme="overlay"] .label .name {
+
+/* The name. */
+.tile .label .name {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
-body[data-theme="overlay"] .label .meta {
+
+/* Size and date, or what a folder holds. */
+.tile .label .meta {
   font-size: 9.5px;
   color: rgba(255, 255, 255, 0.72);
 }
-body[data-theme="overlay"] .label .desc {
-  color: rgba(255, 255, 255, 0.72);
-  font-style: normal;
+
+/* The description, from Properties, over the name. */
+.tile .label .desc {
+  margin: 2px 0;
   font-size: 13px;
-  margin: 2px 0px;
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.72);
 }
-/* on the dark shadow, light desktop or not */
-body[data-theme="overlay"] .label {
+
+/* The lock and link marks before a name (red: can't be changed without sudo):
+   light enough for the shadow, whatever the desktop's colors. */
+.tile .label {
   --locked: #ff6b6b;
 }
-body[data-theme="overlay"] .tile.dir {
+
+/* Folders: how far the face is inset from the tile (top right bottom left). */
+.tile.dir {
   --face: 13% 0 0 0;
 }
-body[data-theme="overlay"] .tile.dir .thumb::before {
+
+/* A folder's tab, over the face; and the face's corners. */
+.tile.dir .thumb::before {
   left: 0;
 }
-body[data-theme="overlay"] .tile.dir .face {
+.tile.dir .face {
   border-radius: 0 6px 0 0;
+}
+
+/* A tile under the pointer. */
+.tile:hover::after {
+  /* background: rgba(255, 255, 255, 0.07); */
+}
+
+/* The selected tile. */
+.tile.selected::after {
+  /* background: var(--accent-bg); */
+  /* box-shadow: inset 0 0 0 2px var(--accent); */
 }

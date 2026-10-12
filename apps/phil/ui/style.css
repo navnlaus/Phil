@@ -83,7 +83,7 @@ body.sidebar { grid-template-columns: 180px minmax(0, 1fr); }
   align-items: center;
   height: var(--bar-h);
   margin-bottom: 3px;
-  padding-left: 44px; /* beside the sidebar button */
+  padding: 5px 0 0 38px; /* beside the sidebar button, level with it */
   font: 400 16px/1 "URW Gothic", "Adwaita Sans", system-ui, sans-serif; /* geometric, light, spaced out */
   letter-spacing: 0.34em;
   color: var(--text);
