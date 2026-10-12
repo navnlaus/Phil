@@ -44,7 +44,7 @@ async function openFile(path) {
   ta.setSelectionRange(0, 0);
   ta.scrollTop = ta.scrollLeft = 0;
   guessIndent(doc.saved);
-  setLanguage(detectLanguage(doc.path, doc.saved));
+  setLanguage(doc.document ? "markdown" : detectLanguage(doc.path, doc.saved)); // a document comes as Markdown
   if (doc.lang === "markdown") showView();
   else showCode();
   showFile();
