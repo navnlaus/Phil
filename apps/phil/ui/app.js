@@ -281,7 +281,8 @@ function drawText(box) {
   const pad = Math.max(3, w * 0.04);
   const charW = prose ? 0.5 : 0.6; // average character width, in ems
   const sizeOf = (kind, body) => (HEADING[kind] ? Math.max(body * HEADING[kind][0], HEADING[kind][1]) : body);
-  const height = (body) => lines.reduce((sum, [kind]) => sum + sizeOf(kind, body) * LINE_HEIGHT, 0);
+  const rowOf = (kind, body) => (kind === "tsep" ? body * 0.6 : sizeOf(kind, body) * LINE_HEIGHT); // a table's header rule is a thin line
+  const height = (body) => lines.reduce((sum, [kind]) => sum + rowOf(kind, body), 0);
   // As large as fits: at most 11px, and narrow enough for the typical line.
   const widths = lines.map(([, t]) => t.trimEnd().length).filter(Boolean).sort((a, b) => a - b);
   const cols = Math.max(30, Math.min(100, widths[Math.floor(widths.length * 0.9)] ?? 30));
@@ -305,11 +306,31 @@ function drawText(box) {
   // (Markdown, plain text) looks like a document instead.
   const runs = prose ? null : box.text.runs;
   if (!prose && !runs) highlightText(box);
+  // Markdown tables: their cells in columns, as wide as each column's widest
+  // cell; the header (the row over the "|---|" line) bold, the line a rule.
+  const tables = new Map(); // a table row's index -> { cols: x of each column, width, header }
+  if (prose) {
+    ctx.font = `400 ${body}px ${family}`;
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i][0].startsWith("t")) continue;
+      const start = i;
+      while (i < lines.length && lines[i][0].startsWith("t")) i++;
+      const rows = lines.slice(start, i).map(([kind, t]) => (kind === "tr" ? cellsOf(t) : null));
+      const widths = [];
+      rows.forEach((cells) => cells?.forEach((c, j) => (widths[j] = Math.max(widths[j] ?? 0, ctx.measureText(c).width * 1.1)))); // bold is wider
+      const gap = body * 1.4, cols = [];
+      let x = pad;
+      for (const cw of widths) cols.push(x), (x += cw + gap);
+      rows.forEach((cells, k) => tables.set(start + k, { cells, cols, width: x - gap - pad, header: lines[start + k + 1]?.[0] === "tsep" }));
+    }
+  }
   let y = pad * 0.6;
   lines.forEach(([kind, text], i) => {
     const size = sizeOf(kind, body);
-    y += size * LINE_HEIGHT;
+    y += rowOf(kind, body);
     if (y - size > h || !text.trim()) return;
+    const table = tables.get(i);
+    if (table) return drawRow(table, y, size);
     const heading = !!HEADING[kind];
     const plain = heading ? strong : dim;
     let line = runs?.[i] ?? [[text, null]];
@@ -335,7 +356,28 @@ function drawText(box) {
       }
     }
   });
+
+  function drawRow({ cells, cols, width, header }, y, size) {
+    if (!cells) { // the rule under the header
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = dim;
+      ctx.fillRect(pad, y - size * 0.35, width, Math.max(0.5, size * 0.08));
+      return;
+    }
+    ctx.globalAlpha = header ? 1 : 0.9;
+    ctx.fillStyle = header ? strong : dim;
+    cells.forEach((cell, j) => {
+      if (cols[j] > w) return;
+      if (size * dpr >= 3) {
+        ctx.font = `${header ? 700 : 400} ${size}px ${family}`;
+        ctx.fillText(cell, cols[j], y - size * 0.3);
+      } else if (cell) ctx.fillRect(cols[j], y - size, cell.length * size * charW, size * 0.75);
+    });
+  }
 }
+
+// A Markdown table row's cells: "| a | b |" -> ["a", "b"] (an escaped \| stays).
+const cellsOf = (row) => row.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
 
 // Text tiles are drawn plain at once, and again in color when the syntax
 // worker (engine/ui/syntax-worker.js) has highlighted them, in the background.

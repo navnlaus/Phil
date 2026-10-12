@@ -7,6 +7,7 @@ const MAX_CHARS = 200; // per line
 /**
  * The start of a text file, for drawing on its tile (ui/app.js): up to 400
  * lines (`maxLines`, of up to `maxChars` characters), each [kind, text] where kind is "h1".."h6" for a Markdown heading,
+ * "tr" for a Markdown table's row and "tsep" for the line under its header,
  * "c" for a comment line and "" otherwise. `prose`: Markdown or plain text,
  * drawn in a proportional font. `name`: the file's, for its highlighting. null for files that aren't text (binary, or
  * not UTF-8) or are empty.
@@ -24,7 +25,8 @@ export async function textHead(path, { maxLines = MAX_LINES, maxChars = MAX_CHAR
     const trimmed = line.trimStart();
     if (markdown && trimmed.startsWith("```")) fenced = !fenced;
     const heading = markdown && !fenced && /^(#{1,6})\s/.exec(trimmed);
-    const kind = heading ? `h${heading[1].length}` : comment?.test(trimmed) ? "c" : "";
+    const table = markdown && !fenced && /^\|.*\|\s*$/.test(trimmed);
+    const kind = heading ? `h${heading[1].length}` : table ? (/^[|\s:-]+$/.test(trimmed) ? "tsep" : "tr") : comment?.test(trimmed) ? "c" : "";
     return [kind, line];
   });
   if (!lines.some(([, l]) => l.trim())) return null;
