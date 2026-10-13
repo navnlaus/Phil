@@ -348,9 +348,10 @@ to another host, are refused), static files and window management.
 - On NVIDIA, `__NV_DISABLE_EXPLICIT_SYNC=1` is set automatically. Without it,
   WebKitGTK crashes on Wayland with "Error 71 (Protocol error)". The other common
   fix, `WEBKIT_DISABLE_DMABUF_RENDERER=1`, also works but switches WebKit to CPU
-  rendering, which makes scrolling sluggish. The NVDEC hardware video decoders
-  are also ranked out (`GST_PLUGIN_FEATURE_RANK`): WebKit's player can't take
-  their frames and freezes, so the built-in player decodes in software.
+  rendering, which makes scrolling sluggish. Video is decoded on the GPU (the
+  NVDEC decoders): WebKit's player shows H.264 from the software decoders as
+  solid green here. Should NVDEC freeze a video on its first frame (it once did,
+  handing its frames over in CUDA memory), `PHIL_SOFTWARE_VIDEO=1` ranks it out.
 - WebKit's player never loads Matroska files with embedded subtitles; after six
   seconds the viewer says so. Double-click plays videos in mpv anyway.
 
@@ -624,10 +625,15 @@ them at the bottom of its sidebar; double-click one to show it in that window
   even when it's found again.
 - **The video** is the camera's own H.264, not re-encoded: ffmpeg copies its
   RTSP stream into fragmented MP4, which the page plays through Media Source
-  Extensions, about half a second behind live (when it falls further behind, it
-  plays a little faster until it's caught up). The camera's streams are in the
-  top bar (main, sub: Q switches); an H.265 camera is converted to H.264 on the
-  way. ffmpeg stops when the window does.
+  Extensions (decoded on the GPU), about half a second behind live (when it
+  falls further behind, it plays a little faster until it's caught up). The
+  camera's streams are in the top bar (main, sub: Q switches). ffmpeg stops
+  when the window does.
+- **If the player can't show it** (an H.265 camera, or a player that shows
+  solid green or a frozen frame, which camview checks 3 seconds in), it tries
+  the stream re-encoded as plain H.264, then as JPEG pictures (MJPEG, no video
+  player at all), and logs what it found (`camview: ...` in phil's log). The
+  last two cost the computer some CPU, and are scaled to at most 1920 wide.
 - **Turning it**: hold an arrow (bottom right; the diagonals too) or the arrow
   keys (two at once: diagonally), + and − zoom when it can, the slider is the
   speed, Space stops. A held move is repeated every half second and the

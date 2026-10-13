@@ -7,10 +7,10 @@
 // explicit sync keeps GPU rendering; WEBKIT_DISABLE_DMABUF_RENDERER=1 also
 // avoids the crash but drops WebKit to CPU rendering, which makes scrolling slow.
 //
-// Also on NVIDIA, the video player (GStreamer) picks the NVDEC hardware
-// decoders, whose frames come in CUDA memory that WebKit's video sink can't
-// take: playback freezes on the first frame or never starts. Ranking them out
-// leaves video to the software decoders. Your own GST_PLUGIN_FEATURE_RANK
+// Video is decoded on the GPU (on NVIDIA, GStreamer's NVDEC decoders): the
+// software ones show H.264 as solid green in WebKit here. PHIL_SOFTWARE_VIDEO=1
+// ranks NVDEC out, should it freeze a video on the first frame (it once did,
+// when its frames came in CUDA memory); your own GST_PLUGIN_FEATURE_RANK
 // entries come after these, so they still win.
 //
 // Both must be set before WebKit loads. (Checked through libc because Deno
@@ -23,8 +23,10 @@
     if (Deno.env.get("WEBKIT_DISABLE_DMABUF_RENDERER") === undefined && Deno.env.get("__NV_DISABLE_EXPLICIT_SYNC") === undefined) {
       Deno.env.set("__NV_DISABLE_EXPLICIT_SYNC", "1");
     }
-    const nvdec = ["h264", "h265", "vp8", "vp9", "av1", "mpeg2video", "mpeg4video", "mpegvideo", "jpeg"].map((c) => `nv${c}dec:NONE`);
-    Deno.env.set("GST_PLUGIN_FEATURE_RANK", [...nvdec, Deno.env.get("GST_PLUGIN_FEATURE_RANK")].filter(Boolean).join(","));
+    if (Deno.env.get("PHIL_SOFTWARE_VIDEO") === "1") {
+      const nvdec = ["h264", "h265", "vp8", "vp9", "av1", "mpeg2video", "mpeg4video", "mpegvideo", "jpeg"].map((c) => `nv${c}dec:NONE`);
+      Deno.env.set("GST_PLUGIN_FEATURE_RANK", [...nvdec, Deno.env.get("GST_PLUGIN_FEATURE_RANK")].filter(Boolean).join(","));
+    }
   }
 }
 

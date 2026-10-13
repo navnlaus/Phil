@@ -3,9 +3,14 @@
 // the cameras (cameras.js).
 //   GET  /api/cameras            the cameras phil knows (looked for first, when there are none)
 //   GET  /api/camera?id=         cameras.info(): the camera, its profiles, what its PTZ can do
-//   GET  /stream?id=&profile=    its live video: H.264 in fragmented MP4, for the page's
-//                                Media Source (ffmpeg copies the camera's own stream:
-//                                &transcode=1 re-encodes it, for H.265 cameras)
+//   GET  /stream?id=&profile=&mode=   its live video, as the page can show it (ui/app.js
+//                                tries them in turn): mode=copy (default), the camera's
+//                                own H.264 copied into fragmented MP4, for its Media
+//                                Source; mode=h264, the same re-encoded as the plainest
+//                                H.264 (H.265 cameras, and players that can't take a
+//                                camera's own); mode=mjpeg, JPEG pictures one after
+//                                another (multipart/x-mixed-replace, for an <img>)
+//   POST /api/log                {message}: what the page found (which mode shows), to the engine's log
 //   POST /api/ptz                {id, op: "move", x, y, zoom} (speeds, -1 to 1: the page
 //                                repeats it while a button is held, and the camera stops
 //                                by itself 1.5 s after it last did, in case the page is gone),
@@ -73,7 +78,10 @@ export function createServer({ profile = {} } = {}) {
             throw httpError(err.status ?? (err.auth ? 403 : 502), err.message);
           }
         case "GET /stream":
-          return await stream(req, id, url.searchParams.get("profile"), url.searchParams.get("transcode") === "1");
+          return await stream(req, id, url.searchParams.get("profile"), url.searchParams.get("mode") ?? "copy");
+        case "POST /api/log":
+          console.error(`camview: ${String((await req.json()).message ?? "").slice(0, 500)}`);
+          return json({ ok: true });
         case "POST /api/ptz":
           return json(await ptz(await req.json()));
         case "GET /api/presets": {
@@ -95,18 +103,28 @@ async function command(args) {
   return setpriv ? ["setpriv", ["--pdeathsig", "TERM", "--", ...args]] : [args[0], args.slice(1)];
 }
 
-/** The camera's live video, as long as the page reads it: ffmpeg from its RTSP stream to fragmented MP4. */
-async function stream(req, id, profile, transcode) {
+// How ffmpeg makes each mode (see /stream): the copy costs next to nothing;
+// the others decode and encode, so they're scaled to at most 1920 wide.
+const SCALE = ["-vf", "scale='min(1920,iw)':-2"];
+const MODES = {
+  copy: { type: "video/mp4", args: ["-c:v", "copy"], mp4: true },
+  h264: { type: "video/mp4", mp4: true, args: [...SCALE, "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline", "-g", "15", "-pix_fmt", "yuv420p"] },
+  mjpeg: { type: "multipart/x-mixed-replace;boundary=ffmpeg", args: [...SCALE, "-r", "12", "-c:v", "mjpeg", "-q:v", "5", "-f", "mpjpeg"] },
+};
+
+/** The camera's live video, as long as the page reads it: ffmpeg from its RTSP stream, in `mode` (MODES). */
+async function stream(req, id, profile, mode) {
+  const how = MODES[mode];
+  if (!how) throw httpError(400, "mode: copy, h264 or mjpeg");
   let rtsp;
   try {
     rtsp = await cameras.rtspUrl(id, profile);
   } catch (err) {
     throw httpError(err.status ?? (err.auth ? 403 : 502), err.message);
   }
-  const video = transcode ? ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-g", "15", "-pix_fmt", "yuv420p"] : ["-c:v", "copy"];
+  const mp4 = ["-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000"];
   const [cmd, args] = await command(["ffmpeg", "-loglevel", "error", "-nostdin", "-rtsp_transport", "tcp", "-timeout", "5000000",
-    "-fflags", "nobuffer", "-i", rtsp, "-an", ...video,
-    "-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000", "pipe:1"]);
+    "-fflags", "nobuffer", "-i", rtsp, "-an", ...how.args, ...(how.mp4 ? mp4 : []), "pipe:1"]);
   const child = new Deno.Command(cmd, { args, stdin: "null", stdout: "piped", stderr: "null" }).spawn();
   const end = () => {
     try {
@@ -123,7 +141,7 @@ async function stream(req, id, profile, transcode) {
     },
     cancel: end,
   });
-  return new Response(body, { headers: { "content-type": "video/mp4", "cache-control": "no-store" } });
+  return new Response(body, { headers: { "content-type": how.type, "cache-control": "no-store" } });
 }
 
 /** A picture from the camera's best stream, saved in ~/Pictures/Cameras: {path}. */

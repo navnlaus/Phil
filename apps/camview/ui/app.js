@@ -20,6 +20,7 @@ const state = {
   profile: null, // the stream's token
   presets: [],
   player: null, // the stream being played (see play)
+  mode: "copy", // how (see MODES)
   move: null, // {x, y, zoom}: under way
   moveTimer: 0,
   keys: new Set(), // arrow keys held
@@ -41,13 +42,27 @@ function showMessage(text, { toast = false } = {}) {
 
 // ---------------------------------------------------------------- the video
 
-// The camera's stream as fragmented MP4 (the server's ffmpeg copies it, no
-// re-encoding), fed to a Media Source as it comes, kept close to live (see
-// CATCH_UP_S). Connects again when the stream ends or stalls.
+// How the stream is shown, best first (the server's /stream modes):
+//   copy   the camera's own H.264, copied into fragmented MP4 for a Media
+//          Source: costs nothing, decoded on the GPU
+//   h264   re-encoded by the server as the plainest H.264 (some CPU there)
+//   mjpeg  JPEG pictures one after another, in an <img>: no video player at all
+// Each is checked once it plays (checkPicture): solid green, or no new frames,
+// and the next one is tried. The one that works is kept while the window is
+// open (not saved: once this machine's player is fixed, copy is tried again).
+const MODES = ["copy", "h264", "mjpeg"];
+const mjpeg = $("#mjpeg");
+
+// The camera's stream, kept close to live (see CATCH_UP_S). Connects again
+// when the stream ends or stalls.
 function play() {
   stopPlayer();
-  const player = (state.player = { abort: new AbortController(), lastData: Date.now(), retry: 0 });
+  const mode = MODES.includes(state.mode) ? state.mode : "copy";
+  const player = (state.player = { abort: new AbortController(), lastData: Date.now(), retry: 0, mode });
   showMessage("Connecting…");
+  if (mode === "mjpeg") return showJpegs(player);
+  video.hidden = false;
+  mjpeg.hidden = true;
   run(player).catch((err) => {
     if (player !== state.player || player.abort.signal.aborted) return;
     showMessage(`${err.message}\nTrying again…`);
@@ -61,14 +76,74 @@ function stopPlayer() {
   state.player = null;
   p.abort.abort();
   clearTimeout(p.retryTimer);
+  clearTimeout(p.checkTimer);
   clearInterval(p.watch);
+  mjpeg.removeAttribute("src");
   if (video.src) URL.revokeObjectURL(video.src);
   video.removeAttribute("src");
   video.load();
 }
 
-async function run(player, transcode = false) {
-  const res = await fetch(`stream?id=${encodeURIComponent(state.id)}&profile=${encodeURIComponent(state.profile ?? "")}${transcode ? "&transcode=1" : ""}`, { signal: player.abort.signal });
+const streamUrl = (mode) => `stream?id=${encodeURIComponent(state.id)}&profile=${encodeURIComponent(state.profile ?? "")}&mode=${mode}`;
+
+// The next way of showing it, after `why` (logged, for finding out what this
+// machine's player can do); the last one is kept regardless.
+function nextMode(player, why) {
+  const i = MODES.indexOf(player.mode);
+  log(`${state.id}: ${player.mode} ${why}${i < MODES.length - 1 ? `: trying ${MODES[i + 1]}` : ""}`);
+  if (i >= MODES.length - 1 || player !== state.player) return;
+  state.mode = MODES[i + 1];
+  play();
+}
+
+const log = (message) => fetch("api/log", { method: "POST", body: JSON.stringify({ message }) }).catch(() => {});
+
+// Whether the picture is right, a few seconds into playing: not solid green (a
+// decoder that gives nothing), and new frames coming (not frozen on the first).
+function checkPicture(player) {
+  const canvas = Object.assign(document.createElement("canvas"), { width: 48, height: 27 });
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const sample = () => {
+    try {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let r = 0, g = 0, b = 0;
+      for (let i = 0; i < d.length; i += 4) (r += d[i]), (g += d[i + 1]), (b += d[i + 2]);
+      const n = d.length / 4;
+      return { r: r / n, g: g / n, b: b / n };
+    } catch {
+      return null; // can't be read here: taken as right
+    }
+  };
+  const frames = () => video.getVideoPlaybackQuality?.().totalVideoFrames ?? null;
+  const first = { frames: frames(), time: video.currentTime };
+  player.checkTimer = setTimeout(() => {
+    if (player !== state.player) return;
+    const c = sample(), now = frames();
+    // Solid green on the screen; read back, sometimes exactly black (a camera's picture never is: its clock's on it).
+    const green = c && ((c.g > 30 && c.r < 8 && c.b < 8) || c.r + c.g + c.b < 0.5);
+    const frozen = first.frames !== null && now !== null && video.currentTime - first.time > 1.5 && now - first.frames < 3;
+    if (green) return nextMode(player, `shows solid green (${c.r.toFixed(0)},${c.g.toFixed(0)},${c.b.toFixed(0)})`);
+    if (frozen) return nextMode(player, `shows no new frames (${now - first.frames} in ${(video.currentTime - first.time).toFixed(1)} s)`);
+    if (!player.logged) (player.logged = true), log(`${state.id}: ${player.mode} plays (${video.videoWidth}×${video.videoHeight}${c ? `, average colour ${c.r.toFixed(0)},${c.g.toFixed(0)},${c.b.toFixed(0)}` : ""}${now !== null ? `, ${now - (first.frames ?? 0)} frames` : ""})`);
+  }, 3000);
+}
+
+// MJPEG: an <img> the server keeps sending pictures to.
+function showJpegs(player) {
+  video.hidden = true;
+  mjpeg.hidden = false;
+  mjpeg.onload = () => player === state.player && (showMessage(""), player.logged || ((player.logged = true), log(`${state.id}: mjpeg shows`)));
+  mjpeg.onerror = () => {
+    if (player !== state.player) return;
+    showMessage("The camera's stream stopped\nTrying again…");
+    player.retryTimer = setTimeout(() => player === state.player && play(), 3000);
+  };
+  mjpeg.src = streamUrl("mjpeg");
+}
+
+async function run(player) {
+  const res = await fetch(streamUrl(player.mode), { signal: player.abort.signal });
   if (!res.ok) throw new Error((await res.text()) || res.statusText);
   const reader = res.body.getReader();
   // The start of the stream (up to its codec description), for the codec it has.
@@ -81,15 +156,7 @@ async function run(player, transcode = false) {
     if (head.length > 4_000_000) throw new Error("Can't tell what the camera's video is");
   }
   const type = `video/mp4; codecs="${codec}"`;
-  if (!globalThis.MediaSource?.isTypeSupported(type)) {
-    if (!transcode && codec.startsWith("h")) { // H.265: converted to H.264 on the way (costs the server some CPU)
-      player.abort.abort();
-      const again = { ...player, abort: new AbortController() };
-      state.player = again;
-      return run(again, true);
-    }
-    throw new Error(`This window can't play the camera's video (${codec})`);
-  }
+  if (!globalThis.MediaSource?.isTypeSupported(type)) return nextMode(player, `can't be played here (${codec})`); // H.265, say
   const source = new MediaSource();
   video.src = URL.createObjectURL(source);
   await new Promise((resolve) => source.addEventListener("sourceopen", resolve, { once: true }));
@@ -123,6 +190,7 @@ async function run(player, transcode = false) {
     pump();
   });
   video.play().catch(() => {});
+  video.addEventListener("playing", () => player === state.player && !player.checkTimer && checkPicture(player), { once: true });
   // Stalled (the camera or the network gone quiet): connected again.
   player.watch = setInterval(() => {
     if (Date.now() - player.lastData > STALL_MS && player === state.player) play();
