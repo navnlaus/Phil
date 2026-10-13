@@ -258,8 +258,12 @@ body.term-cover #term-resize { display: none; }
   cursor: ns-resize;
 }
 
-/* Top and bottom bars float over the grid (.overlay-bar, from the engine's
-   themes/base.css), invisible until hovered or something inside them has focus. */
+/* The top bar is always there, and the folder starts under it: nothing is
+   behind it, so the tops of the first tiles can be clicked. The bottom bar
+   floats over the grid (.overlay-bar, from the engine's themes/base.css),
+   invisible until hovered or something inside it has focus. */
+#toolbar.overlay-bar { opacity: 1; transition: none; }
+main { padding-top: var(--bar-h); }
 
 #toolbar {
   position: fixed; /* over the whole window: the sidebar too */

@@ -45,8 +45,8 @@ quickly. The engine keeps running after its last window closes.
 Each app gets its own server on 127.0.0.1, with its own port and origin; its
 windows get its own Wayland app id (`phil`, `jsonedit`) for window rules. Apps
 share a look: a top (and bottom) bar that floats over the page and fades out
-until hovered, with an X at the right that closes the window
-(`themes/base.css`, `engine/ui/kit.js`). One app can show another inside its window:
+until hovered (phil's top bar stays, with the folder below it), with an X at
+the right that closes the window (`themes/base.css`, `engine/ui/kit.js`). One app can show another inside its window:
 phil opens `.json` files in jsonedit, other text files and documents in textedit and images
 in imageview that way, and the app's X (or Esc) goes back to the folder. Copying and pasting go through
 the desktop's clipboard (`wl-copy` / `wl-paste`), so they show up in Omarchy's
