@@ -26,14 +26,19 @@ export class FolderSummaries {
     return join(this.dir, Array.from(hash.subarray(0, 16), (b) => b.toString(16).padStart(2, "0")).join("") + ".json");
   }
 
-  /** The summary saved for `path`, or null. */
+  /** The summary saved for `path`, or null (also one made before subfolders lent previews, that could use theirs). */
   async get(path) {
-    if (!this.dir) return this.memory.get(path) ?? null;
-    try {
-      return JSON.parse(await Deno.readTextFile(await this.file(path)));
-    } catch {
-      return null;
+    let summary = null;
+    if (!this.dir) summary = this.memory.get(path) ?? null;
+    else {
+      try {
+        summary = JSON.parse(await Deno.readTextFile(await this.file(path)));
+      } catch {
+        return null;
+      }
     }
+    if (summary && !summary.deep && summary.dirs > 0 && summary.previews.length < PREVIEWS) return null;
+    return summary;
   }
 
   /** A folder deleted: its summary goes. */
@@ -66,7 +71,7 @@ export class FolderSummaries {
  * null when a thumbnail doesn't exist yet: then `complete` is false and the page
  * asks again later.
  */
-export async function makeSummary({ entries, mtime, sort, previewOf }) {
+export async function makeSummary({ entries, mtime, sort, previewOf, subfolderPreviewOf = null }) {
   const files = entries.filter((e) => e.kind !== "dir");
   const candidates = sortFiles(files.filter((e) => !e.name.startsWith(".")), sort);
   const previews = [];
@@ -80,6 +85,16 @@ export async function makeSummary({ entries, mtime, sort, previewOf }) {
       else if (preview) previews.push(preview);
     }
   }
+  // Too few files to show (a folder of folders: films, each in its own): the
+  // first subfolders' first previews.
+  if (previews.length < PREVIEWS && subfolderPreviewOf) {
+    const subfolders = entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".")).sort((a, b) => collator.compare(a.name, b.name));
+    for (let i = 0; i < Math.min(subfolders.length, 8) && previews.length < PREVIEWS; i++) {
+      const preview = await subfolderPreviewOf(subfolders[i]);
+      if (preview === null) complete = false;
+      else if (preview) previews.push(preview);
+    }
+  }
   return {
     mtime,
     sort,
@@ -88,6 +103,7 @@ export async function makeSummary({ entries, mtime, sort, previewOf }) {
     size: files.reduce((sum, e) => sum + e.size, 0),
     previews: previews.slice(0, PREVIEWS),
     complete,
+    deep: !!subfolderPreviewOf, // its subfolders were looked into too
   };
 }
 
