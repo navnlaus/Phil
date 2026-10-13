@@ -1,4 +1,6 @@
-import { closeWindow, copyText, holdFocus, onCloseRequest, ready, tellParent } from "../engine/ui/kit.js";
+import { closeWindow, copyText, holdFocus, onCloseRequest, ready, tellParent, tooltips } from "../engine/ui/kit.js";
+
+tooltips(); // the page's own, in the theme's style (kit.js)
 
 const $ = (sel) => document.querySelector(sel);
 const stage = $("#stage");

@@ -195,3 +195,68 @@ export function askPassword(message, { ok = "Save" } = {}) {
     input.focus();
   });
 }
+
+/**
+ * Tooltips drawn by the page, for every element with a title (or data-tip):
+ * WebKitGTK's own come up unreliably and look like the toolkit's, these are
+ * the theme's (.kit-tip in themes/base.css). Shown after a moment on hover,
+ * at once when moving on from one just shown; gone on a click, a key, a
+ * scroll, or leaving. A title moves to data-tip when first hovered, so the
+ * browser's own doesn't show as well; setting it again later works. Inside an
+ * open dialog, the tip goes in it (a modal one is over everything else).
+ */
+export function tooltips() {
+  if (tooltips.on) return;
+  tooltips.on = true;
+  const tip = document.createElement("div");
+  tip.className = "kit-tip";
+  tip.setAttribute("role", "tooltip");
+  tip.hidden = true;
+  let target = null, timer = 0, hiddenAt = 0, x = 0, y = 0;
+
+  const textOf = (el) => {
+    if (el.hasAttribute("title")) {
+      el.dataset.tip = el.getAttribute("title");
+      el.removeAttribute("title");
+    }
+    return el.dataset.tip;
+  };
+  const show = () => {
+    const text = target?.isConnected && textOf(target);
+    if (!text) return;
+    const host = target.closest("dialog[open]") ?? document.body;
+    if (tip.parentNode !== host) host.append(tip);
+    tip.textContent = text;
+    tip.hidden = false;
+    // Under the pointer, kept inside the window: above it near the bottom, to the left near the right.
+    const { width, height } = tip.getBoundingClientRect();
+    const left = x + 12 + width > innerWidth - 4 ? Math.max(4, x - width - 8) : x + 12;
+    const top = y + 20 + height > innerHeight - 4 ? Math.max(4, y - height - 10) : y + 20;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  };
+  const hide = () => {
+    clearTimeout(timer);
+    if (!tip.hidden) hiddenAt = Date.now();
+    tip.hidden = true;
+  };
+
+  addEventListener("pointerover", (e) => {
+    const el = e.target.closest?.("[title], [data-tip]");
+    if (el === target) return;
+    hide();
+    target = el;
+    if (!el || !textOf(el)) return;
+    x = e.clientX;
+    y = e.clientY;
+    timer = setTimeout(show, Date.now() - hiddenAt < 500 ? 0 : 450);
+  }, true);
+  addEventListener("pointermove", (e) => {
+    if (tip.hidden) (x = e.clientX), (y = e.clientY);
+  }, { passive: true, capture: true });
+  addEventListener("pointerout", (e) => {
+    if (target && !target.contains(e.relatedTarget)) hide(), (target = null);
+  }, true);
+  for (const type of ["pointerdown", "keydown", "wheel", "blur"]) addEventListener(type, () => (hide(), (target = null)), true);
+  addEventListener("scroll", hide, { capture: true, passive: true });
+}
