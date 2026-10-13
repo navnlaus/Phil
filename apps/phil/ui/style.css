@@ -147,6 +147,41 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 #places .place-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
 #places .place-text > span { overflow: hidden; text-overflow: ellipsis; }
 #places .space { font-size: 11px; color: var(--text-dim); }
+
+/* A copy or move under way: on the folder's tile and under its drive in the sidebar. */
+.transfer-bar {
+  position: absolute;
+  left: 8px;
+  right: 36px; /* the folder badge, top right */
+  top: 8px;
+  z-index: 4;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 11px;
+}
+.transfer-bar .fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); opacity: 0.8; transition: width 0.3s; }
+.transfer-bar .pct { position: relative; flex: 1; padding: 0 8px; line-height: 1; }
+.transfer-bar .cancel {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.transfer-bar .cancel:hover { background: rgba(255, 255, 255, 0.2); }
+#places .place-text { flex: 1; }
+#places .transfer-bar { position: relative; inset: auto; margin-top: 4px; height: 16px; width: 100%; }
+#places .transfer-bar .cancel { height: 16px; width: 18px; font-size: 12px; }
 #places svg { width: 16px; height: 16px; color: var(--text-dim); }
 #places a.active svg { color: inherit; }
 
