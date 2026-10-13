@@ -117,6 +117,8 @@ export function createServer({ profile, controlSocket }) {
       }
       case "POST /api/transfer-cancel": // {id}: stops a copy or move (what's done stays done; it can be resumed)
         return json({ cancelled: cancelTransfer((await req.json()).id) });
+      case "GET /api/transfers": // copies and moves under way: their last progress (a window just opened shows them)
+        return json([...transfers.values()].map((job) => job.last).filter(Boolean));
       case "POST /api/transfer-pause": { // {id, pause}: pauses or goes on with a copy or move
         const { id, pause } = await req.json();
         return json({ paused: pauseTransfer(id, !!pause) });
@@ -1117,21 +1119,26 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
     return { total: op === "move" ? left + there : Math.max(left, there), there };
   }));
   const total = sizes.reduce((a, b) => a + b.total, 0);
-  let doneBefore = sizes.reduce((a, b) => a + b.there, 0), last = 0, lastRecord = 0, lastDone = doneBefore;
+  // Done: the items finished (doneBefore), what was at the current one's target
+  // when its rsync started (base: resumed, or going on after a pause), and what
+  // that rsync has copied.
+  let doneBefore = 0, base = 0, last = 0, lastRecord = 0, lastDone = 0;
   const started = Date.now();
   let current = null;
   const record = (state, done) => current && track.set(current.target, {
     op, from: current.src, state, percent: total ? Math.floor((done / total) * 100) : 0, bytes: done, total, started, updated: Date.now(),
   });
   const progress = (bytes, extra = {}) => {
-    const done = (lastDone = Math.min(total, doneBefore + bytes));
+    const done = (lastDone = Math.min(total, doneBefore + base + bytes));
     if (Date.now() - lastRecord > 3000) (lastRecord = Date.now()), record(job.paused ? "paused" : "running", done);
     if (Date.now() - last < 250 || !total) return;
     last = Date.now();
-    report({ id, op, dest, targets: items.filter((it) => !it.quick).map((it) => it.target), items: items.length, bytes: done, total,
-      percent: Math.floor((done / total) * 100), paused: job.paused, ...extra });
+    job.last = { id, op, dest, targets: items.filter((it) => !it.quick).map((it) => it.target), items: items.length, bytes: done, total,
+      percent: Math.floor((done / total) * 100), paused: job.paused, ...extra };
+    report(job.last);
   };
-  job.tell = () => ((last = 0), progress(lastDone - doneBefore)); // pausing tells the pages at once, as far as it got
+  // Pausing and going on: the pages hear of it at once, and the record says so, as far as it got.
+  job.tell = () => ((last = 0), (lastRecord = 0), progress(lastDone - doneBefore - base, { speed: job.last?.speed, eta: job.last?.eta }));
   try {
     for (const [i, it] of items.entries()) {
       const { src, target, quick } = it;
@@ -1146,8 +1153,24 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
           const result = await new Deno.Command(cmd, { args: [...args, "--", src, target], stdin: "null", stdout: "null", stderr: "piped" }).output();
           if (!result.success) throw new Error(new TextDecoder().decode(result.stderr).trim().split("\n").at(-1) || `${cmd} failed`);
         } else {
-          record("running", doneBefore);
-          await rsync(src, target, { move: op === "move", posix: !NON_POSIX_FS.test(destFs.type), job, progress });
+          // Paused: rsync is stopped (its partial file kept), and started again on ▶,
+          // over what's there; nothing is left frozen if phil goes away meanwhile.
+          for (;;) {
+            if (job.paused) await job.resumed; // paused between two
+            if (job.cancelled) throw new Error("cancelled");
+            base = await apparentSize(target);
+            record(job.paused ? "paused" : "running", doneBefore + base);
+            try {
+              await rsync(src, target, { move: op === "move", posix: !NON_POSIX_FS.test(destFs.type), job, progress });
+              break;
+            } catch (err) {
+              if (!job.paused || job.cancelled) throw err;
+              lastRecord = 0;
+              progress(lastDone - doneBefore - base); // "paused", as far as it got
+              await job.resumed;
+              if (job.cancelled) throw new Error("cancelled");
+            }
+          }
           await track.set(target, null); // done: no record
         }
         made.push(target);
@@ -1155,7 +1178,8 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
         if (!quick) record("stopped", lastDone); // cancelled or failed: it can be resumed
         errors.push({ path: src, error: job.cancelled ? "cancelled" : err.message });
       }
-      doneBefore += sizes[i].total - sizes[i].there;
+      doneBefore += sizes[i].total;
+      base = 0;
     }
   } finally {
     transfers.delete(id);
@@ -1169,29 +1193,29 @@ function cancelTransfer(id) {
   const job = transfers.get(id);
   if (!job) return false;
   job.cancelled = true;
-  if (job.paused) signalTree(job.child, "SIGCONT"); // a stopped process can't take its TERM
+  job.resume?.(); // paused: it ends now
   try {
     job.child?.kill("SIGTERM"); // rsync removes the file it was writing
   } catch { /* finished meanwhile */ }
   return true;
 }
 
-// Pausing: rsync and its helpers (a local rsync is two or three processes) stop where they are.
+// Pausing stops rsync (it keeps the file it was writing in .phil-partial); going on starts it again over
+// what's there. Not SIGSTOP: a frozen rsync couldn't be stopped if phil went away meanwhile.
 function pauseTransfer(id, pause) {
   const job = transfers.get(id);
-  if (!job?.child || job.paused === pause) return job?.paused ?? false;
+  if (!job || job.paused === pause) return job?.paused ?? false;
   job.paused = pause;
-  signalTree(job.child, pause ? "SIGSTOP" : "SIGCONT");
+  if (pause) {
+    job.resumed = new Promise((resolve) => (job.resume = resolve));
+    try {
+      job.child?.kill("SIGTERM");
+    } catch { /* between files */ }
+  } else {
+    job.resume?.();
+  }
   job.tell?.(); // the pages hear of it now
   return pause;
-}
-
-function signalTree(child, signal) {
-  if (!child) return;
-  new Deno.Command("pkill", { args: [`-${signal.replace("SIG", "")}`, "-P", String(child.pid)], stdin: "null", stdout: "null", stderr: "null" }).spawn().status.catch(() => {});
-  try {
-    child.kill(signal);
-  } catch { /* gone */ }
 }
 
 const hasSetpriv = new Deno.Command("setpriv", { args: ["--version"], stdin: "null", stdout: "null", stderr: "null" }).output().then((o) => o.success, () => false);
