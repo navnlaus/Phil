@@ -158,20 +158,28 @@ export function onCloseRequest(fn) {
 }
 
 /**
- * Asks for a password (to save with sudo, say), in a small box over the page.
- * Resolves to it, or null when cancelled. It isn't kept anywhere.
+ * Asks for a password (to save with sudo, say), in a small box over the page,
+ * over a dialog that's open too (a modal one of its own: anything else would be
+ * under that one, out of reach). Resolves to it, or null when cancelled. It
+ * isn't kept anywhere.
  */
 export function askPassword(message, { ok = "Save" } = {}) {
   return new Promise((resolve) => {
+    const box = document.createElement("dialog");
+    box.className = "kit-password";
     const form = document.createElement("form");
-    form.className = "kit-password";
+    box.append(form);
     form.innerHTML = `<label></label><div><input type="password" autocomplete="current-password" spellcheck="false"><button type="submit">Save</button><button type="button">Cancel</button></div>`;
     form.querySelector("label").textContent = message;
     form.querySelector("button[type=submit]").textContent = ok;
     const input = form.querySelector("input");
     const back = document.activeElement;
+    let answered = false;
     const done = (value) => {
-      form.remove();
+      if (answered) return;
+      answered = true;
+      box.close();
+      box.remove();
       back?.focus?.({ preventScroll: true });
       resolve(value);
     };
@@ -181,7 +189,9 @@ export function askPassword(message, { ok = "Save" } = {}) {
       e.stopPropagation(); // typing here isn't the page's
       if (e.key === "Escape") e.preventDefault(), done(null);
     };
-    document.body.append(form);
+    box.addEventListener("cancel", (e) => (e.preventDefault(), done(null))); // Esc, as the browser has it
+    document.body.append(box);
+    box.showModal();
     input.focus();
   });
 }
