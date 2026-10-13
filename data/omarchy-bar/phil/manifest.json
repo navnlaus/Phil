@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "phil",
+  "name": "phil",
+  "version": "1.0.0",
+  "author": "ingvar",
+  "license": "MIT",
+  "description": "phil's long copies, moves and deletes (more than 10 seconds), with their progress, from $XDG_RUNTIME_DIR/phil/progress.json.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "phil",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "center"
+  }
+}
