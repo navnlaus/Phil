@@ -2483,6 +2483,10 @@ function showTransfers() {
       live.add(target);
       tiles.get(target)?.append(transferBar(t));
     }
+    if (t.file && t.file !== t.targets?.[0]) { // the file it's at: how far into it
+      live.add(t.file);
+      tiles.get(t.file)?.append(transferBar({ ...t, percent: t.filePercent ?? 0 }, { ofFile: true }));
+    }
     // The drive it goes to: the sidebar's mount with the longest path that holds it.
     const mount = state.init?.places.filter((p) => isMount(p) && (t.dest === p.path || t.dest.startsWith(p.path === "/" ? "/" : p.path + "/")))
       .sort((a, b) => b.path.length - a.path.length)[0];
@@ -2494,6 +2498,15 @@ function showTransfers() {
 
 function stoppedBar(e) {
   const c = e.copying;
+  if (c.file) { // a file cut off mid-copy (it has its name): ↻ on the folder goes on with it
+    const bar = document.createElement("div");
+    bar.className = "transfer-bar stopped";
+    bar.title = `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped ${c.percent}% of the way in, ${formatDate(c.updated)}: ↻ on the folder it's in goes on with it`;
+    const fill = Object.assign(document.createElement("div"), { className: "fill" });
+    fill.style.width = `${c.percent}%`;
+    bar.append(fill, Object.assign(document.createElement("span"), { className: "pct", textContent: `Cut off at ${c.percent}%` }));
+    return bar;
+  }
   const bar = document.createElement("div");
   bar.className = "transfer-bar stopped";
   bar.title = `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped at ${c.percent}% (${formatSize(c.bytes)} of ${formatSize(c.total)}), ${formatDate(c.updated)}`;
@@ -2524,10 +2537,12 @@ function barButton(text, title, action) {
   return b;
 }
 
-function transferBar(t) {
+// `ofFile`: the bar on the file it's at: its percentage is that file's.
+function transferBar(t, { ofFile = false } = {}) {
   const bar = document.createElement("div");
   bar.className = "transfer-bar";
-  bar.title = `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest}: ${formatSize(t.bytes)} of ${formatSize(t.total)}` +
+  bar.title = (ofFile ? `${t.percent}% of this file; ` : "") +
+    `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest}: ${formatSize(t.bytes)} of ${formatSize(t.total)}` +
     (t.speed ? `, ${t.speed}, ${t.eta} left` : "");
   const fill = document.createElement("div");
   fill.className = "fill";
