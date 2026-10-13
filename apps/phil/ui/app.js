@@ -2375,8 +2375,73 @@ grid.addEventListener("dragstart", (e) => {
 
 // Whatever is dragged over the window, nothing dropped on it loads in it (the
 // webview would open a dropped file in place of phil).
+// Drops from outside: another phil window, a file manager... Their files come
+// as file:// URIs; onto a folder (a tile, a place, a part of the path) or the
+// empty space (the folder shown), then "Move to" / "Copy to", as a drag here.
+let outsideTarget = null;
+const carriesFiles = (dt) => [...(dt?.types ?? [])].some((t) => t === "text/uri-list" || t === "Files");
+
+function outsideTargetAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const tile = el?.closest(".tile");
+  const entry = tile ? state.view[tile.dataset.index] : null;
+  const path = entry ? (entry.kind === "dir" ? entry.path : null) : el?.closest("[data-path]")?.dataset.path;
+  if (path) return { path, el: tile ?? el.closest("[data-path]") };
+  if (el?.closest("#files")) return { path: state.path, el: $("#files") }; // empty space, a file: the folder shown
+  return null;
+}
+
+function setOutsideTarget(target) {
+  if (target?.el === outsideTarget?.el) return;
+  outsideTarget?.el.classList.remove("drop-target");
+  target?.el.classList.add("drop-target");
+  outsideTarget = target;
+}
+
+// The files a drop carries: file:// URIs (text/uri-list), or paths one per line
+// (text/plain: what phil's own drags carry too, and some programs only that).
+function filePaths(dt) {
+  const lines = [dt.getData("text/uri-list"), dt.getData("text/plain")].join("\n").split(/\r?\n/).map((l) => l.trim());
+  const paths = lines.flatMap((l) => {
+    if (l.startsWith("file://")) {
+      try {
+        return [decodeURIComponent(new URL(l).pathname)];
+      } catch {
+        return [];
+      }
+    }
+    return l.startsWith("/") && !l.includes("\0") ? [l] : [];
+  });
+  return [...new Set(paths)];
+}
+
+function dropFromOutside(e) {
+  const target = outsideTarget;
+  setOutsideTarget(null);
+  if (!target) return;
+  const paths = filePaths(e.dataTransfer)
+    .filter((p) => p !== target.path && !target.path.startsWith(p + "/")); // not into itself
+  if (!paths.length) return flashStatus("Only files and folders can be dropped here");
+  const items = paths.map((path) => ({ path }));
+  const name = target.path.split("/").pop() || "/";
+  // All of it from that very folder (another window showing it): copies of them there.
+  if (paths.every((p) => parentOf(p) === target.path)) return showMenu(e.clientX, e.clientY, [["Copy here", () => transfer("copy", items, target.path)]]);
+  showMenu(e.clientX, e.clientY, [
+    [`Move to “${name}”`, () => transfer("move", items, target.path)],
+    [`Copy to “${name}”`, () => transfer("copy", items, target.path)],
+  ]);
+}
+addEventListener("dragleave", (e) => {
+  if (!e.relatedTarget) setOutsideTarget(null); // out of the window
+});
+
 addEventListener("dragover", (e) => {
   e.preventDefault();
+  if (!fileDrag) { // from outside
+    setOutsideTarget(carriesFiles(e.dataTransfer) ? outsideTargetAt(e.clientX, e.clientY) : null);
+    e.dataTransfer.dropEffect = outsideTarget ? "copy" : "none";
+    return;
+  }
   const target = fileDrag && dropTargetAt(e.clientX, e.clientY, fileDrag);
   if (target?.el !== fileDrag?.target?.el) {
     fileDrag.target?.el.classList.remove("drop-target");
@@ -2387,6 +2452,7 @@ addEventListener("dragover", (e) => {
 });
 addEventListener("drop", (e) => {
   e.preventDefault();
+  if (!fileDrag) return dropFromOutside(e);
   const target = fileDrag?.target;
   const { items, button } = fileDrag ?? {};
   endFileDrag();
