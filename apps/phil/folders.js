@@ -36,6 +36,12 @@ export class FolderSummaries {
     }
   }
 
+  /** A folder deleted: its summary goes. */
+  async forget(path) {
+    this.memory.delete(path);
+    if (this.dir) await Deno.remove(await this.file(path)).catch(() => {});
+  }
+
   async save(path, summary) {
     if (!this.dir) return void this.memory.set(path, summary);
     const file = await this.file(path);

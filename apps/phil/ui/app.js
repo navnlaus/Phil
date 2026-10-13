@@ -1451,6 +1451,10 @@ async function deleteMarked() {
   }
   await load(state.path);
   select(Math.min(firstIndex, state.view.length - 1));
+  if (result.cancelled) { // stopped (×): not an error
+    result.errors = result.errors.filter((e) => e.error !== "cancelled");
+    flashStatus("Deleting stopped: what's gone is gone, the rest is still there");
+  }
   if (result.errors.length) {
     alert(`Couldn't delete ${result.errors.length} item(s):\n` +
       result.errors.map((e) => `${e.path.split("/").pop()}: ${e.error}`).join("\n"));
@@ -2471,6 +2475,11 @@ function onTransfer(p) {
   const all = [...state.transfers.values()];
   if (all.length) {
     const t = all[0];
+    if (t.op === "delete") {
+      $("#status-progress").textContent = `Deleting ${t.items === 1 ? t.targets[0].split("/").pop() : `${t.items} items`}: ${t.percent}% ` +
+        `(${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} files and folders)` + (all.length > 1 ? ` and ${all.length - 1} more` : "");
+      return;
+    }
     $("#status-progress").textContent = `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest.split("/").pop() || "/"}: ${t.percent}% ` +
       `(${formatSize(t.bytes)} of ${formatSize(t.total)}${t.speed ? `, ${t.speed}, ${t.eta} left` : ""})` + (all.length > 1 ? ` and ${all.length - 1} more` : "");
   }
@@ -2480,7 +2489,7 @@ function showTransfers() {
   document.querySelectorAll(".transfer-bar").forEach((el) => el.remove());
   const live = new Set();
   for (const t of state.transfers.values()) {
-    tiles.get(t.dest)?.append(transferBar(t));
+    if (t.op !== "delete") tiles.get(t.dest)?.append(transferBar(t)); // a delete's: on what's going
     for (const target of t.targets ?? []) { // what it's making: the folder (or file) being copied
       live.add(target);
       tiles.get(target)?.append(transferBar(t));
@@ -2543,6 +2552,17 @@ function barButton(text, title, action) {
 function transferBar(t, { ofFile = false } = {}) {
   const bar = document.createElement("div");
   bar.className = "transfer-bar";
+  if (t.op === "delete") {
+    bar.classList.add("deleting");
+    bar.title = `Deleting: ${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} files and folders gone`;
+    const fill = Object.assign(document.createElement("div"), { className: "fill" });
+    fill.style.width = `${t.percent}%`;
+    const label = Object.assign(document.createElement("span"), { className: "pct", textContent: `Deleting ${t.percent}%` });
+    const stop = barButton("×", "Stop deleting (what's gone is gone; the rest stays)", () =>
+      api("/api/transfer-cancel", { method: "POST", body: JSON.stringify({ id: t.id }) }).catch(() => {}));
+    bar.append(fill, label, stop);
+    return bar;
+  }
   bar.title = (ofFile ? `${t.percent}% of this file; ` : "") +
     `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest}: ${formatSize(t.bytes)} of ${formatSize(t.total)}` +
     (t.speed ? `, ${t.speed}, ${t.eta} left` : "");

@@ -178,6 +178,14 @@ export class Tagging {
     return { scale: store.scale, bias: store.bias, texts: Object.fromEntries(vocab.map((t) => [t, decode(store.texts[t])])) };
   }
 
+  /** A folder deleted: what's kept of its pictures (embeddings, its tag summary) goes. */
+  async forget(dir) {
+    this.#memory.delete(`folder ${dir}`);
+    this.#summaries.delete(dir);
+    if (!this.#cacheDir) return;
+    for (const file of [this.#folderFile(dir), this.#summaryFile(dir)]) await Deno.remove(file).catch(() => {});
+  }
+
   #folderFile(dir) {
     return this.#cacheDir && join(this.#cacheDir, `${hashOf(dir)}.json`);
   }
