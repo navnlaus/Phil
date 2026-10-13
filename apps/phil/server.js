@@ -1060,8 +1060,13 @@ async function isDir(path) {
 // targets, bytes (entries gone), total, percent} a few times a second, then
 // {id, finished}, as copies do; cancelTransfer stops it (what's gone is gone).
 // Something small just goes.
+const deleting = new Set(); // what deletes under way are deleting
+
 async function deletePaths(paths, { report = () => {}, forget = async () => {} } = {}) {
   const errors = [];
+  // Already being deleted (it, or a folder it's in): nothing more to do for it.
+  const underWay = (path) => [...deleting].some((d) => path === d || path.startsWith(d + "/"));
+  paths = paths.filter((path) => !underWay(path));
   const id = crypto.randomUUID().slice(0, 8);
   const job = { cancelled: false, paused: false, child: null };
   transfers.set(id, job);
@@ -1075,6 +1080,7 @@ async function deletePaths(paths, { report = () => {}, forget = async () => {} }
       errors.push({ path, error: err.message });
     }
   }
+  for (const path of checked) deleting.add(path); // from now: a second delete of it does nothing
   // Everything in them, with sizes and times: how many there are (the progress), and what to forget after.
   // That can take a while on a big folder on a slow drive: meanwhile the pages hear how many so far.
   const started = Date.now();
@@ -1122,6 +1128,7 @@ async function deletePaths(paths, { report = () => {}, forget = async () => {} }
     }
   } finally {
     transfers.delete(id);
+    for (const path of checked) deleting.delete(path);
     if (job.last) report({ id, dest: dirname(checked[0] ?? "/"), finished: true });
   }
   // What's gone (all of an item deleted; of one stopped or failed, what isn't there any more): its caches go.

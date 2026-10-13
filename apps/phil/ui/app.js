@@ -1428,8 +1428,14 @@ function alert(message) {
 }
 
 // Shift+Delete: permanent, no trash. Asks first; Enter confirms, Esc cancels.
+const deletingHere = new Set(); // sent off from this window, not answered yet (before any progress comes)
+
 async function deleteMarked() {
-  const targets = markedEntries();
+  // What a delete under way has already (it, or a folder it's in): not asked again.
+  const underWay = [...state.transfers.values()].filter((t) => t.op === "delete").flatMap((t) => t.targets ?? []).concat([...deletingHere]);
+  const all = markedEntries();
+  const targets = all.filter((e) => !underWay.some((d) => e.path === d || e.path.startsWith(d + "/")));
+  if (all.length && !targets.length) return flashStatus(all.length === 1 ? `${all[0].name} is being deleted already` : "They're being deleted already");
   if (!targets.length) return;
   const dirs = targets.filter((e) => e.kind === "dir").length;
   const names = targets.slice(0, 4).map((e) => e.name).join(", ") + (targets.length > 4 ? `, … (${targets.length - 4} more)` : "");
@@ -1445,9 +1451,12 @@ async function deleteMarked() {
   const firstIndex = state.view.indexOf(targets[0]);
   let result;
   try {
+    for (const e of targets) deletingHere.add(e.path);
     result = await api("/api/delete", { method: "POST", body: JSON.stringify({ paths: targets.map((e) => e.path) }) });
   } catch (err) {
     result = { errors: [{ path: "", error: err.message }] };
+  } finally {
+    for (const e of targets) deletingHere.delete(e.path);
   }
   await load(state.path);
   select(Math.min(firstIndex, state.view.length - 1));
