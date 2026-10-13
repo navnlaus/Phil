@@ -1,6 +1,6 @@
 // Properties (right-click → Properties): what a file or folder is, its size,
 // dates, owner and permissions, and whether you can change it.
-import { basename, dirname } from "@std/path";
+import { basename, dirname, join } from "@std/path";
 import { requireSudo, sudo } from "./sudo.js";
 
 /** The facts about `path` (a link: about the link and what it points to). */
@@ -141,7 +141,10 @@ export async function driveInfo(path, cacheFile) {
   if (!fs) return null;
   const source = fs.source.replace(/\[.*\]$/, ""); // btrfs: /dev/mapper/root[/@]
   const info = { mount: fs.target, fstype: fs.fstype, source, network: !source.startsWith("/dev/"), disk: null, speed: null };
-  if (info.network) return info;
+  if (info.network) {
+    info.speed = (await readSpeeds(cacheFile))[`net|${source}`] ?? null;
+    return info;
+  }
   const tree = await run("lsblk", ["-J", "-s", "-o", "NAME,TYPE,PATH,MODEL,SERIAL,SIZE,TRAN,ROTA", source]);
   if (tree.ok) {
     // -s: inverted, the device first and what it's on as its children, down to the disk.
@@ -157,6 +160,42 @@ export async function driveInfo(path, cacheFile) {
   }
   if (info.disk) info.speed = (await readSpeeds(cacheFile))[speedKey(info.disk)] ?? null;
   return info;
+}
+
+/**
+ * A network share's speed both ways: a test file of random data (compression
+ * can't flatter it) written to it for up to 10 s, then read back for up to
+ * 10 s, both past the page cache (O_DIRECT: over the network each time), and
+ * removed. No root: it's the user's share. {write, read} in MB/s, kept in
+ * `cacheFile` by the share ("net|host:/path").
+ */
+async function shareSpeed(info, cacheFile) {
+  const key = `net|${info.source}`;
+  if (testing.has(key)) throw new Error("A test of this share is running already");
+  testing.add(key);
+  const file = join(info.mount, `.phil-speed-test-${crypto.randomUUID().slice(0, 8)}`);
+  // At 10 s, USR1 makes dd report how far it got; killed a second later.
+  const dd = async (args) => {
+    const r = await run("timeout", ["-s", "USR1", "-k", "1", "10", "dd", ...args], 60_000);
+    const m = /(\d+) bytes .*copied, ([\d.]+) s/.exec(r.stderr);
+    if (!m || !Number(m[1]) || !Number(m[2])) throw new Error(r.stderr.trim().split("\n").at(-1) || "dd failed");
+    return Number(m[1]) / Number(m[2]) / 1048576;
+  };
+  try {
+    const write = await dd(["if=/dev/urandom", `of=${file}`, "bs=4M", "count=256", "oflag=direct"]).catch((err) => {
+      throw new Error(`Couldn't write a test file to it: ${err.message}`);
+    });
+    const read = await dd([`if=${file}`, "of=/dev/null", "bs=4M", "iflag=direct"]);
+    const result = { read, write, at: Date.now(), share: info.source };
+    const all = await readSpeeds(cacheFile);
+    all[key] = result;
+    await Deno.mkdir(dirname(cacheFile), { recursive: true });
+    await Deno.writeTextFile(cacheFile, JSON.stringify(all, null, 2) + "\n");
+    return result;
+  } finally {
+    testing.delete(key);
+    await Deno.remove(file).catch(() => {});
+  }
 }
 
 const speedKey = (disk) => (disk.model || disk.serial ? `${disk.model ?? ""}|${disk.serial ?? ""}` : disk.path);
@@ -185,7 +224,8 @@ const testing = new Set(); // disks being timed now
  */
 export async function driveSpeed(path, cacheFile) {
   const info = await driveInfo(path, cacheFile);
-  if (!info?.disk) throw new Error(info?.network ? "A network share has no disk here to time" : "Not a drive");
+  if (info?.network) return await shareSpeed(info, cacheFile);
+  if (!info?.disk) throw new Error("Not a drive");
   await requireSudo("Reading the disk directly needs root.");
   if (testing.has(info.disk.path)) throw new Error("A test of this drive is running already");
   testing.add(info.disk.path);
