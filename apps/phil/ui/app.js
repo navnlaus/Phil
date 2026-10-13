@@ -2475,6 +2475,10 @@ function onTransfer(p) {
   const all = [...state.transfers.values()];
   if (all.length) {
     const t = all[0];
+    if (t.op === "delete" && t.counting) {
+      $("#status-progress").textContent = `Deleting ${t.items === 1 ? t.targets[0].split("/").pop() : `${t.items} items`}: counting files… ${t.found.toLocaleString()} so far`;
+      return;
+    }
     if (t.op === "delete") {
       $("#status-progress").textContent = `Deleting ${t.items === 1 ? t.targets[0].split("/").pop() : `${t.items} items`}: ${t.percent}% ` +
         `(${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} files and folders)` + (all.length > 1 ? ` and ${all.length - 1} more` : "");
@@ -2554,10 +2558,12 @@ function transferBar(t, { ofFile = false } = {}) {
   bar.className = "transfer-bar";
   if (t.op === "delete") {
     bar.classList.add("deleting");
-    bar.title = `Deleting: ${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} files and folders gone`;
+    bar.classList.toggle("counting", !!t.counting); // first, how much there is: no percentage yet
+    bar.title = t.counting ? `Counting what's in it before deleting: ${t.found.toLocaleString()} files and folders so far`
+      : `Deleting: ${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} files and folders gone`;
     const fill = Object.assign(document.createElement("div"), { className: "fill" });
-    fill.style.width = `${t.percent}%`;
-    const label = Object.assign(document.createElement("span"), { className: "pct", textContent: `Deleting ${t.percent}%` });
+    fill.style.width = t.counting ? "100%" : `${t.percent}%`;
+    const label = Object.assign(document.createElement("span"), { className: "pct", textContent: t.counting ? `Counting… ${t.found.toLocaleString()}` : `Deleting ${t.percent}%` });
     const stop = barButton("×", "Stop deleting (what's gone is gone; the rest stays)", () =>
       api("/api/transfer-cancel", { method: "POST", body: JSON.stringify({ id: t.id }) }).catch(() => {}));
     bar.append(fill, label, stop);

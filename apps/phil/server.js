@@ -1076,13 +1076,30 @@ async function deletePaths(paths, { report = () => {}, forget = async () => {} }
     }
   }
   // Everything in them, with sizes and times: how many there are (the progress), and what to forget after.
-  const listed = await Promise.all(checked.map(entriesIn));
+  // That can take a while on a big folder on a slow drive: meanwhile the pages hear how many so far.
+  const started = Date.now();
+  const found = checked.map(() => 0);
+  const counting = () => {
+    if (Date.now() - started < 300) return;
+    job.last = { id, op: "delete", dest: dirname(checked[0]), targets: checked, items: checked.length, counting: true,
+      found: found.reduce((a, b) => a + b, 0), bytes: 0, total: 0, percent: 0 };
+    report(job.last);
+  };
+  const ticker = setInterval(counting, 200);
+  let listed;
+  try {
+    listed = [];
+    for (const [i, path] of checked.entries()) {
+      listed.push(job.cancelled ? [] : await entriesIn(path, { job, found: (n) => (found[i] = n) }));
+    }
+  } finally {
+    clearInterval(ticker);
+  }
   const counts = listed.map((l) => l.length);
   const total = counts.reduce((a, b) => a + b, 0);
-  const started = Date.now();
   let gone = 0, last = 0;
   const progress = () => {
-    if (Date.now() - started < 300 || Date.now() - last < 250 || !total) return; // a quick one shows nothing
+    if ((Date.now() - started < 300 && !job.last) || Date.now() - last < 250 || !total) return; // a quick one shows nothing
     last = Date.now();
     job.last = { id, op: "delete", dest: dirname(checked[0]), targets: checked, items: checked.length, bytes: Math.min(gone, total), total,
       percent: Math.floor((Math.min(gone, total) / total) * 100) };
@@ -1123,15 +1140,30 @@ async function deletePaths(paths, { report = () => {}, forget = async () => {} }
   return { errors, cancelled: job.cancelled };
 }
 
-// Everything at and under `path` (this file system only): {type (f, d, l...), size, ms (modified), path}.
-async function entriesIn(path) {
+// Everything at and under `path` (this file system only): {type (f, d, l...),
+// size, ms (modified), path}. Read as find gives them: `found(n)` hears how many
+// so far; `job` (cancelTransfer) can stop it.
+async function entriesIn(path, { job = null, found = () => {} } = {}) {
+  const parse = (line) => {
+    const [type, size, time] = line.split(" ", 3);
+    const [sec, frac = ""] = time.split(".");
+    return { type, size: Number(size), ms: Number(sec) * 1000 + Number(frac.padEnd(3, "0").slice(0, 3)), path: line.slice(type.length + size.length + time.length + 3) };
+  };
   try {
-    const out = await new Deno.Command("find", { args: [path, "-xdev", "-printf", "%y %s %T@ %p\\0"], stdin: "null", stdout: "piped", stderr: "null" }).output();
-    return new TextDecoder().decode(out.stdout).split("\0").filter(Boolean).map((line) => {
-      const [type, size, time] = line.split(" ", 3);
-      const [sec, frac = ""] = time.split(".");
-      return { type, size: Number(size), ms: Number(sec) * 1000 + Number(frac.padEnd(3, "0").slice(0, 3)), path: line.slice(type.length + size.length + time.length + 3) };
-    });
+    const child = new Deno.Command("find", { args: [path, "-xdev", "-printf", "%y %s %T@ %p\\0"], stdin: "null", stdout: "piped", stderr: "null" }).spawn();
+    if (job) job.child = child;
+    const entries = [];
+    let buffer = "";
+    for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {
+      buffer += chunk;
+      const parts = buffer.split("\0");
+      buffer = parts.pop();
+      for (const line of parts) if (line) entries.push(parse(line));
+      found(entries.length);
+    }
+    await child.status;
+    if (job) job.child = null;
+    return entries;
   } catch {
     return [{ type: "?", size: 0, ms: 0, path }];
   }
