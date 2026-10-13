@@ -769,6 +769,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 }
 /* Between two of the sidebar's folders: a folder dropped there goes in the sidebar. */
 #places a.folder { position: relative; }
+#places a[data-path] { -webkit-user-drag: element; } /* dragged: to another spot, or onto a folder */
 #places a.gap-before::before, #places a.gap-after::after {
   content: "";
   position: absolute;
