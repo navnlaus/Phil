@@ -27,6 +27,12 @@ export function createServer({ profile, controlSocket }) {
   const folders = new FolderSummaries(config.incognito ? null : join(thumbs.dir, "folders"));
   const totals = new FolderTotals(config.incognito ? null : thumbs.dir);
   const speedsFile = join(dirname(config.stateFile), "drive-speeds.json"); // the drives' read speed tests
+  // The sidebar's places, with the description each has in its Properties (shown in place of its name).
+  const describedPlaces = async () =>
+    Promise.all((await places()).map(async (p) => {
+      const description = p.path ? (await hooks.get(p.path).catch(() => null))?.description : null;
+      return description ? { ...p, description } : p;
+    }));
   const shown = new Map(); // page WebSocket -> the folder it shows
   const broadcast = (msg) => {
     for (const socket of shown.keys()) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
@@ -58,14 +64,14 @@ export function createServer({ profile, controlSocket }) {
     const route = `${req.method} ${url.pathname}`;
     switch (route) {
       case "GET /api/places": // again, when the window gets focus: drives come and go
-        return json({ places: await places(), mounts: await networkMounts() });
+        return json({ places: await describedPlaces(), mounts: await networkMounts() });
       case "GET /api/space": // ?path=...&path=...: the sidebar's drives, size and free space
         return json(await freeSpace(url.searchParams.getAll("path")));
       case "GET /api/init":
         return json({
           start: (await lastDir()) ?? config.startDir, // windows asked for a folder get it in the URL
           home: home(),
-          places: await places(),
+          places: await describedPlaces(),
           mounts: await networkMounts(),
           hostname: await hostname(),
           incognito: config.incognito,
