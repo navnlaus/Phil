@@ -5,7 +5,8 @@
 //
 // Kept in ~/.config/phil/cameras.json (readable only by you: logins are in it):
 // {"cameras": [{id, host, port, url, manufacturer, model, name, user,
-// password, added, hidden, seen}]}. `hidden`: forgotten, so finding it again
+// password, added, hidden, seen, invert}]}. `invert`: mounted upside down, its
+// pan and tilt turned around (camview's toggle). `hidden`: forgotten, so finding it again
 // doesn't bring it back; `added`: by address, kept even when not found.
 import { dirname, join } from "@std/path";
 import * as onvif from "./onvif.js";
@@ -47,7 +48,7 @@ async function save(cameras) {
 const idOf = (host, port) => `${host}:${port}`;
 const shown = (c) => ({
   id: c.id, host: c.host, port: c.port, name: c.name || c.model || c.host, model: [c.manufacturer, c.model].filter(Boolean).join(" "),
-  login: !!c.user, needsLogin: !!c.auth && !c.user, seen: c.seen ?? 0,
+  login: !!c.user, needsLogin: !!c.auth && !c.user, seen: c.seen ?? 0, invert: !!c.invert,
 });
 
 /** The cameras for the sidebar (no logins), by name. */
@@ -119,7 +120,7 @@ export async function add(address, login = {}) {
   return shown(known.find((c) => c.id === id));
 }
 
-/** Changes a camera: {name}, {user, password} (checked first: rejected if the camera says no), {hidden}. */
+/** Changes a camera: {name}, {user, password} (checked first: rejected if the camera says no), {hidden}, {invert}. */
 export async function update(id, changes) {
   const known = await load();
   const c = known.find((c) => c.id === id);
@@ -137,6 +138,7 @@ export async function update(id, changes) {
   }
   if ("name" in changes) c.name = String(changes.name ?? "").trim().slice(0, 80);
   if ("hidden" in changes) c.hidden = !!changes.hidden;
+  if ("invert" in changes) c.invert = !!changes.invert;
   details.delete(id);
   await save(known);
   return shown(c);
@@ -184,7 +186,7 @@ export async function ptzOf(id) {
   const c = await get(id);
   const { services, profiles, ptz } = await info(id);
   if (!ptz) throw Object.assign(new Error("This camera can't pan, tilt or zoom"), { status: 400 });
-  return { url: services.ptz, token: (profiles.find((p) => p.ptz) ?? profiles[0]).token, login: loginOf(c) };
+  return { url: services.ptz, token: (profiles.find((p) => p.ptz) ?? profiles[0]).token, login: loginOf(c), invert: !!c.invert };
 }
 
 /** Incognito: nothing is written; changes last the session. */

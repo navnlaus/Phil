@@ -639,6 +639,9 @@ them at the bottom of its sidebar; double-click one to show it in that window
   speed, Space stops. A held move is repeated every half second and the
   camera is stopped by the server 1.5 s after the last one, so a closed window
   or a lost connection never leaves it turning.
+- **Upside down** (a camera mounted on a ceiling): the ⇅ button in the top bar,
+  or I, turns pan and tilt around, so up still turns it up. Kept for that
+  camera, in `cameras.json`.
 - **Presets** (its saved positions, along the bottom): click one or press 1–9
   to go there, + saves where it points now, right-click removes one.
 - S takes a picture (the best stream's, into `~/Pictures/Cameras`), F or a

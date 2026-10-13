@@ -16,6 +16,7 @@
 //                                by itself 1.5 s after it last did, in case the page is gone),
 //                                {id, op: "stop"}, {id, op: "goto", preset},
 //                                {id, op: "save", name}, {id, op: "remove", preset}
+//   PUT  /api/camera             {id, invert}: its controls turned around (mounted upside down)
 //   GET  /api/presets?id=        its saved positions
 //   POST /api/snapshot           {id}: a picture from its best stream, in ~/Pictures/Cameras
 import { join } from "@std/path";
@@ -38,7 +39,8 @@ export function createServer({ profile = {} } = {}) {
       throw httpError(err.auth ? 403 : 502, err.message);
     });
     if (op === "move") {
-      const speed = { x: Number(body.x) || 0, y: Number(body.y) || 0, zoom: Number(body.zoom) || 0 };
+      const flip = p.invert ? -1 : 1; // upside down: right turns it left, up turns it down
+      const speed = { x: flip * (Number(body.x) || 0), y: flip * (Number(body.y) || 0), zoom: Number(body.zoom) || 0 };
       const m = moving.get(id);
       clearTimeout(m?.timer);
       const same = m && m.speed.x === speed.x && m.speed.y === speed.y && m.speed.zoom === speed.zoom;
@@ -82,6 +84,10 @@ export function createServer({ profile = {} } = {}) {
         case "POST /api/log":
           console.error(`camview: ${String((await req.json()).message ?? "").slice(0, 500)}`);
           return json({ ok: true });
+        case "PUT /api/camera": {
+          const { id: which, invert } = await req.json();
+          return json(await cameras.update(String(which ?? ""), { invert }));
+        }
         case "POST /api/ptz":
           return json(await ptz(await req.json()));
         case "GET /api/presets": {
