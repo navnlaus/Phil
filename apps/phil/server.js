@@ -68,9 +68,50 @@ export function createServer({ profile, controlSocket }) {
     }
   };
 
+  // The sidebar's folders, as the user has arranged them (sidebar.json, next to
+  // the settings: {"folders": [paths]}); null until they've changed them: the
+  // default ones. Incognito: kept for the session.
+  const sidebarFile = join(dirname(config.settingsFile), "sidebar.json");
+  let sidebarMemory;
+  const sidebarFolders = async () => {
+    if (sidebarMemory !== undefined) return sidebarMemory;
+    try {
+      const { folders } = JSON.parse(await Deno.readTextFile(sidebarFile));
+      return Array.isArray(folders) ? folders.filter((p) => typeof p === "string" && p.startsWith("/")) : null;
+    } catch {
+      return null;
+    }
+  };
+  // {add: [paths], before: path | null} puts folders (links to them) in the
+  // sidebar, before that one of its folders (null: after the last); ones in it
+  // already move there. {remove: path} takes one out. Every window's sidebar
+  // is refreshed.
+  const arrangeSidebar = async ({ add = [], before = null, remove = null }) => {
+    let folders = (await sidebarFolders()) ?? await defaultFolders();
+    const adding = [];
+    for (const path of add) {
+      if (typeof path !== "string" || !path.startsWith("/")) throw httpError(400, "paths, please");
+      const p = path.length > 1 ? path.replace(/\/+$/, "") : path;
+      if (await isDir(p) && !adding.includes(p)) adding.push(p); // files dropped with them: not
+    }
+    if (add.length && !adding.length) throw httpError(400, "Only folders go in the sidebar");
+    folders = folders.filter((p) => p !== remove && !adding.includes(p));
+    const at = before === null ? -1 : folders.indexOf(before);
+    folders.splice(at === -1 ? folders.length : at, 0, ...adding);
+    if (config.incognito) sidebarMemory = folders;
+    else {
+      await Deno.mkdir(dirname(sidebarFile), { recursive: true });
+      const tmp = `${sidebarFile}.${crypto.randomUUID().slice(0, 8)}.tmp`;
+      await Deno.writeTextFile(tmp, JSON.stringify({ folders }, null, 2) + "\n");
+      await Deno.rename(tmp, sidebarFile);
+    }
+    broadcast({ places: true });
+    return { folders };
+  };
+
   // The sidebar's places, with the description each has in its Properties (shown in place of its name).
   const describedPlaces = async () =>
-    Promise.all((await places()).map(async (p) => {
+    Promise.all((await places(await sidebarFolders())).map(async (p) => {
       const description = p.path ? (await hooks.get(p.path).catch(() => null))?.description : null;
       return description ? { ...p, description } : p;
     }));
@@ -112,6 +153,8 @@ export function createServer({ profile, controlSocket }) {
     switch (route) {
       case "GET /api/places": // again, when the window gets focus: drives come and go
         return json({ places: await describedPlaces(), mounts: await networkMounts() });
+      case "POST /api/sidebar": // {add, before} or {remove}: the sidebar's folders arranged (see arrangeSidebar)
+        return json(await arrangeSidebar(await req.json()));
       case "GET /api/space": // ?path=...&path=...: the sidebar's drives, size and free space
         return json(await freeSpace(url.searchParams.getAll("path")));
       case "GET /api/init":
@@ -795,25 +838,33 @@ async function addToConfig(path) {
   throw httpError(409, "too many files with this name in Config");
 }
 
-async function places() {
+// The sidebar's folders by default: home and its usual folders (the XDG ones), those there are.
+async function defaultFolders() {
   const h = home();
   const dirs = await userDirs();
-  const candidates = [
-    ["Home", h, "home"],
-    ...[
-      ["Desktop", "DESKTOP", "folder"],
-      ["Documents", "DOCUMENTS", "folder"],
-      ["Downloads", "DOWNLOAD", "download"],
-      ["Pictures", "PICTURES", "image"],
-      ["Videos", "VIDEOS", "video"],
-      ["Music", "MUSIC", "music"],
-    ].map(([name, key, icon]) => [name, (dirs[key] ?? join(h, name)).replace(/\/$/, ""), icon]),
-  ];
+  const known = [h, ...["DESKTOP", "DOCUMENTS", "DOWNLOAD", "PICTURES", "VIDEOS", "MUSIC"].map((k) => (dirs[k] ?? join(h, xdgNames[k])).replace(/\/$/, ""))];
+  const out = [];
+  for (const path of known) if (!out.includes(path) && await isDir(path)) out.push(path);
+  return out;
+}
+const xdgNames = { DESKTOP: "Desktop", DOCUMENTS: "Documents", DOWNLOAD: "Downloads", PICTURES: "Pictures", VIDEOS: "Videos", MUSIC: "Music" };
+const xdgIcons = { DESKTOP: "folder", DOCUMENTS: "folder", DOWNLOAD: "download", PICTURES: "image", VIDEOS: "video", MUSIC: "music" };
+
+// The sidebar: its folders (`folders`, the user's list: dragged there, removed,
+// in their order; null for the default ones), each `folder: true`, then the
+// drives and shares, then the whole file system. Folders that aren't there
+// (a drive's, while it isn't mounted) are left out until they are.
+async function places(folders = null) {
+  const h = home();
+  const dirs = await userDirs();
   const out = [];
   const seen = new Set();
-  for (const [name, path, icon] of candidates) {
-    if (seen.has(path) || (path === h && name !== "Home")) continue;
-    if (await isDir(path)) out.push({ name, path, icon }), seen.add(path);
+  for (const path of folders ?? await defaultFolders()) {
+    if (seen.has(path) || !(await isDir(path))) continue;
+    seen.add(path);
+    const key = Object.keys(xdgNames).find((k) => (dirs[k] ?? join(h, xdgNames[k])).replace(/\/$/, "") === path);
+    const name = path === h ? "Home" : path === "/" ? "Filesystem" : key ? xdgNames[key] : basename(path);
+    out.push({ name, path, icon: path === h ? "home" : key ? xdgIcons[key] : "folder", folder: true });
   }
   // Drives and shares: whatever is in /run/media/<user> (USB drives) and /mnt,
   // and the mounts in /etc/fstab that are network shares or outside the
@@ -834,6 +885,7 @@ async function places() {
     } catch { /* not present */ }
   }
   for (const [path, icon] of mounts) add(path, icon);
+  for (const place of out) if (place.folder && (mounts.has(place.path) || place.path.startsWith(`/run/media/`) && dirname(place.path) === `/run/media/${basename(h)}`)) place.icon = mounts.get(place.path) ?? "drive"; // a drive put among the folders
   // A drive mounted without a label is in a folder named after its UUID: it's
   // called what it was called before, its size and file system.
   for (const place of out) {
@@ -844,7 +896,7 @@ async function places() {
   // Partitions nothing has mounted (an internal drive's: only removable ones
   // are mounted by themselves), for a click to mount them.
   for (const d of await unmountedDrives(drives)) out.push({ name: driveName(d), path: null, device: d.path, icon: "drive", unmounted: true });
-  out.push({ name: "Filesystem", path: "/", icon: "drive" });
+  if (!seen.has("/")) out.push({ name: "Filesystem", path: "/", icon: "drive" });
   return out;
 }
 
