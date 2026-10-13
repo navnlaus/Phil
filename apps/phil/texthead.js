@@ -1,5 +1,6 @@
 import { basename, extname } from "@std/path";
 import { documentMarkdown, isDocument } from "../../engine/documents.js";
+import { decode } from "../../engine/files.js";
 
 const HEAD = 32 * 1024; // bytes read from the start of a file
 const MAX_LINES = 400;
@@ -67,16 +68,13 @@ export async function runCommand(path) {
   return [shell === "sh" ? "bash" : shell, path];
 }
 
-// The bytes as text, or null if they aren't: binary (NUL bytes, many control
-// characters) or not UTF-8.
+// The bytes (a file's start) as text, or null if they aren't: binary (NUL
+// characters, many control characters), or neither UTF-8 nor UTF-16 (as the
+// editors read them: engine/files.js).
 function decodeText(bytes) {
-  if (!bytes.length || bytes.includes(0)) return null;
-  let text;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes, { stream: true }); // stream: a character cut off at the end is fine
-  } catch {
-    return null;
-  }
+  if (!bytes.length) return null;
+  const text = decode(bytes, { partial: true })?.text;
+  if (!text) return null;
   // Text has few control characters besides tab, newline, carriage return, form feed and escape.
   const controls = text.match(/[\x01-\x08\x0e-\x1a\x1c-\x1f\x7f]/g)?.length ?? 0;
   return controls > text.length / 100 ? null : text;
