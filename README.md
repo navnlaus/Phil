@@ -535,8 +535,10 @@ can be changed in the status bar; highlighting is
 [highlight.js](https://highlightjs.org/) (36 languages and Dockerfile, nginx,
 properties), in the background, so typing never waits for it (very large files
 aren't highlighted). It's a native text field with the highlighted text drawn
-under it: typing, selecting, undo and input methods are the browser's own. A
-file with Windows line breaks (CRLF) keeps them when it's saved.
+under it: typing, selecting, undo and input methods are the browser's own.
+Files are UTF-8 or UTF-16 (Windows' "Unicode", little or big endian, with or
+without a byte order mark), and are saved the way they came, Windows line
+breaks (CRLF) included; the status bar says so when it isn't plain UTF-8.
 
 - Tab / Shift+Tab indent and outdent the selected lines; Enter keeps the
   indentation (one more after an opening bracket).

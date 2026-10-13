@@ -17,6 +17,8 @@ const doc = {
   mtime: null, // when the file was read or saved (null: new file)
   saved: "", // the text as on disk (its line breaks as the text box has them: \n)
   eol: "\n", // the file's line breaks: "\r\n" for a Windows file, kept when it's saved
+  encoding: "utf-8", // the file's (engine/files.js: or "utf-16le", "utf-16be"), and whether it has a BOM: kept too
+  bom: false,
   lang: "plaintext",
   mode: "code", // or "view": Markdown as it reads
   blocks: [], // the rendered Markdown's blocks (markdown.js)
@@ -45,7 +47,7 @@ async function openFile(path) {
   // as it was opened): it's compared as that, and saved with \r\n again.
   const text = file.missing ? "" : file.text;
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  Object.assign(doc, { path: file.path, mtime: file.missing ? null : file.mtime, saved: text.replace(/\r\n?/g, "\n"), eol, document: file.document ?? null });
+  Object.assign(doc, { path: file.path, mtime: file.missing ? null : file.mtime, saved: text.replace(/\r\n?/g, "\n"), eol, encoding: file.encoding ?? "utf-8", bom: !!file.bom, document: file.document ?? null });
   showReadOnly();
   ta.value = doc.saved;
   ta.setSelectionRange(0, 0);
@@ -78,7 +80,7 @@ async function write(path, { isNew = false, force = false, sudo }) {
   try {
     const { mtime } = await api("api/file", {
       method: "PUT",
-      body: JSON.stringify({ path, text: doc.eol === "\n" ? text : text.replaceAll("\n", doc.eol), mtime: isNew ? null : doc.mtime, force, sudo }),
+      body: JSON.stringify({ path, text: doc.eol === "\n" ? text : text.replaceAll("\n", doc.eol), encoding: doc.encoding, bom: doc.bom, mtime: isNew ? null : doc.mtime, force, sudo }),
     });
     const renamed = path !== doc.path;
     Object.assign(doc, { path, mtime, saved: text, document: null }); // a document's Markdown, saved: a file like any
@@ -108,6 +110,10 @@ function showFile() {
   $("#file-name").textContent = name;
   $("#file-dir").textContent = doc.path ? doc.path.slice(0, -name.length - 1).replace(home, "~") || "/" : "";
   $("#dirty").hidden = !isDirty();
+  // How it's stored, when that's not plain UTF-8 with \n: saved the same way.
+  const how = [{ "utf-16le": "UTF-16 LE", "utf-16be": "UTF-16 BE" }[doc.encoding] ?? (doc.bom ? "UTF-8" : ""), doc.bom && "BOM", doc.eol === "\r\n" && "CRLF"].filter(Boolean).join(" · ");
+  $("#encoding").textContent = how;
+  $("#encoding").hidden = !how;
   document.title = `${isDirty() ? "● " : ""}${name} — textedit`;
 }
 
