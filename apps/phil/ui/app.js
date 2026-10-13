@@ -919,7 +919,7 @@ async function refreshSpace() {
 
 // The drives' last speed tests, for their tooltips: at the start, with the places, after a test.
 async function refreshSpeeds() {
-  const paths = state.init.places.filter((p) => isMount(p) && p.icon === "drive").map((p) => p.path);
+  const paths = state.init.places.filter(isMount).map((p) => p.path);
   if (!paths.length) return;
   const speeds = await api(`/api/drive-speeds?${paths.map((p) => `path=${encodeURIComponent(p)}`).join("&")}`).catch(() => null);
   if (!speeds || JSON.stringify(speeds) === JSON.stringify(state.speeds)) return;
@@ -1001,7 +1001,8 @@ function renderPlaces() {
         a.title += `\n${formatSize(space.avail)} free of ${formatSize(space.size)} (${Math.round((1 - space.avail / space.size) * 100)}% used)`;
       }
       const speed = state.speeds[p.path], mbs = speed?.read ?? speed?.buffered;
-      if (mbs) a.title += `\nRead speed: ${Math.round(mbs).toLocaleString()} MB/s (tested ${formatDate(speed.at)})`;
+      if (speed?.write) a.title += `\nSpeed: ${Math.round(speed.read).toLocaleString()} MB/s down, ${Math.round(speed.write).toLocaleString()} MB/s up (tested ${formatDate(speed.at)})`;
+      else if (mbs) a.title += `\nRead speed: ${Math.round(mbs).toLocaleString()} MB/s (tested ${formatDate(speed.at)})`;
       a.append(text);
     } else {
       a.append(p.name);
@@ -1864,18 +1865,26 @@ async function showDrive(path, fact) {
     pending.previousElementSibling.textContent = "Share";
     pending.replaceChildren(d.source, Object.assign(document.createElement("span"), { className: "dim", textContent: `  ${d.fstype}` }));
     if (space) fact("Space", `${formatSize(space.avail)} free of ${formatSize(space.size)}`);
-    return;
+    return speedRow(path, fact("Speed"), d.speed, true);
   }
   const how = { nvme: "NVMe", usb: "USB", sata: "SATA", ata: "ATA", mmc: "SD card" }[d.disk?.transport] ?? d.disk?.transport;
   pending.replaceChildren(d.disk?.model ?? d.source, d.disk ? Object.assign(document.createElement("span"), { className: "dim", textContent: `  ${[d.disk.size, how, d.disk.rotational ? "spinning" : null].filter(Boolean).join(" · ")}` }) : "");
   fact("Device", { code: d.disk?.path ?? d.source }, { dim: `  ${d.source !== d.disk?.path ? d.source + " · " : ""}${d.fstype}` });
   if (space) fact("Space", `${formatSize(space.avail)} free of ${formatSize(space.size)}`, { dim: `  ${Math.round((1 - space.avail / space.size) * 100)}% used` });
   if (!d.disk) return;
-  const speed = fact("Read speed");
+  speedRow(path, fact("Read speed"), d.speed, false);
+}
+
+// "Run speed test" and its last result: a disk's read speed (as root), or a
+// share's both ways (network: a test file written to it and read back).
+function speedRow(path, speed, last, network) {
+  const mb = (n) => `${Math.round(n).toLocaleString()} MB/s`;
   const show = (s, error) => {
     const text = document.createElement("span");
     const mbs = s?.read ?? s?.buffered; // .buffered: hdparm's, from before
-    text.textContent = mbs ? `${Math.round(mbs).toLocaleString()} MB/s reading from the disk` : "not tested yet";
+    text.textContent = !mbs ? "not tested yet"
+      : network ? `${mb(s.read)} down, ${mb(s.write)} up (a test file written and read back)`
+      : `${mb(mbs)} reading from the disk`;
     const when = document.createElement("span");
     when.className = "dim";
     when.textContent = error ? `  ${error}` : s ? `  ${formatDate(s.at)}` : "";
@@ -1883,7 +1892,9 @@ async function showDrive(path, fact) {
     button.type = "button";
     button.className = "speed-test";
     button.textContent = mbs ? "Test again" : "Run speed test";
-    button.title = "Reads up to 4 GB straight from the disk, 15 s at most; as root, with sudo (it asks for the password unless sudo still remembers it)";
+    button.title = network
+      ? "Writes a test file to the share for up to 10 s, reads it back for up to 10 s, then removes it"
+      : "Reads up to 4 GB straight from the disk, 15 s at most; as root, with sudo (it asks for the password unless sudo still remembers it)";
     button.onclick = async () => {
       button.disabled = true;
       // Until the password's given there's no telling; then the test takes up to 15 s.
@@ -1909,7 +1920,7 @@ async function showDrive(path, fact) {
     };
     speed.replaceChildren(text, when, document.createElement("br"), button);
   };
-  show(d.speed);
+  show(last);
 }
 
 function permissionString({ mode, kind }) {
