@@ -45,6 +45,28 @@ export async function isTextFile(path) {
   return !bytes.length || decodeText(bytes) !== null;
 }
 
+/**
+ * What double-clicking runs in the terminal, as [command, ...args], or null: a
+ * script (a #! line, or a shell script's name: .sh, .bash...) or a program
+ * (an executable ELF file). Executable files run themselves; other scripts go
+ * to their #! line's interpreter, or bash (zsh, fish) by their name.
+ */
+export async function runCommand(path) {
+  const info = await Deno.stat(path);
+  if (!info.isFile) return null;
+  const executable = ((info.mode ?? 0) & 0o111) !== 0;
+  const bytes = await head(path);
+  if (bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46) return executable ? [path] : null; // ELF
+  const text = decodeText(bytes);
+  if (text === null) return null;
+  const shebang = /^#!\s*(\S.*)/.exec(text.split("\n", 1)[0])?.[1].trim();
+  const shell = /\.(sh|bash|zsh|fish|ksh)$/i.exec(path)?.[1].toLowerCase();
+  if (!shebang && !shell) return null;
+  if (executable) return [path];
+  if (shebang) return [...shebang.split(/\s+/), path];
+  return [shell === "sh" ? "bash" : shell, path];
+}
+
 // The bytes as text, or null if they aren't: binary (NUL bytes, many control
 // characters) or not UTF-8.
 function decodeText(bytes) {

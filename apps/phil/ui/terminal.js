@@ -13,12 +13,13 @@ export const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
  *    The prompt counts as empty again when what was typed is erased.
  */
 export class TerminalPanel {
-  constructor({ panel, container, onCwd, onBack, onOpen, isLocal, toLocal, toRemote }) {
+  constructor({ panel, container, onCwd, onBack, onOpen, onKey, isLocal, toLocal, toRemote }) {
     this.panel = panel;
     this.container = container;
     this.onCwd = onCwd;
     this.onBack = onBack; // the shell is back on this machine after ssh
     this.onOpen = onOpen; // phil-editor in the shell asks for an app in this window
+    this.onKey = onKey; // (keydown) => true when the app took it (Esc, Ctrl+F: see app.js)
     // ssh'd into another machine (phil's ssh, shell-init.bash): its folders
     // map to and from local ones on a network mount of it.
     this.isLocal = isLocal; // (host) => is this machine
@@ -38,6 +39,11 @@ export class TerminalPanel {
 
   get isOpen() {
     return !this.panel.hidden;
+  }
+
+  /** A command is running (entered, and its prompt hasn't come back). */
+  get busy() {
+    return this.running;
   }
 
   get isRunning() {
@@ -125,6 +131,10 @@ export class TerminalPanel {
     // clipboard (kit.js); xterm.js pastes into the shell as a paste.
     this.term.attachCustomKeyEventHandler((e) => {
       if (isToggleKey(e) || isFocusKey(e)) return false;
+      if (e.type === "keydown" && this.onKey?.(e)) {
+        e.preventDefault();
+        return false;
+      }
       const action = clipboardAction(e);
       if (action && e.type === "keydown") {
         e.preventDefault();

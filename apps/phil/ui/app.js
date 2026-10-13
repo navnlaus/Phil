@@ -1166,14 +1166,14 @@ const isJson = (entry) => entry.kind === "file" && /\.json$/i.test(entry.name);
 // Word, RTF, OpenDocument...: what engine/documents.js converts.
 const isDocument = (entry) => entry.kind === "file" && /\.(rtf|docx?|docm|dotx?|odt|ott|fodt|wps|wpd|abw|pages)$/i.test(entry.name);
 
-// Text files (anything that reads as text: notes, code, configs, logs) open in
-// textedit in this window, other files with their default app. A tile that
-// drew the file's text knows; otherwise (not drawn yet, or empty) the server
-// checks.
+// Scripts and programs (a #! line, a shell script's name, an executable
+// program) run in the terminal; text files (anything that reads as text:
+// notes, code, configs, logs) open in textedit in this window; other files
+// with their default app. The server checks.
 async function openFile(entry) {
-  const isText = !!tiles.get(entry.path)?.firstElementChild.text ||
-    await api(`/api/is-text?path=${encodeURIComponent(entry.path)}`).then((r) => r.text, () => false);
-  if (isText) openInApp("textedit", { file: entry.path });
+  const kind = await api(`/api/is-text?path=${encodeURIComponent(entry.path)}`).catch(() => ({}));
+  if (kind.run) return runInTerminal(kind.run); // scripts and programs
+  if (kind.text || tiles.get(entry.path)?.firstElementChild.text) openInApp("textedit", { file: entry.path });
   else openExternal(entry.path);
 }
 
@@ -2369,6 +2369,7 @@ const terminal = new TerminalPanel({
   onCwd: (path) => path !== state.path && navigate(path),
   onBack: () => terminal.follow(state.path),
   onOpen: ({ app, params }) => openInApp(app, params), // phil-editor (ed) typed in the panel
+  onKey: terminalKey,
   isLocal: (host) => ["localhost", state.init.hostname.toLowerCase()].includes(host.toLowerCase()),
   toLocal: (host, dir) => localOf(host, dir),
   toRemote: (path) => remoteOf(path),
@@ -2381,7 +2382,7 @@ let initialSelect = null;
 
 function setTerminalOpen(open, { focus = true } = {}) {
   if (open) terminal.show(state.path, { focus });
-  else terminal.hide();
+  else terminal.hide(), setTerminalCover(false), (scriptRun = null);
   $("#btn-terminal").setAttribute("aria-pressed", String(open));
   if (!open) grid.focus({ preventScroll: true });
   if (state.settings.termOpen !== open) {
@@ -2392,6 +2393,53 @@ function setTerminalOpen(open, { focus = true } = {}) {
 
 function toggleTerminal() {
   setTerminalOpen(!terminal.isOpen);
+}
+
+// The terminal covering the whole window (a double-clicked script runs like
+// that; Ctrl+F in the terminal toggles it), or at its own height.
+function setTerminalCover(on) {
+  document.body.classList.toggle("term-cover", on);
+}
+
+// Double-clicked scripts and programs (what the server's runCommand picks) run
+// in the terminal, covering the window. Esc stops it (Ctrl+C) and puts the
+// terminal back as it was: its height, or closed.
+let scriptRun = null; // { wasOpen }
+
+async function runInTerminal(argv) {
+  const wasOpen = terminal.isOpen;
+  setTerminalCover(true);
+  setTerminalOpen(true);
+  for (let i = 0; i < 100 && !(terminal.isRunning && terminal.atEmptyPrompt); i++) await new Promise((r) => setTimeout(r, 50));
+  // As you'd type it: ./name (bash name) when the shell is in its folder, quoted only when needed.
+  const file = argv.at(-1), dir = parentOf(file), name = file.slice(dir === "/" ? 1 : dir.length + 1);
+  const word = (s) => (/^[\w.+@%/:=-]+$/.test(s) ? s : shellQuote(s));
+  const target = terminal.cwd === dir ? (argv.length === 1 ? "./" : "") + word(name) : word(file);
+  const command = [...argv.slice(0, -1).map(word), target].join(" ");
+  if (!terminal.run(command)) {
+    setTerminalCover(false);
+    if (!wasOpen) setTerminalOpen(false);
+    return alert("The terminal is busy: finish what's running there first.");
+  }
+  scriptRun = { wasOpen };
+}
+
+function endScriptRun() {
+  if (terminal.busy) terminal.send("\x03"); // Ctrl+C
+  const { wasOpen } = scriptRun;
+  scriptRun = null;
+  setTerminalCover(false);
+  if (!wasOpen) setTerminalOpen(false);
+}
+
+// Keys in the terminal phil takes: Esc ends a double-clicked script's run,
+// Ctrl+F toggles covering the window.
+function terminalKey(e) {
+  if (e.key === "Escape" && scriptRun && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) return endScriptRun(), true;
+  if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === "f") {
+    return setTerminalCover(!document.body.classList.contains("term-cover")), true;
+  }
+  return false;
 }
 
 // Capture phase, so these work while the terminal has focus too: F4 / Ctrl+`

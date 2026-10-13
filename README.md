@@ -349,6 +349,14 @@ to another host, are refused), static files and window management.
 ## Terminal panel
 
 F4 (or Ctrl+`) opens bash in a panel under the grid; drag its top edge to resize.
+Ctrl+F in it toggles between covering the whole window and its own height.
+
+Double-clicking a script or program runs it there: a file with a `#!` line, a
+shell script by its name (`.sh`, `.bash`, `.zsh`, `.fish`), or an executable
+program. The terminal covers the window while it runs (`./build.sh`, or through
+its interpreter when it isn't executable: `bash build.sh`); **Esc** stops it
+(Ctrl+C) and puts the terminal back as it was. "Edit as text" (right-click)
+still opens one in the editor.
 It is a real terminal (xterm.js on a pseudo-terminal), started with your
 `~/.bashrc`, so prompts, aliases, job control and full-screen programs work.
 
@@ -391,6 +399,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | | |
 |---|---|
 | double-click / Enter | open folder, view image in imageview, play video in mpv, edit a `.json` file in jsonedit or any other text file (notes, code, configs, logs; whatever reads as text) in textedit, both in this window (a Word, RTF or OpenDocument document: read in textedit, as Markdown), or open the file with its default app (right-click a video → "Play here" for the built-in player; any file → "Edit as text") |
+| double-click a script (`#!`, `.sh`…) or program | run it in the terminal, covering the window; Esc stops it and puts the terminal back |
 | arrows, Home/End, PgUp/PgDn | move selection (with Shift: extend it) |
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; click empty space to clear |
 | Ctrl+C / Ctrl+Insert / Super+C | copy the selected files' paths, one per line |

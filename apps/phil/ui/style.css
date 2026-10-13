@@ -172,6 +172,9 @@ main {
   background: var(--bg);
 }
 #term-panel[hidden] { display: none; }
+/* Covering the whole window: a double-clicked script, or Ctrl+F in the terminal. */
+body.term-cover #term-panel { position: fixed; inset: 0; z-index: 9; height: auto !important; padding-top: 6px; border-top: none; }
+body.term-cover #term-resize { display: none; }
 #term { height: 100%; }
 #term-resize {
   position: absolute;
