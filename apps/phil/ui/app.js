@@ -976,6 +976,7 @@ function renderPlaces() {
       e.stopPropagation(); // not the sidebar's menu
       showMenu(e.clientX, e.clientY, [
         ["Open", () => navigate(p.path)],
+        ["Properties", () => showProperties({ path: p.path, name: p.name, kind: "dir" })],
         ...(remote ? [[`SSH here (${remote.host})`, () => sshTo(p.path)]] : []),
         ...newItemsIn(p.path, " inside"),
         ...(p.mounted ? [["Unmount", () => unmount(p)]] : []),
@@ -1738,6 +1739,8 @@ async function showProperties(entry) {
   fact("Owner", p.owner, { dim: `  group ${p.group}` });
   fact("Permissions", { code: permissionString(p) }, { dim: `  ${p.mode.toString(8).padStart(3, "0")}` });
   if (p.access) fact("You", accessText(p));
+  // One of the sidebar's drives or shares: what it is, and how fast it reads.
+  if (state.init.places.some((place) => isMount(place) && place.path === p.path)) showDrive(p.path, fact);
 
   const input = $p("#props-hook"), output = $p(".output"), descInput = $p("#props-desc"), tagsInput = $p("#props-tags");
   tagsInput.value = (p.meta?.tags ?? []).join(", ");
@@ -1805,6 +1808,55 @@ async function showProperties(entry) {
 
 // rwxr-xr-x, with a leading d for a folder, and setuid, setgid and sticky
 // shown as ls does. (Of what a link points to: a link's own are always rwx.)
+// The drive part of Properties: the disk (model, how it's connected), the file
+// system, the space, and the read speed (hdparm, run on request, as root: it
+// asks for the password; the last result is kept per disk).
+async function showDrive(path, fact) {
+  const pending = fact("Drive", { dim: "…" });
+  const d = await api(`/api/drive?path=${encodeURIComponent(path)}`).catch(() => null);
+  if (!d) return pending.replaceChildren("?");
+  const space = state.space[path];
+  if (d.network) {
+    pending.previousElementSibling.textContent = "Share";
+    pending.replaceChildren(d.source, Object.assign(document.createElement("span"), { className: "dim", textContent: `  ${d.fstype}` }));
+    if (space) fact("Space", `${formatSize(space.avail)} free of ${formatSize(space.size)}`);
+    return;
+  }
+  const how = { nvme: "NVMe", usb: "USB", sata: "SATA", ata: "ATA", mmc: "SD card" }[d.disk?.transport] ?? d.disk?.transport;
+  pending.replaceChildren(d.disk?.model ?? d.source, d.disk ? Object.assign(document.createElement("span"), { className: "dim", textContent: `  ${[d.disk.size, how, d.disk.rotational ? "spinning" : null].filter(Boolean).join(" · ")}` }) : "");
+  fact("Device", { code: d.disk?.path ?? d.source }, { dim: `  ${d.source !== d.disk?.path ? d.source + " · " : ""}${d.fstype}` });
+  if (space) fact("Space", `${formatSize(space.avail)} free of ${formatSize(space.size)}`, { dim: `  ${Math.round((1 - space.avail / space.size) * 100)}% used` });
+  if (!d.disk) return;
+  const speed = fact("Read speed");
+  const show = (s) => {
+    const text = document.createElement("span");
+    text.textContent = s
+      ? `${Math.round(s.buffered).toLocaleString()} MB/s from the disk, ${Math.round(s.cached).toLocaleString()} MB/s from its cache`
+      : "not tested yet";
+    const when = document.createElement("span");
+    when.className = "dim";
+    when.textContent = s ? `  ${formatDate(s.at)}` : "";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "speed-test";
+    button.textContent = s ? "Test again" : "Run speed test";
+    button.title = "hdparm -tT: about 10 seconds; asks for your password (it reads the disk directly)";
+    button.onclick = async () => {
+      button.disabled = true;
+      button.textContent = "Testing… (password?)";
+      try {
+        show(await api("/api/drive-speed", { method: "POST", body: JSON.stringify({ path }) }));
+      } catch (err) {
+        button.disabled = false;
+        button.textContent = s ? "Test again" : "Run speed test";
+        when.textContent = `  ${err.message}`;
+      }
+    };
+    speed.replaceChildren(text, when, document.createElement("br"), button);
+  };
+  show(d.speed);
+}
+
 function permissionString({ mode, kind }) {
   const type = kind === "folder" ? "d" : "-";
   let out = "";
