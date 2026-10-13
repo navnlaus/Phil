@@ -242,7 +242,8 @@ export function tooltips() {
   };
 
   addEventListener("pointerover", (e) => {
-    const el = e.target.closest?.("[title], [data-tip]");
+    const found = e.target.closest?.("[title], [data-tip]");
+    const el = found?.tagName === "IFRAME" ? null : found; // a frame's title names it for screen readers: it isn't a tip
     if (el === target) return;
     hide();
     target = el;

@@ -438,6 +438,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | right-click a drive in the sidebar → Properties | the drive under it (model, NVMe/USB/SATA, the disk device under partitions and encryption), file system, space, and its read speed: "Run speed test" reads up to 4 GB straight from the disk (`dd`, O_DIRECT, 15 s at most; as root, with sudo: it asks for the password unless sudo still remembers it, as for saving root's files in the editors), and the result is kept per disk; on a network share it's its speed both ways, a test file written to it and read back (10 s each, no root), kept per share. The sidebar's tooltip has the last result |
 | drag a folder (a tile, one of the sidebar's own, with any button, or one from another program) between two of the sidebar's folders | a line shows where; dropped, it's in the sidebar there (a link: the folder stays where it is), or moves there if it's in it already. The sidebar's folders are kept in `~/.config/phil/sidebar.json`, for every window. Dragged onto a folder, a sidebar folder is moved or copied there like a tile (not a drive, home or /) |
 | right-click a folder in the sidebar → Remove from sidebar | it's no longer listed (the folder itself stays) |
+| double-click a camera at the bottom of the sidebar | shows it live in this window, with its pan, tilt and zoom (camview, below); right-click: Rename, Log in, Forget, Look for cameras, Add camera… |
 | click a dimmed drive in the sidebar | mount it and open it: partitions nothing has mounted (an internal drive's, like Windows': only removable ones are mounted by themselves), by udisks under /run/media, a system drive's with sudo (the password box, unless sudo remembers it); right-click a drive in /run/media → Unmount |
 | F4 / Ctrl+` | toggle the terminal panel |
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
@@ -600,6 +601,42 @@ Formats the webview can't show (HEIC, TIFF, JPEG XL...) are converted by vips.
 | Esc / Q | leave fullscreen, close |
 
 `deno task imageview [file]` runs it from the source.
+
+## camview
+
+`camview [camera]` shows a network camera live, and turns it if it can (pan,
+tilt and zoom: PTZ). phil finds the cameras on the local network and lists
+them at the bottom of its sidebar; double-click one to show it in that window
+(camview's command line takes a camera's name or address, or shows the first).
+
+- **Finding them**: phil looks a few seconds after it starts, then at most
+  every 10 minutes when a window gets focus (right-click the sidebar → "Look
+  for cameras" for now). It tries every address on this computer's own local
+  networks (their /24s; not containers or VPNs) for RTSP (port 554) and asks
+  those for ONVIF, the standard network cameras speak, on its usual ports
+  (8899, 80, 2020, 8000...). ONVIF's own discovery (WS-Discovery, multicast)
+  isn't used: firewalls (ufw) drop its answers. One elsewhere: right-click →
+  "Add camera…" with its address.
+- **Logins**: a camera that wants one says "needs a login" in the sidebar;
+  right-click → "Log in…". It's checked with the camera, sent as ONVIF's
+  password digest, and kept, with the names you give them, in
+  `~/.config/phil/cameras.json` (readable only by you). "Forget" hides one,
+  even when it's found again.
+- **The video** is the camera's own H.264, not re-encoded: ffmpeg copies its
+  RTSP stream into fragmented MP4, which the page plays through Media Source
+  Extensions, about half a second behind live (when it falls further behind, it
+  plays a little faster until it's caught up). The camera's streams are in the
+  top bar (main, sub: Q switches); an H.265 camera is converted to H.264 on the
+  way. ffmpeg stops when the window does.
+- **Turning it**: hold an arrow (bottom right; the diagonals too) or the arrow
+  keys (two at once: diagonally), + and − zoom when it can, the slider is the
+  speed, Space stops. A held move is repeated every half second and the
+  camera is stopped by the server 1.5 s after the last one, so a closed window
+  or a lost connection never leaves it turning.
+- **Presets** (its saved positions, along the bottom): click one or press 1–9
+  to go there, + saves where it points now, right-click removes one.
+- S takes a picture (the best stream's, into `~/Pictures/Cameras`), F or a
+  double-click is fullscreen, Esc closes.
 
 ## imageresize
 

@@ -7,6 +7,7 @@ import { currentTheme, themeNames, themesDir } from "../../engine/themes.js";
 import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
 import { Hooks, metadataFile, runHook } from "./hooks.js";
+import * as cameras from "../camview/cameras.js";
 import { requireSudo, sudo, sudoPassword, sudoWanted } from "./sudo.js";
 import { taggable, Tagging } from "./tagging.js";
 import { home, serverConfig } from "./launch.js";
@@ -161,6 +162,14 @@ export function createServer({ profile, controlSocket }) {
   };
   if (barFile) writeBar(); // none: a phil that was stopped mid-copy left its own
 
+  // The network cameras, at the bottom of the sidebar (camview shows them): looked
+  // for a few seconds after the start, then at most every 10 minutes when a
+  // window asks (cameras.js); every window hears of changes.
+  if (config.incognito) cameras.keepInMemory();
+  cameras.onChange(async () => broadcast({ cameras: await cameras.list() }));
+  setTimeout(() => cameras.discover().catch(() => {}), 3000);
+  const cameraError = (err) => httpError(err.status ?? 502, err.message);
+
   // A hook ran: the windows showing its folder say so.
   const hooks = new Hooks(metadataFile(config.settingsFile), {
     persist: !config.incognito,
@@ -191,6 +200,23 @@ export function createServer({ profile, controlSocket }) {
         return json({ places: await describedPlaces(), mounts: await networkMounts() });
       case "POST /api/sidebar": // {add, before} or {remove}: the sidebar's folders arranged (see arrangeSidebar)
         return json(await arrangeSidebar(await req.json()));
+      case "GET /api/cameras": // ?look=1: and look for new ones (at most every 10 minutes; ?look=now: now), answered when that's done
+        if (url.searchParams.get("look")) return json(await cameras.discover({ force: url.searchParams.get("look") === "now" }));
+        return json(await cameras.list());
+      case "POST /api/cameras": // {address, user, password}: a camera added by its address
+        try {
+          const { address, user, password } = await req.json();
+          return json(await cameras.add(address, user ? { user, password: password ?? "" } : {}));
+        } catch (err) {
+          throw cameraError(err);
+        }
+      case "PUT /api/camera": // {id, name} / {id, user, password} / {id, hidden}: renamed, logged into, forgotten
+        try {
+          const { id, ...changes } = await req.json();
+          return json(await cameras.update(String(id ?? ""), changes));
+        } catch (err) {
+          throw cameraError(err);
+        }
       case "GET /api/space": // ?path=...&path=...: the sidebar's drives, size and free space
         return json(await freeSpace(url.searchParams.getAll("path")));
       case "GET /api/init":

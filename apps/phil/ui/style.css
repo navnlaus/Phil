@@ -124,6 +124,17 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 /* Tags: the current folder's, under the places (auto-tagging when on) */
 #tags-panel { margin: 14px 4px 0; padding-top: 10px; border-top: 1px solid var(--border); }
 #tags-panel[hidden] { display: none; }
+/* The cameras on the network, at the bottom: double-click shows one (camview). */
+#cameras-panel { margin: 14px 4px 0; padding-top: 10px; border-top: 1px solid var(--border); }
+#cameras-panel[hidden] { display: none; }
+#cameras-panel > .heading { padding: 0 6px; }
+#cameras a { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 6px; color: inherit; text-decoration: none; white-space: nowrap; overflow: hidden; cursor: default; }
+#cameras a:hover { background: var(--bg-hover); }
+#cameras a.selected { background: var(--accent-bg); color: var(--accent); }
+#cameras a .cam-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+#cameras a .cam-text > span { overflow: hidden; text-overflow: ellipsis; }
+#cameras a .note { font-size: 11px; color: var(--text-dim); }
+#cameras svg { width: 16px; height: 16px; color: var(--text-dim); }
 #tags-panel > .heading { padding: 0 6px; }
 #tags-status { margin: 6px 6px 0; white-space: normal; }
 #tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 2px 4px; }
@@ -662,6 +673,10 @@ body[data-theme] .tile.has-hook .label { padding-right: 28px; }
 #confirm .copy { position: absolute; top: -8px; right: -10px; }
 #confirm:has(.copy:not([hidden])) .title { padding-right: 28px; }
 #confirm .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+#confirm .fields { display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: 8px 12px; margin: 0 0 16px; }
+#confirm .fields[hidden] { display: none; }
+#confirm .fields input { height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+#confirm .fields input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 #confirm .buttons button { border-color: var(--border); }
 #confirm .buttons button.danger { background: #c94b4b; border-color: #c94b4b; color: #fff; }
 #confirm .buttons button.danger:hover { background: #b03c3c; }

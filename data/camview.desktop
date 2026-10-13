@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=camview
+GenericName=Camera Viewer
+Comment=Network cameras: live video, and pan, tilt and zoom
+Exec=@BIN@
+Icon=camera-web
+Terminal=false
+Categories=AudioVideo;Video;Viewer;
+Keywords=camera;cctv;onvif;ptz;rtsp;security;
+StartupWMClass=camview

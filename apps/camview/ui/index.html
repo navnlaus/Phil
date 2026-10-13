@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>camview</title>
+  <!-- Relative URLs: camview is also served inside phil (engine/server.js). -->
+  <link rel="stylesheet" href="themes/base.css">
+  <link rel="stylesheet" href="ui/style.css">
+  <link rel="stylesheet" href="themes/current.css"> <!-- the theme in use: its colors (engine/themes.js) -->
+  <script type="module" src="ui/app.js"></script>
+</head>
+<body>
+  <main id="stage" tabindex="0" aria-label="Camera">
+    <video id="video" muted autoplay playsinline disablepictureinpicture></video>
+  </main>
+  <p id="message" hidden></p>
+
+  <header id="bar" class="overlay-bar top">
+    <div id="title"><span id="name"></span><span id="info"></span></div>
+    <select id="quality" title="Which of the camera's streams (Q)"></select>
+    <button id="btn-snap" class="icon" title="Take a picture, into Pictures/Cameras (S)"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+    <button id="btn-full" class="icon" title="Fullscreen (F)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button id="btn-close" class="icon close-button" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </header>
+
+  <!-- Pan, tilt and zoom: held, it moves (the arrow keys too); the slider is the speed. -->
+  <section id="ptz" hidden>
+    <div id="pad">
+      <button class="dir" data-x="-1" data-y="1" title="Up left"><svg viewBox="0 0 24 24"><path d="M17 17L7 7M7 15V7h8"/></svg></button>
+      <button class="dir" data-x="0" data-y="1" title="Up (↑)"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+      <button class="dir" data-x="1" data-y="1" title="Up right"><svg viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></svg></button>
+      <button class="dir" data-x="-1" data-y="0" title="Left (←)"><svg viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
+      <button id="btn-stop" title="Stop (Space)"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="8" height="8" rx="1"/></svg></button>
+      <button class="dir" data-x="1" data-y="0" title="Right (→)"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+      <button class="dir" data-x="-1" data-y="-1" title="Down left"><svg viewBox="0 0 24 24"><path d="M17 7L7 17M7 9v8h8"/></svg></button>
+      <button class="dir" data-x="0" data-y="-1" title="Down (↓)"><svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+      <button class="dir" data-x="1" data-y="-1" title="Down right"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 9v8H9"/></svg></button>
+    </div>
+    <div id="zoom" hidden>
+      <button class="dir" data-zoom="1" title="Zoom in (+)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button class="dir" data-zoom="-1" title="Zoom out (−)"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+    </div>
+    <label id="speed-wrap" title="Speed"><input id="speed" type="range" min="0.1" max="1" step="0.05"></label>
+  </section>
+
+  <!-- Its saved positions: click goes there (1–9 too), right-click removes; + saves where it points now. -->
+  <nav id="presets" hidden>
+    <span id="preset-list"></span>
+    <button id="btn-save-preset" title="Save where it points now">+</button>
+    <form id="preset-form" hidden><input id="preset-name" type="text" placeholder="Name" maxlength="40" autocomplete="off" spellcheck="false"></form>
+  </nav>
+</body>
+</html>

@@ -21,6 +21,7 @@
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
       <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
       <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3 6.5l13 3.5-1.6 6L2 12.5z"/><path d="M16 10l4.5-1.2 1 4-5.3 1.4M6.8 13.6L5.5 19M3 19h5"/></symbol>
       <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
       <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 16l-5-5-9 9"/></symbol>
@@ -76,6 +77,11 @@
       <h3 class="heading">Tags</h3>
       <p id="tags-status" class="hint" hidden></p>
       <nav id="tags" aria-label="Tags"></nav>
+    </section>
+    <!-- Network cameras on the local network (ONVIF): double-click shows one in camview. -->
+    <section id="cameras-panel" hidden>
+      <h3 class="heading">Cameras</h3>
+      <nav id="cameras" aria-label="Cameras"></nav>
     </section>
   </aside>
 
@@ -175,6 +181,7 @@
       <button value="copy" class="copy icon" type="button" title="Copy the message" hidden><svg><use href="#i-copy"/></svg></button>
       <p class="title"></p>
       <p class="detail"></p>
+      <div class="fields" hidden></div>
       <div class="buttons">
         <button value="cancel">Cancel</button>
         <button value="ok" class="danger" autofocus>Delete</button>
