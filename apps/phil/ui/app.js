@@ -28,6 +28,7 @@ const state = {
   marked: new Set(), // paths of the selected entries (one or more)
   anchor: -1, // where Shift+click / Shift+arrow ranges start
   space: {}, // the sidebar's drives: {path: {size, avail}}
+  speeds: {}, // their last read speed tests: {path: {read, at}} (Properties → Run speed test)
   transfers: new Map(), // copies and moves under way: id -> their progress (the server's transfer())
   settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, theme: "overlay" },
 };
@@ -916,9 +917,20 @@ async function refreshSpace() {
   renderPlaces();
 }
 
+// The drives' last speed tests, for their tooltips: at the start, with the places, after a test.
+async function refreshSpeeds() {
+  const paths = state.init.places.filter((p) => isMount(p) && p.icon === "drive").map((p) => p.path);
+  if (!paths.length) return;
+  const speeds = await api(`/api/drive-speeds?${paths.map((p) => `path=${encodeURIComponent(p)}`).join("&")}`).catch(() => null);
+  if (!speeds || JSON.stringify(speeds) === JSON.stringify(state.speeds)) return;
+  state.speeds = speeds;
+  renderPlaces();
+}
+
 async function refreshPlaces() {
   const fresh = await api("/api/places").catch(() => null);
   refreshSpace();
+  refreshSpeeds();
   if (!fresh) return;
   state.init.mounts = fresh.mounts;
   if (JSON.stringify(fresh.places) === JSON.stringify(state.init.places)) return;
@@ -988,6 +1000,8 @@ function renderPlaces() {
         text.append(free);
         a.title += `\n${formatSize(space.avail)} free of ${formatSize(space.size)} (${Math.round((1 - space.avail / space.size) * 100)}% used)`;
       }
+      const speed = state.speeds[p.path], mbs = speed?.read ?? speed?.buffered;
+      if (mbs) a.title += `\nRead speed: ${Math.round(mbs).toLocaleString()} MB/s (tested ${formatDate(speed.at)})`;
       a.append(text);
     } else {
       a.append(p.name);
@@ -1886,6 +1900,7 @@ async function showDrive(path, fact) {
           onAsk: () => (clearInterval(timer), (status.textContent = "Waiting for the password…")),
           onRetry: counting,
         }));
+        refreshSpeeds(); // the sidebar's tooltip
       } catch (err) {
         show(s, err.message);
       } finally {
@@ -2766,6 +2781,7 @@ state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
 applySettings();
 listThemes();
+refreshSpeeds(); // the drives' last speed tests, for their tooltips
 const thumbDirEl = $("#status-thumbdir");
 thumbDirEl.textContent = (state.init.incognito ? "Incognito · " : "") + `Thumbnails: ${state.init.thumbDir}`;
 thumbDirEl.title = `${state.init.thumbDir} (${state.init.thumbSize})`;
