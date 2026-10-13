@@ -23,6 +23,8 @@ body { background: #000; overflow: hidden; }
 #name { font-weight: 600; }
 #info { margin-left: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 #quality { height: 28px; }
+#btn-invert[hidden] { display: none; }
+#btn-invert.on { background: var(--accent-bg); color: var(--accent); }
 
 /* The controls: over the video, faded until the pointer is over the window. */
 #ptz, #presets {

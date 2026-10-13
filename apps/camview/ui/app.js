@@ -347,6 +347,26 @@ presetName.onkeydown = (e) => {
 };
 presetName.onblur = () => (presetForm.hidden = true);
 
+// Upside down: the server turns pan and tilt around (cameras.json keeps it, for
+// this camera, wherever it's shown).
+function showInvert(on) {
+  state.invert = !!on;
+  const b = $("#btn-invert");
+  b.setAttribute("aria-pressed", String(state.invert));
+  b.classList.toggle("on", state.invert);
+}
+
+async function toggleInvert() {
+  stopMove();
+  try {
+    const c = await api("api/camera", { method: "PUT", body: JSON.stringify({ id: state.id, invert: !state.invert }) });
+    showInvert(c.invert);
+    showMessage(c.invert ? "Controls turned around (upside down)" : "Controls the usual way", { toast: true });
+  } catch (err) {
+    showMessage(err.message, { toast: true });
+  }
+}
+
 // ---------------------------------------------------------------- the rest
 
 async function snapshot() {
@@ -401,6 +421,7 @@ document.addEventListener("keydown", (e) => {
   if (/^[1-9]$/.test(key) && state.presets[Number(key) - 1]) return gotoPreset(state.presets[Number(key) - 1]), handled();
   if (key === "f") return toggleFullscreen(), handled();
   if (key === "s") return snapshot(), handled();
+  if (key === "i" && state.info?.ptz) return toggleInvert(), handled();
   if (key === "q" && state.info?.profiles.length > 1) {
     const q = $("#quality");
     q.selectedIndex = (q.selectedIndex + 1) % q.options.length;
@@ -420,6 +441,7 @@ document.addEventListener("keyup", (e) => {
 addEventListener("blur", () => state.keys.clear());
 
 $("#btn-snap").onclick = snapshot;
+$("#btn-invert").onclick = toggleInvert;
 $("#btn-full").onclick = toggleFullscreen;
 $("#btn-close").onclick = close;
 stage.ondblclick = toggleFullscreen;
@@ -463,6 +485,8 @@ try {
   };
   if (ptz) {
     $("#ptz").hidden = false;
+    showInvert(camera.invert);
+    $("#btn-invert").hidden = false;
     $("#zoom").hidden = !ptz.zoom;
     $("#presets").hidden = !ptz.presets;
     if (ptz.presets) loadPresets();
