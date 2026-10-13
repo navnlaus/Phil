@@ -27,6 +27,15 @@ export function createServer({ profile, controlSocket }) {
   const folders = new FolderSummaries(config.incognito ? null : join(thumbs.dir, "folders"));
   const totals = new FolderTotals(config.incognito ? null : thumbs.dir);
   const speedsFile = join(dirname(config.stateFile), "drive-speeds.json"); // the drives' read speed tests
+  // Copies and moves under way, in the metadata of the folder or file being
+  // made ({copying: {op, from, percent, bytes, total, started, updated,
+  // state}}), so a copy cut off (a crash, a cancel) is known as stopped and
+  // can be resumed. Written every few seconds, gone when it's done.
+  const copyRecords = {
+    set: (target, record) => hooks.set(target, { copying: record ?? "" }).catch(() => {}),
+    get: async (target) => (await hooks.get(target).catch(() => ({}))).copying ?? null,
+  };
+
   // The sidebar's places, with the description each has in its Properties (shown in place of its name).
   const describedPlaces = async () =>
     Promise.all((await places()).map(async (p) => {
@@ -102,12 +111,19 @@ export function createServer({ profile, controlSocket }) {
       }
       case "POST /api/transfer": { // {op, paths, dest}; progress to every page as {transfer} (see transfer())
         const body = await req.json();
-        const result = await transfer(body, (progress) => broadcast({ transfer: progress }));
+        const result = await transfer(body, { report: (progress) => broadcast({ transfer: progress }), track: copyRecords });
         if (body.op === "move") await movedHooks(body.paths ?? [], result, (p) => join(body.dest, basename(p)));
         return json(result);
       }
-      case "POST /api/transfer-cancel": // {id}: stops a copy or move (what's done stays done)
+      case "POST /api/transfer-cancel": // {id}: stops a copy or move (what's done stays done; it can be resumed)
         return json({ cancelled: cancelTransfer((await req.json()).id) });
+      case "POST /api/transfer-pause": { // {id, pause}: pauses or goes on with a copy or move
+        const { id, pause } = await req.json();
+        return json({ paused: pauseTransfer(id, !!pause) });
+      }
+      case "POST /api/transfer-forget": // {path}: drops a stopped copy's record (what was copied stays)
+        await hooks.set(requirePath(path), { copying: "" });
+        return json({ ok: true });
       case "POST /api/rename": {
         const body = await req.json();
         const result = await rename(body);
@@ -206,6 +222,10 @@ export function createServer({ profile, controlSocket }) {
     for (const e of entries) {
       if (meta[e.path]?.onChange) e.onChange = meta[e.path].onChange;
       if (meta[e.path]?.description) e.description = meta[e.path].description;
+      if (meta[e.path]?.copying) { // a copy into it: under way, or stopped (cut off: no job has it)
+        e.copying = { ...meta[e.path].copying };
+        if (!liveTargets.has(e.path)) e.copying.state = "stopped";
+      }
       if (meta[e.path]?.tags?.length) e.tags = meta[e.path].tags; // given by hand
       if (e.kind === "dir") { // its most common tags, for its tile: found when it was last tagged, and given by hand
         const counts = new Map(await tagging.summary(e.path));
@@ -1040,24 +1060,30 @@ async function create({ dir, kind }) {
 
 // Drag and drop: move or copy items into `dest`. Nothing is ever overwritten:
 // a name that already exists in `dest` is reported and skipped, except a copy
-// into the item's own folder, which gets a number ("photo 2.jpg"). `made`: the
-// paths of what's there now.
+// into the item's own folder, which gets a number ("photo 2.jpg"), and a
+// stopped copy (its record says it came from this item) being resumed. `made`:
+// the paths of what's there now.
 //
 // A move within a file system is a rename (mv), and a copy within one that
 // clones files (btrfs, xfs) is cp's clone: instant both. Anything else goes
-// through rsync, which tells how far it is: `report` gets {id, op, dest, items,
-// bytes, total, percent, speed, eta} a few times a second, then {id, finished}.
-// A move through rsync removes each file once it's copied, so cancelling
-// (cancelTransfer) leaves everything in one place or the other.
-const transfers = new Map(); // id -> { cancelled, child }
+// through rsync, which tells how far it is: `report` gets {id, op, dest,
+// targets, items, bytes, total, percent, speed, eta, paused} a few times a
+// second, then {id, finished}; `track.set(target, record)` keeps the record
+// of each item being made (see copyRecords), null when it's done. Resuming
+// counts what's there already as done; rsync skips the files that are
+// complete. A move through rsync removes each file once it's copied, so
+// stopping (cancelTransfer, a crash) leaves everything in one place or the
+// other.
+const transfers = new Map(); // id -> { cancelled, paused, child }
+const liveTargets = new Set(); // what copies under way are making
 
-async function transfer({ op, paths = [], dest }, report = () => {}) {
+async function transfer({ op, paths = [], dest, resume = false, target: resumeTarget = null }, { report = () => {}, track = { set() {}, get: async () => null } } = {}) {
   if (op !== "move" && op !== "copy") throw httpError(400, "bad op");
   requirePath(dest);
   if (!(await isDir(dest))) throw httpError(400, "destination is not a folder");
   const errors = [], made = [];
   const id = crypto.randomUUID().slice(0, 8);
-  const job = { cancelled: false, child: null };
+  const job = { cancelled: false, paused: false, child: null };
   transfers.set(id, job);
   const destFs = await fsOf(dest);
   // What goes where, checked first; then the sizes, for the progress.
@@ -1069,46 +1095,71 @@ async function transfer({ op, paths = [], dest }, report = () => {}) {
       const copyHere = op === "copy" && dirname(src) === dest;
       if (!copyHere && (dest === src || dest.startsWith(src + "/"))) throw new Error("can't put a folder inside itself");
       if (dirname(src) === dest && !copyHere) throw new Error("it's already in that folder");
-      const target = copyHere ? await freeName(src) : join(dest, basename(src));
-      if (await Deno.lstat(target).then(() => true, () => false)) throw new Error("an item with that name already exists there");
+      // Resuming: the very one that was being made (a copy here had a number: "photo 2").
+      const target = resume && resumeTarget && dirname(resumeTarget) === dest ? resumeTarget
+        : copyHere ? await freeName(src) : join(dest, basename(src));
+      const there = await Deno.lstat(target).then(() => true, () => false);
+      const resuming = there && resume && (await track.get(target))?.from === src;
+      if (there && !resuming) throw new Error("an item with that name already exists there");
+      if (liveTargets.has(target)) throw new Error("it's being copied there already");
       const sameFs = (await fsOf(dirname(src))).dev === destFs.dev;
-      const quick = sameFs && (op === "move" || CLONING_FS.test(destFs.type));
-      items.push({ src, target, quick });
+      const quick = !resuming && sameFs && (op === "move" || CLONING_FS.test(destFs.type));
+      items.push({ src, target, quick, resuming });
     } catch (err) {
       errors.push({ path: src, error: err.message });
     }
   }
-  const sizes = await Promise.all(items.map((it) => (it.quick ? 0 : apparentSize(it.src))));
-  const total = sizes.reduce((a, b) => a + b, 0);
-  let doneBefore = 0, last = 0;
+  for (const it of items) if (!it.quick) liveTargets.add(it.target);
+  // Done already, for a resumed one: what's at the target (a move's source has only what's left).
+  const sizes = await Promise.all(items.map(async (it) => {
+    if (it.quick) return { total: 0, there: 0 };
+    const [left, there] = await Promise.all([apparentSize(it.src), it.resuming ? apparentSize(it.target) : 0]);
+    return { total: op === "move" ? left + there : Math.max(left, there), there };
+  }));
+  const total = sizes.reduce((a, b) => a + b.total, 0);
+  let doneBefore = sizes.reduce((a, b) => a + b.there, 0), last = 0, lastRecord = 0, lastDone = doneBefore;
+  const started = Date.now();
+  let current = null;
+  const record = (state, done) => current && track.set(current.target, {
+    op, from: current.src, state, percent: total ? Math.floor((done / total) * 100) : 0, bytes: done, total, started, updated: Date.now(),
+  });
   const progress = (bytes, extra = {}) => {
+    const done = (lastDone = Math.min(total, doneBefore + bytes));
+    if (Date.now() - lastRecord > 3000) (lastRecord = Date.now()), record(job.paused ? "paused" : "running", done);
     if (Date.now() - last < 250 || !total) return;
     last = Date.now();
-    const done = Math.min(total, doneBefore + bytes);
-    report({ id, op, dest, items: items.length, bytes: done, total, percent: Math.floor((done / total) * 100), ...extra });
+    report({ id, op, dest, targets: items.filter((it) => !it.quick).map((it) => it.target), items: items.length, bytes: done, total,
+      percent: Math.floor((done / total) * 100), paused: job.paused, ...extra });
   };
+  job.tell = () => ((last = 0), progress(lastDone - doneBefore)); // pausing tells the pages at once, as far as it got
   try {
-    for (const [i, { src, target, quick }] of items.entries()) {
+    for (const [i, it] of items.entries()) {
+      const { src, target, quick } = it;
       if (job.cancelled) {
         errors.push({ path: src, error: "cancelled" });
         continue;
       }
+      current = it;
       try {
         if (quick) {
           const [cmd, ...args] = op === "move" ? ["mv", "-n", "-T"] : ["cp", "-a", "-n", "-T"];
           const result = await new Deno.Command(cmd, { args: [...args, "--", src, target], stdin: "null", stdout: "null", stderr: "piped" }).output();
           if (!result.success) throw new Error(new TextDecoder().decode(result.stderr).trim().split("\n").at(-1) || `${cmd} failed`);
         } else {
+          record("running", doneBefore);
           await rsync(src, target, { move: op === "move", posix: !NON_POSIX_FS.test(destFs.type), job, progress });
+          await track.set(target, null); // done: no record
         }
         made.push(target);
       } catch (err) {
+        if (!quick) record("stopped", lastDone); // cancelled or failed: it can be resumed
         errors.push({ path: src, error: job.cancelled ? "cancelled" : err.message });
       }
-      doneBefore += sizes[i];
+      doneBefore += sizes[i].total - sizes[i].there;
     }
   } finally {
     transfers.delete(id);
+    for (const it of items) liveTargets.delete(it.target);
     report({ id, dest, finished: true });
   }
   return { errors, made, cancelled: job.cancelled };
@@ -1118,11 +1169,32 @@ function cancelTransfer(id) {
   const job = transfers.get(id);
   if (!job) return false;
   job.cancelled = true;
+  if (job.paused) signalTree(job.child, "SIGCONT"); // a stopped process can't take its TERM
   try {
     job.child?.kill("SIGTERM"); // rsync removes the file it was writing
   } catch { /* finished meanwhile */ }
   return true;
 }
+
+// Pausing: rsync and its helpers (a local rsync is two or three processes) stop where they are.
+function pauseTransfer(id, pause) {
+  const job = transfers.get(id);
+  if (!job?.child || job.paused === pause) return job?.paused ?? false;
+  job.paused = pause;
+  signalTree(job.child, pause ? "SIGSTOP" : "SIGCONT");
+  job.tell?.(); // the pages hear of it now
+  return pause;
+}
+
+function signalTree(child, signal) {
+  if (!child) return;
+  new Deno.Command("pkill", { args: [`-${signal.replace("SIG", "")}`, "-P", String(child.pid)], stdin: "null", stdout: "null", stderr: "null" }).spawn().status.catch(() => {});
+  try {
+    child.kill(signal);
+  } catch { /* gone */ }
+}
+
+const hasSetpriv = new Deno.Command("setpriv", { args: ["--version"], stdin: "null", stdout: "null", stderr: "null" }).output().then((o) => o.success, () => false);
 
 const CLONING_FS = /^(btrfs|xfs|bcachefs)$/; // cp clones files there: a copy is instant
 const NON_POSIX_FS = /^(msdos|vfat|exfat|fuseblk|ntfs3?)$/; // no owners or permissions to keep
@@ -1145,13 +1217,18 @@ async function apparentSize(path) {
 }
 
 // rsync of one item (a file, or a folder and all in it) to `target`, telling
-// `progress(bytes, {speed, eta})` how far it is. A move removes each file once
-// it's copied, and the emptied folders at the end.
+// `progress(bytes, {speed, eta})` how far it is. Files there already are
+// skipped (a resumed copy goes on where it stopped); a file cut off goes to
+// .phil-partial when rsync's stopped, and is picked up from there. A move
+// removes each file once it's copied, and the emptied folders at the end.
 async function rsync(src, target, { move, posix, job, progress }) {
   const folder = (await Deno.lstat(src)).isDirectory;
   const args = [posix ? "-a" : "-rlt", "--info=progress2", "--no-inc-recursive", "--ignore-existing", "--outbuf=L",
-    ...(move ? ["--remove-source-files"] : []), "--", folder ? src + "/" : src, target];
-  const child = (job.child = new Deno.Command("rsync", { args, stdin: "null", stdout: "piped", stderr: "piped" }).spawn());
+    "--partial-dir=.phil-partial", ...(move ? ["--remove-source-files"] : []), "--", folder ? src + "/" : src, target];
+  // It stops with phil (closed, crashed, updated): the copy's record says so, and ↻ goes on. Not
+  // left running unseen. setpriv execs rsync, so the pid is rsync's (pausing signals it and its helpers).
+  const [cmd, ...pre] = (await hasSetpriv) ? ["setpriv", "--pdeathsig", "TERM", "--", "rsync"] : ["rsync"];
+  const child = (job.child = new Deno.Command(cmd, { args: [...pre, ...args], stdin: "null", stdout: "piped", stderr: "piped" }).spawn());
   const stderr = new Response(child.stderr).text();
   let buffer = "";
   for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {

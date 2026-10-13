@@ -2414,12 +2414,13 @@ function flashStatus(text, ms = 3500) {
   }, ms);
 }
 
-async function transfer(op, items, dest) {
+// `resume`: a stopped copy (its target has the record) goes on where it stopped.
+async function transfer(op, items, dest, { resume = false, target = null } = {}) {
   const progress = $("#status-progress");
-  progress.textContent = `${op === "move" ? "Moving" : "Copying"} ${items.length} item${items.length === 1 ? "" : "s"}…`;
+  progress.textContent = `${resume ? "Resuming: " : ""}${op === "move" ? "Moving" : "Copying"} ${items.length} item${items.length === 1 ? "" : "s"}…`;
   let result;
   try {
-    result = await api("/api/transfer", { method: "POST", body: JSON.stringify({ op, dest, paths: items.map((e) => e.path) }) });
+    result = await api("/api/transfer", { method: "POST", body: JSON.stringify({ op, dest, paths: items.map((e) => e.path), resume, target }) });
   } catch (err) {
     result = { errors: [{ path: "", error: err.message }] };
   }
@@ -2427,7 +2428,7 @@ async function transfer(op, items, dest) {
   updateProgress();
   if (result.cancelled) {
     result.errors = result.errors.filter((e) => e.error !== "cancelled");
-    flashStatus(`${op === "move" ? "Moving" : "Copying"} cancelled: what was done stays ${op === "move" ? "moved" : "copied"}`);
+    flashStatus(`${op === "move" ? "Moving" : "Copying"} stopped: what was done stays ${op === "move" ? "moved" : "copied"}; ↻ on the folder goes on`);
   }
   await load(state.path);
   // What's made here (copies in the same folder) is selected.
@@ -2464,13 +2465,52 @@ function onTransfer(p) {
 
 function showTransfers() {
   document.querySelectorAll(".transfer-bar").forEach((el) => el.remove());
+  const live = new Set();
   for (const t of state.transfers.values()) {
     tiles.get(t.dest)?.append(transferBar(t));
+    for (const target of t.targets ?? []) { // what it's making: the folder (or file) being copied
+      live.add(target);
+      tiles.get(target)?.append(transferBar(t));
+    }
     // The drive it goes to: the sidebar's mount with the longest path that holds it.
     const mount = state.init?.places.filter((p) => isMount(p) && (t.dest === p.path || t.dest.startsWith(p.path === "/" ? "/" : p.path + "/")))
       .sort((a, b) => b.path.length - a.path.length)[0];
     if (mount) $(`#places a[data-path="${CSS.escape(mount.path)}"] .place-text`)?.append(transferBar(t));
   }
+  // Copies cut off (a crash, ×): their record says how far they got; ↻ goes on, × forgets it.
+  for (const e of state.view) if (e.copying?.state === "stopped" && !live.has(e.path)) tiles.get(e.path)?.append(stoppedBar(e));
+}
+
+function stoppedBar(e) {
+  const c = e.copying;
+  const bar = document.createElement("div");
+  bar.className = "transfer-bar stopped";
+  bar.title = `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped at ${c.percent}% (${formatSize(c.bytes)} of ${formatSize(c.total)}), ${formatDate(c.updated)}`;
+  const fill = Object.assign(document.createElement("div"), { className: "fill" });
+  fill.style.width = `${c.percent}%`;
+  const label = Object.assign(document.createElement("span"), { className: "pct", textContent: `Stopped at ${c.percent}%` });
+  const resume = barButton("↻", `Go on ${c.op === "move" ? "moving" : "copying"} (what's there is skipped)`, () =>
+    transfer(c.op, [{ path: c.from }], parentOf(e.path), { resume: true, target: e.path }));
+  const forget = barButton("×", "Forget it (what was copied stays)", async () => {
+    await api(`/api/transfer-forget?path=${encodeURIComponent(e.path)}`, { method: "POST" }).catch(() => {});
+    refresh();
+  });
+  bar.append(fill, label, resume, forget);
+  return bar;
+}
+
+function barButton(text, title, action) {
+  const b = document.createElement("button");
+  b.className = "cancel";
+  b.textContent = text;
+  b.title = title;
+  for (const type of ["pointerdown", "mousedown", "dblclick"]) b.addEventListener(type, (e) => e.stopPropagation());
+  b.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    action();
+  });
+  return b;
 }
 
 function transferBar(t) {
@@ -2483,18 +2523,13 @@ function transferBar(t) {
   fill.style.width = `${t.percent}%`;
   const label = document.createElement("span");
   label.className = "pct"; // not .label: that's the tile's name
-  label.textContent = `${t.percent}%`;
-  const cancel = document.createElement("button");
-  cancel.className = "cancel";
-  cancel.textContent = "×";
-  cancel.title = `Cancel ${t.op === "move" ? "moving" : "copying"} (what's done stays)`;
-  for (const type of ["pointerdown", "mousedown", "dblclick"]) cancel.addEventListener(type, (e) => e.stopPropagation());
-  cancel.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    api("/api/transfer-cancel", { method: "POST", body: JSON.stringify({ id: t.id }) }).catch(() => {});
-  });
-  bar.append(fill, label, cancel);
+  label.textContent = `${t.paused ? "Paused " : ""}${t.percent}%`;
+  bar.classList.toggle("paused", !!t.paused);
+  const pause = barButton(t.paused ? "▶" : "⏸", t.paused ? "Go on" : "Pause", () =>
+    api("/api/transfer-pause", { method: "POST", body: JSON.stringify({ id: t.id, pause: !t.paused }) }).catch(() => {}));
+  const cancel = barButton("×", `Stop ${t.op === "move" ? "moving" : "copying"} (what's done stays; ↻ on the folder goes on)`, () =>
+    api("/api/transfer-cancel", { method: "POST", body: JSON.stringify({ id: t.id }) }).catch(() => {}));
+  bar.append(fill, label, pause, cancel);
   return bar;
 }
 

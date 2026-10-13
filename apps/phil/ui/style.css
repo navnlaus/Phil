@@ -192,6 +192,8 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
   cursor: pointer;
 }
 .transfer-bar .cancel:hover { background: rgba(255, 255, 255, 0.2); }
+.transfer-bar.paused .fill { opacity: 0.45; }
+.transfer-bar.stopped .fill { background: var(--text-dim); opacity: 0.6; }
 #places .place-text { flex: 1; }
 #places .transfer-bar { position: relative; inset: auto; margin-top: 4px; height: 16px; width: 100%; }
 #places .transfer-bar .cancel { height: 16px; width: 18px; font-size: 12px; }
