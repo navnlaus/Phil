@@ -2142,6 +2142,7 @@ function dragOut() {
   document.body.classList.remove("dragging");
   d.target?.el.classList.remove("drop-target");
   fileDrag = { items: d.items, paths: d.paths, dirs: d.dirs, button: d.button };
+  fileDrag.id = announceDrag([...d.paths], d.button);
   native.postMessage("drag:" + JSON.stringify({
     uris: d.items.map((m) => fileUri(m.path)),
     paths: d.items.map((m) => m.path),
@@ -2375,6 +2376,7 @@ grid.addEventListener("dragstart", (e) => {
   e.dataTransfer.setDragImage(picture, DRAG_HOTSPOT[0], DRAG_HOTSPOT[1]);
   setTimeout(() => picture.remove());
   fileDrag = { items, paths: new Set(items.map((m) => m.path)), dirs: items.filter((m) => m.kind === "dir").map((m) => m.path + "/"), button: 0 };
+  fileDrag.id = announceDrag(items.map((m) => m.path), 0);
   e.dataTransfer.effectAllowed = "copyMove";
   e.dataTransfer.setData("text/uri-list", items.map((m) => fileUri(m.path)).join("\r\n"));
   e.dataTransfer.setData("text/plain", items.map((m) => m.path).join("\n"));
@@ -2386,6 +2388,7 @@ grid.addEventListener("dragstart", (e) => {
 // as file:// URIs; onto a folder (a tile, a place, a part of the path) or the
 // empty space (the folder shown), then "Move to" / "Copy to", as a drag here.
 let outsideTarget = null;
+
 const carriesFiles = (dt) => [...(dt?.types ?? [])].some((t) => t === "text/uri-list" || t === "Files");
 
 function outsideTargetAt(x, y) {
@@ -2406,9 +2409,13 @@ function setOutsideTarget(target) {
 }
 
 // The files a drop carries: file:// URIs (text/uri-list), or paths one per line
-// (text/plain: what phil's own drags carry too, and some programs only that).
+// (text/plain: what phil's own drags carry too, and some programs only that), or
+// links to them (text/html: a drag from another phil window comes with its
+// text/uri-list empty, WebKit's doing, and the files only as links there).
 function filePaths(dt) {
-  const lines = [dt.getData("text/uri-list"), dt.getData("text/plain")].join("\n").split(/\r?\n/).map((l) => l.trim());
+  const html = dt.getData("text/html");
+  const links = html ? [...new DOMParser().parseFromString(html, "text/html").querySelectorAll("a[href]")].map((a) => a.getAttribute("href")) : [];
+  const lines = [dt.getData("text/uri-list"), dt.getData("text/plain"), ...links].join("\n").split(/\r?\n/).map((l) => l.trim());
   const paths = lines.flatMap((l) => {
     if (l.startsWith("file://")) {
       try {
@@ -2422,15 +2429,39 @@ function filePaths(dt) {
   return [...new Set(paths)];
 }
 
-function dropFromOutside(e) {
+// A drag out of a phil window: its files (and button) for the window it's dropped
+// on. Its id tells this window whether a drag it remembers is still the one
+// going on (a right- or middle-drag out of it ends without telling it).
+function announceDrag(paths, button) {
+  const id = crypto.randomUUID();
+  api("/api/drag", { method: "PUT", body: JSON.stringify({ paths, button, id }) }).catch(() => {});
+  return id;
+}
+
+// This window's drag, still going on? Not when another (window) has started one since.
+async function staleDrag() {
+  if (!fileDrag || fileDrag.button === 0) return false; // a left drag's end is heard of
+  const current = await api("/api/drag").catch(() => null);
+  return current?.id !== fileDrag.id;
+}
+
+async function dropFromOutside(e, carried) {
   const target = outsideTarget;
   setOutsideTarget(null);
   if (!target) return;
-  const paths = filePaths(e.dataTransfer)
-    .filter((p) => p !== target.path && !target.path.startsWith(p + "/")); // not into itself
+  let paths = carried;
+  // From another phil window: what it said it's dragging (its files, when the drop lost them; its button).
+  const phil = await api("/api/drag").catch(() => null);
+  const fromPhil = phil && (!paths.length || paths.every((p) => phil.paths.includes(p)));
+  if (fromPhil) {
+    paths = phil.paths;
+    api("/api/drag", { method: "DELETE" }).catch(() => {});
+  }
+  paths = paths.filter((p) => p !== target.path && !target.path.startsWith(p + "/")); // not into itself
   if (!paths.length) return flashStatus("Only files and folders can be dropped here");
   const items = paths.map((path) => ({ path }));
   const name = target.path.split("/").pop() || "/";
+  if (fromPhil && phil.button === 1 && !paths.every((p) => parentOf(p) === target.path)) return transfer("move", items, target.path); // middle: moves
   // All of it from that very folder (another window showing it): copies of them there.
   if (paths.every((p) => parentOf(p) === target.path)) return showMenu(e.clientX, e.clientY, [["Copy here", () => transfer("copy", items, target.path)]]);
   showMenu(e.clientX, e.clientY, [
@@ -2457,9 +2488,12 @@ addEventListener("dragover", (e) => {
   if (fileDrag) fileDrag.target = target;
   e.dataTransfer.dropEffect = target ? "move" : "none";
 });
-addEventListener("drop", (e) => {
+addEventListener("dragenter", () => staleDrag().then((stale) => stale && endFileDrag()));
+addEventListener("drop", async (e) => {
   e.preventDefault();
-  if (!fileDrag) return dropFromOutside(e);
+  const carried = filePaths(e.dataTransfer); // the drop's data: gone once this handler awaits
+  if (fileDrag && (await staleDrag())) endFileDrag(), setOutsideTarget(outsideTargetAt(e.clientX, e.clientY));
+  if (!fileDrag) return dropFromOutside(e, carried);
   const target = fileDrag?.target;
   const { items, button } = fileDrag ?? {};
   endFileDrag();
