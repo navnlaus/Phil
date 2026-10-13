@@ -10,7 +10,7 @@ import { Hooks, metadataFile, runHook } from "./hooks.js";
 import { taggable, Tagging } from "./tagging.js";
 import { home, serverConfig } from "./launch.js";
 import { canWrite, folderSize, me, properties } from "./properties.js";
-import { isTextFile, textHead, textPreview } from "./texthead.js";
+import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 
@@ -75,8 +75,8 @@ export function createServer({ profile, controlSocket }) {
       case "GET /file":
       case "HEAD /file":
         return serveFile(req, requirePath(path), { "content-security-policy": "sandbox" });
-      case "GET /api/is-text": // opening a file: in the text editor?
-        return json({ text: await isTextFile(requirePath(path)) });
+      case "GET /api/is-text": // opening a file: run it in the terminal? in the text editor?
+        return json({ run: await runCommand(requirePath(path)), text: await isTextFile(path) });
       case "GET /preview":
         return imagePreview(requirePath(path), url.searchParams.get("size") ?? "2560");
       case "POST /api/open":
