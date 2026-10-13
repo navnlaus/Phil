@@ -170,30 +170,45 @@ async function readSpeeds(cacheFile) {
 
 const testing = new Set(); // disks being timed now
 
+const withStatus = (status, message) => Object.assign(new Error(message), { status });
+
 /**
  * Times reading from the drive under mount point `path`: up to 4 GB read
  * straight from the disk (dd, O_DIRECT: past the page cache), stopped after 15 s
- * on a slow one; as root: pkexec asks for the password (the desktop's polkit
- * agent). Not hdparm -t: it flushes the disk's caches first, which can wait
- * behind everything else on the disk (it did, for minutes). Kept in `cacheFile`
- * by the disk's model and serial, for driveInfo to show: {read} in MB/s, `at`.
+ * on a slow one. Not hdparm -t: it flushes the disk's caches first, which can
+ * wait behind everything else on the disk (it did, for minutes).
+ *
+ * As root, with sudo: it remembers a password for a while (its timestamp
+ * timeout, 5 minutes unless set otherwise, for this process: the editors'
+ * saves with sudo count too), so it's tried without one first, then with
+ * `password`. A 401 when one is needed (or was wrong): the page asks.
+ *
+ * Kept in `cacheFile` by the disk's model and serial, for driveInfo to show:
+ * {read} in MB/s, `at`.
  */
-export async function driveSpeed(path, cacheFile) {
+export async function driveSpeed(path, cacheFile, password) {
   const info = await driveInfo(path, cacheFile);
   if (!info?.disk) throw new Error(info?.network ? "A network share has no disk here to time" : "Not a drive");
+  if (!(await run("sudo", ["-n", "true"])).ok) { // not remembered: the password, checked
+    const needs = "Reading the disk directly needs root. Password for sudo:";
+    if (password === undefined || password === null) throw withStatus(401, needs);
+    const check = new Deno.Command("sudo", { args: ["-S", "-p", "", "-v"], stdin: "piped", stdout: "null", stderr: "null" }).spawn();
+    const writer = check.stdin.getWriter();
+    await writer.write(new TextEncoder().encode(password + "\n"));
+    await writer.close();
+    if (!(await check.status).success) throw withStatus(401, `That password didn't work. ${needs}`);
+  }
   if (testing.has(info.disk.path)) throw new Error("A test of this drive is running already");
   testing.add(info.disk.path);
   let r;
   try {
     // At 15 s, USR1 makes dd report how far it got (SIGINT may be ignored here); killed a second later.
-    r = await run("pkexec", ["timeout", "-s", "USR1", "-k", "1", "15", "dd", `if=${info.disk.path}`, "of=/dev/null", "bs=4M", "count=1024", "iflag=direct"], 300_000);
-  } catch (err) {
-    throw new Error(err instanceof Deno.errors.NotFound ? "Needs pkexec (polkit)" : "The test didn't finish");
+    r = await run("sudo", ["-n", "--", "timeout", "-s", "USR1", "-k", "1", "15", "dd", `if=${info.disk.path}`, "of=/dev/null", "bs=4M", "count=1024", "iflag=direct"], 60_000);
+  } catch {
+    throw new Error("The test didn't finish");
   } finally {
     testing.delete(info.disk.path);
   }
-  if (r.code === 126) throw new Error("Cancelled (the password wasn't given)");
-  if (r.code === 127) throw new Error("Not allowed (polkit said no)");
   // dd's report (the first, if it made two): "2147483648 bytes (2.1 GB, 2.0 GiB) copied, 0.71 s, 3.0 GB/s"
   const m = /(\d+) bytes .*copied, ([\d.]+) s/.exec(r.stderr);
   if (!m || !Number(m[2])) throw new Error(r.stderr.trim().split("\n").at(-1) || "dd failed");
