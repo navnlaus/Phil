@@ -109,11 +109,12 @@ export function createServer({ profile, controlSocket }) {
     return { folders };
   };
 
-  // The sidebar's places, with the description each has in its Properties (shown in place of its name).
+  // The sidebar's places, with the description each has in its Properties (shown in place of its name),
+  // and the icon picked there (`customIcon`, one of vendor/lucide-sprite.svg's).
   const describedPlaces = async () =>
     Promise.all((await places(await sidebarFolders())).map(async (p) => {
-      const description = p.path ? (await hooks.get(p.path).catch(() => null))?.description : null;
-      return description ? { ...p, description } : p;
+      const meta = p.path ? await hooks.get(p.path).catch(() => null) : null;
+      return { ...p, ...(meta?.description ? { description: meta.description } : {}), ...(meta?.icon ? { customIcon: meta.icon } : {}) };
     }));
   // Files copied or cut (Ctrl+C / Ctrl+X), for every window: pasting goes by the
   // desktop's clipboard, which has their paths as text (`text`) while they're it.
@@ -264,12 +265,13 @@ export function createServer({ profile, controlSocket }) {
         }
       case "GET /api/folder-size":
         return json(await folderSize(requirePath(path)));
-      case "PUT /api/meta": { // {path, description, onChange, tags, autoTags}: Properties' phil section
+      case "PUT /api/meta": { // {path, description, onChange, tags, autoTags, icon}: Properties' phil section
         const { path, ...changes } = await req.json();
+        if ("icon" in changes && changes.icon && !/^[a-z0-9-]{1,64}$/.test(changes.icon)) throw httpError(400, "An icon's name, from the list");
         const clean = (key) => key in changes ? { [key]: String(changes[key] ?? "").trim() } : {};
         const tags = "tags" in changes ? cleanTags(changes.tags) : null;
         const auto = "autoTags" in changes ? { autoTags: changes.autoTags ? true : "" } : {}; // a folder's: tag its pictures
-        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...(tags ? { tags: tags.length ? tags : "" } : {}), ...auto });
+        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...clean("icon"), ...(tags ? { tags: tags.length ? tags : "" } : {}), ...auto });
         if (tags?.length) await tagging.addToVocabulary(tags);
         return json({ ok: true });
       }
@@ -325,6 +327,7 @@ export function createServer({ profile, controlSocket }) {
     for (const e of entries) {
       if (meta[e.path]?.onChange) e.onChange = meta[e.path].onChange;
       if (meta[e.path]?.description) e.description = meta[e.path].description;
+      if (meta[e.path]?.icon) e.icon = meta[e.path].icon; // a folder's, picked in its Properties
       if (meta[e.path]?.copying) { // a copy into it: under way, or stopped (cut off: no job has it)
         e.copying = { ...meta[e.path].copying };
         if (!liveTargets.has(e.path)) e.copying.state = "stopped";

@@ -410,6 +410,8 @@ body.term-cover #term-resize { display: none; }
 .marks .badge.line svg { fill: none; stroke: currentColor; stroke-width: 2.6; }
 .marks .badge.fill svg { fill: currentColor; }
 .marks .badge.folder { display: none; } /* a folder's: for themes without the tab */
+.marks .badge.folder.custom { display: grid; } /* one picked in its Properties: always */
+.marks .badge.custom svg { stroke-width: 2.4; }
 /* ⚡: the file has an on-change hook (Properties) */
 .label .hook-mark {
   position: absolute;
@@ -470,6 +472,7 @@ body[data-theme] .tile.has-hook .label { padding-right: 28px; }
   color: color-mix(in srgb, var(--folder) 70%, var(--text));
   opacity: 0.7;
 }
+.tile.dir .face > svg.kind.custom { width: 44%; height: 44%; stroke-width: 1.4; opacity: 0.85; } /* its own icon (Properties) */
 .tile.dir .face.previews {
   gap: 1px;
   grid-template-columns: 1fr 1fr;
@@ -689,6 +692,70 @@ body[data-theme] .tile.has-hook .label { padding-right: 28px; }
 #props .autotag .check { display: flex; margin: 0; }
 #props .autotag .hint { margin-top: 4px; }
 #props-found { white-space: pre-line; }
+#props .icon-row { margin-top: 10px; }
+#props .icon-row[hidden] { display: none; }
+#props .icon-pick { display: flex; gap: 6px; }
+#props .icon-pick button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: inherit;
+}
+#props .icon-pick button:hover { background: var(--bg-hover); }
+#props .icon-pick svg { margin: 0; color: var(--folder); }
+#props-icon-reset[hidden] { display: none !important; }
+
+/* The icon picker, over Properties */
+#icon-picker {
+  width: min(620px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 48px));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+#icon-picker::backdrop { background: rgba(0, 0, 0, 0.3); }
+#icon-picker form { display: flex; flex-direction: column; height: 100%; }
+#icon-picker .head { display: flex; gap: 8px; padding: 12px 12px 8px; }
+#icon-search {
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+#icon-search:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+#icon-picker .close { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--text-dim); }
+#icon-picker .close:hover { background: var(--bg-hover); color: var(--text); }
+#icon-picker .close svg { margin: 0; }
+#icon-picker .scroll { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
+#icon-picker h3 { margin: 10px 2px 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+#icon-picker .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 2px; }
+#icon-picker .grid.suggested { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+#icon-picker [hidden] { display: none !important; }
+#icon-picker .grid button {
+  display: grid;
+  place-items: center;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+}
+#icon-picker .grid button svg { width: 22px; height: 22px; margin: 0; }
+#icon-picker .grid button:hover, #icon-picker .grid button:focus-visible { background: var(--bg-hover); color: var(--folder); outline: none; }
+#icon-picker .grid button.current { background: var(--accent-bg); color: var(--accent); }
+#icon-picker .none { margin: 16px 2px; color: var(--text-dim); }
 #props-desc, #props-tags {
   width: 100%;
   height: 30px;
