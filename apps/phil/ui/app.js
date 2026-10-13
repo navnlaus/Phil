@@ -64,6 +64,34 @@ async function api(path, options) {
   return res.json();
 }
 
+// Root access, the one way everywhere (apps/phil/sudo.js): sudo, which
+// remembers a password a while; when it doesn't, `action` fails with a 401,
+// and the password box asks (its message says what for), the password goes to
+// sudo, and `action` runs again. Rejects with .cancelled when it's cancelled.
+async function withSudo(action, { ok = "OK", onAsk = () => {}, onRetry = () => {} } = {}) {
+  for (;;) {
+    try {
+      return await action();
+    } catch (err) {
+      if (err.status !== 401) throw err;
+      let message = err.message;
+      for (;;) {
+        onAsk();
+        const password = await askPassword(message, { ok });
+        if (password === null) throw Object.assign(new Error("Cancelled"), { cancelled: true });
+        try {
+          await api("/api/sudo", { method: "POST", body: JSON.stringify({ password, why: err.message.split("\n")[0] }) });
+          break;
+        } catch (wrong) {
+          if (wrong.status !== 401) throw wrong;
+          message = wrong.message;
+        }
+      }
+      onRetry();
+    }
+  }
+}
+
 const openExternal = (path, app) =>
   api("/api/open", { method: "POST", body: JSON.stringify({ path, app }) }).catch((err) => alert(err.message));
 
@@ -1012,12 +1040,14 @@ async function mount(p, a, readOnly = false) {
   a.classList.add("busy");
   flashStatus(`Mounting ${p.name}…`, 60_000);
   try {
-    const { path } = await api("/api/mount", { method: "POST", body: JSON.stringify({ device: p.device, readOnly }) });
+    // A system drive's needs root: sudo (the password box when it wants it).
+    const { path } = await withSudo(() => api("/api/mount", { method: "POST", body: JSON.stringify({ device: p.device, readOnly }) }), { ok: "Mount" });
     flashStatus(`Mounted ${p.name}${readOnly ? " (read-only)" : ""}`);
     await refreshPlaces();
     navigate(path);
   } catch (err) {
     flashStatus("", 0);
+    if (err.cancelled) return;
     if (err.status !== 409) return alert(`Couldn't mount ${p.name}\n${err.message}`);
     a.classList.remove("busy");
     const ok = await askConfirm({ title: `${p.name} can only be mounted read-only`, detail: err.message, ok: "Mount read-only", danger: false, copyable: true });
@@ -1035,8 +1065,9 @@ async function unmount(p) {
     await new Promise((r) => setTimeout(r, 300));
   }
   try {
-    await api("/api/unmount", { method: "POST", body: JSON.stringify({ path: p.path }) });
+    await withSudo(() => api("/api/unmount", { method: "POST", body: JSON.stringify({ path: p.path }) }), { ok: "Unmount" });
   } catch (err) {
+    if (err.cancelled) return;
     return alert(`Couldn't unmount ${p.name}: ${err.message}`);
   }
   flashStatus(`Unmounted ${p.name}`);
@@ -1766,8 +1797,7 @@ async function showProperties(entry) {
     output.hidden = false;
     output.className = "output";
     output.textContent = `Running…`;
-    const run = await api("/api/run-hook", { method: "POST", body: JSON.stringify({ path: p.path, command }) })
-      .catch((err) => ({ ok: false, code: -1, output: err.message }));
+    const run = await runHookWithSudo(p.path, command);
     output.classList.toggle("failed", !run.ok);
     output.textContent = (run.output || "(no output)") + (run.ok ? "" : `\n\nFailed (exit code ${run.code})`);
   };
@@ -1848,27 +1878,14 @@ async function showDrive(path, fact) {
       button.replaceChildren(spinner, status);
       let started = Date.now(), timer = null;
       const tick = () => (status.textContent = `Testing… ${Math.round((Date.now() - started) / 1000)} s`);
-      const test = (sudo) => api("/api/drive-speed", { method: "POST", body: JSON.stringify({ path, sudo }) });
+      const counting = () => (started = Date.now(), tick(), clearInterval(timer), (timer = setInterval(tick, 500)));
       try {
-        tick();
-        timer = setInterval(tick, 500);
-        let result;
-        for (let sudo; ;) { // sudo remembers the password a while; when it doesn't, it's asked for
-          try {
-            result = await test(sudo);
-            break;
-          } catch (err) {
-            if (err.status !== 401) throw err;
-            clearInterval(timer);
-            status.textContent = "Waiting for the password…";
-            sudo = await askPassword(err.message, { ok: "Run" });
-            if (sudo === null) throw new Error("Cancelled");
-            started = Date.now();
-            tick();
-            timer = setInterval(tick, 500);
-          }
-        }
-        show(result);
+        counting();
+        show(await withSudo(() => api("/api/drive-speed", { method: "POST", body: JSON.stringify({ path }) }), {
+          ok: "Run",
+          onAsk: () => (clearInterval(timer), (status.textContent = "Waiting for the password…")),
+          onRetry: counting,
+        }));
       } catch (err) {
         show(s, err.message);
       } finally {
@@ -1899,7 +1916,28 @@ function accessText({ access, owner, kind }) {
 }
 
 // A hook ran (the server sends it to the windows showing the folder).
-function onHookRan({ path, command, ok, code, output }) {
+// A hook (its `sudo`) wanting the password: asked for, then it runs again.
+// Resolves to the last run, as /api/run-hook gives it.
+async function runHookWithSudo(path, command, first = null) {
+  const once = () => api("/api/run-hook", { method: "POST", body: JSON.stringify({ path, command }) })
+    .catch((err) => ({ ok: false, code: -1, output: err.message }));
+  const asSudo = async () => {
+    const run = first ?? await once();
+    first = null;
+    if (!run.needsSudo) return run;
+    throw Object.assign(new Error(`“${command}” (when ${path.split("/").pop()} changes) needs root.\nPassword for sudo:`), { status: 401 });
+  };
+  try {
+    return await withSudo(asSudo, { ok: "Run" });
+  } catch (err) {
+    return { ok: false, code: -1, output: err.cancelled ? "Cancelled: it needs sudo's password" : err.message };
+  }
+}
+
+async function onHookRan(ran) {
+  // It ran while a phil window showed its folder; one whose sudo wanted the password asks for it.
+  const { path, command } = ran;
+  const { ok, code, output } = ran.needsSudo ? await runHookWithSudo(path, command, ran) : ran;
   const name = path.split("/").pop();
   if (ok) return flashStatus(`${name} changed: ran ${command}`);
   const why = output.trim().split("\n").at(-1) || `exit code ${code}`;

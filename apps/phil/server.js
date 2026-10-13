@@ -7,6 +7,7 @@ import { currentTheme, themeNames, themesDir } from "../../engine/themes.js";
 import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
 import { Hooks, metadataFile, runHook } from "./hooks.js";
+import { requireSudo, sudo, sudoPassword, sudoWanted } from "./sudo.js";
 import { taggable, Tagging } from "./tagging.js";
 import { home, serverConfig } from "./launch.js";
 import { canWrite, driveInfo, driveSpeed, folderSize, me, properties } from "./properties.js";
@@ -117,14 +118,17 @@ export function createServer({ profile, controlSocket }) {
         return json({ ...await properties(requirePath(path)), meta: await hooks.get(path) });
       case "GET /api/drive": // a mount point's drive (Properties of the sidebar's drives), with its last speed test
         return json(await driveInfo(requirePath(path), speedsFile));
-      case "POST /api/drive-speed": { // {path, sudo}: time reading from it, as root (401: sudo's password needed)
-        const body = await req.json();
+      case "POST /api/sudo": { // {password}: for sudo (sudo.js), after a 401; 401 again when it's wrong
+        const { password, why } = await req.json();
+        if (!(await sudoPassword(password ?? ""))) throw httpError(401, `That password didn't work.${why ? ` ${why}` : ""}\nPassword for sudo:`);
+        return json({ ok: true });
+      }
+      case "POST /api/drive-speed": // {path}: time reading from it, as root (401: sudo's password needed)
         try {
-          return json(await driveSpeed(requirePath(body.path), speedsFile, body.sudo));
+          return json(await driveSpeed(requirePath((await req.json()).path), speedsFile));
         } catch (err) {
           throw err.status ? err : httpError(500, err.message);
         }
-      }
       case "GET /api/folder-size":
         return json(await folderSize(requirePath(path)));
       case "PUT /api/meta": { // {path, description, onChange, tags, autoTags}: Properties' phil section
@@ -810,17 +814,26 @@ function driveName({ label, size, fstype }) {
   return `${n.toFixed(n < 10 && unit ? 1 : 0)} ${["B", "KB", "MB", "GB", "TB"][unit]} ${fstype.replace(/3$/, "").toUpperCase()}`;
 }
 
-// Mounting a partition listed as not mounted (for the user, by udisks: under
-// /run/media/<user>; a system drive asks for the password, the desktop's
-// polkit agent's dialog). Gives where it is. An NTFS drive Windows (or Linux)
+// Mounting a partition listed as not mounted, under /run/media/<user>: by
+// udisks when it lets the user (removable drives: no password); a system
+// drive's needs root, which is sudo (sudo.js: a 401 when it wants the
+// password) and mount, with what udisks would give: the files the user's on
+// NTFS, exFAT and FAT. Gives where it is. An NTFS drive Windows (or Linux)
 // didn't close properly is a 409: it can only be mounted `readOnly`.
 async function mountDrive({ device, readOnly = false }) {
   const drive = (await unmountedDrives(await blockDevices())).find((d) => d.path === device);
   if (!drive) throw httpError(404, "That drive isn't there to mount (mounted already?)");
   let stdout;
   try {
-    ({ stdout } = await udisksctl(["mount", "-b", device, ...(readOnly ? ["-o", "ro"] : [])]));
+    try {
+      ({ stdout } = await udisksctl(["mount", "--no-user-interaction", "-b", device, ...(readOnly ? ["-o", "ro"] : [])]));
+    } catch (err) {
+      if (!err.notAuthorized) throw err;
+      await requireSudo(`Mounting ${driveName(drive)} needs root.`);
+      return { path: await sudoMount(drive, readOnly) };
+    }
   } catch (err) {
+    if (err.status === 401) throw err;
     if (/^ntfs/.test(drive.fstype) && !readOnly && await kernelSaid(new RegExp(`${basename(device)}\\): volume is dirty`))) {
       throw httpError(
         409,
@@ -846,12 +859,45 @@ async function kernelSaid(pattern) {
   }
 }
 
-// Unmounting a drive mounted under /run/media/<user> (by udisks).
+// sudo mount of `drive` (one udisks won't mount for the user) at
+// /run/media/<user>/<its label or UUID>, as udisks would: nosuid, nodev, and on
+// file systems without owners (NTFS, exFAT, FAT) the files the user's.
+async function sudoMount(drive, readOnly) {
+  const user = basename(home());
+  const uid = await new Deno.Command("id", { args: ["-u"], stdout: "piped" }).output().then((o) => new TextDecoder().decode(o.stdout).trim());
+  const gid = await new Deno.Command("id", { args: ["-g"], stdout: "piped" }).output().then((o) => new TextDecoder().decode(o.stdout).trim());
+  let target = join("/run/media", user, (drive.label || drive.uuid || basename(drive.path)).replaceAll("/", "_"));
+  for (let n = 2; await Deno.lstat(target).then(() => true, () => false); n++) target = target.replace(/( \d+)?$/, ` ${n}`);
+  const type = /^ntfs/.test(drive.fstype) ? "ntfs3" : drive.fstype;
+  const options = ["nosuid", "nodev", "relatime", ...(readOnly ? ["ro"] : [])];
+  if (type === "ntfs3") options.push(`uid=${uid}`, `gid=${gid}`, "umask=022", "iocharset=utf8", "prealloc");
+  else if (/^(exfat|vfat|msdos)$/.test(type)) options.push(`uid=${uid}`, `gid=${gid}`, "umask=022");
+  const made = await sudo(["mkdir", "-p", target]);
+  if (!made.ok) throw httpError(500, made.stderr.trim() || "couldn't make the mount point");
+  const mounted = await sudo(["mount", "-t", type, "-o", options.join(","), drive.path, target]);
+  if (!mounted.ok) {
+    await sudo(["rmdir", target]);
+    throw httpError(500, mounted.stderr.trim().split("\n").at(-1) || "mount failed");
+  }
+  return target;
+}
+
+// Unmounting a drive mounted under /run/media/<user>: by udisks when it lets
+// the user (what it mounted for them), otherwise sudo umount (sudo.js: a 401
+// when it wants the password), and its mount point goes.
 async function unmountDrive({ path }) {
   requirePath(path);
   const drive = (await blockDevices()).find((d) => d.mountpoints.includes(path));
   if (!drive || !path.startsWith("/run/media/")) throw httpError(400, "That isn't a drive phil can unmount");
-  await udisksctl(["unmount", "-b", drive.path]);
+  try {
+    await udisksctl(["unmount", "--no-user-interaction", "-b", drive.path]);
+  } catch (err) {
+    if (!err.notAuthorized) throw err;
+    await requireSudo(`Unmounting ${basename(path)} needs root.`);
+    const out = await sudo(["umount", path]);
+    if (!out.ok) throw httpError(500, out.stderr.trim().split("\n").at(-1) || "umount failed");
+    await sudo(["rmdir", path]);
+  }
   return { ok: true };
 }
 
@@ -866,7 +912,9 @@ async function udisksctl(args) {
   if (!out.success) {
     // "Error mounting /dev/x: GDBus.Error:org.freedesktop.UDisks2.Error.Failed: <the reason>"
     const reason = said(out.stderr).split("\n").find((l) => l.trim()) ?? "udisksctl failed";
-    throw httpError(500, reason.replace(/^.*?GDBus\.Error:[\w.]+:\s*/, "").replace(/^Error \w+ \S+:\s*/, ""));
+    const err = httpError(500, reason.replace(/^.*?GDBus\.Error:[\w.]+:\s*/, "").replace(/^Error \w+ \S+:\s*/, ""));
+    err.notAuthorized = /NotAuthorized/.test(reason); // it'd take a password: root's way (sudo) instead
+    throw err;
   }
   return { stdout: said(out.stdout) };
 }

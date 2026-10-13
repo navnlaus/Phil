@@ -6,6 +6,7 @@
 // {"<path>": {"description": "...", "onChange": "<command>"}}, which is read
 // again whenever it's needed, so editing it by hand works too.
 import { dirname, join } from "@std/path";
+import { sudoWanted } from "./sudo.js";
 
 const OUTPUT_LIMIT = 4000; // of a run's output, the end is kept
 
@@ -158,7 +159,8 @@ export class Hooks {
  * Runs a hook: `command` in bash, in the file's folder, with the file as $1
  * and $PHIL_FILE. Resolves to {ok, code, output} (stdout then stderr, the end).
  * A plain command is run by bash directly, so `sudo ...` is phil's child and
- * goes without a password while sudo remembers the one given to save a file.
+ * goes without a password while sudo remembers one given to phil (sudo.js).
+ * When it wanted one, `needsSudo`: the page asks for it and runs it again.
  */
 export async function runHook(path, command) {
   try {
@@ -172,7 +174,7 @@ export async function runHook(path, command) {
     }).output();
     const decode = (bytes) => new TextDecoder().decode(bytes).trimEnd();
     const output = [decode(out.stdout), decode(out.stderr)].filter(Boolean).join("\n");
-    return { ok: out.success, code: out.code, output: output.length > OUTPUT_LIMIT ? "…" + output.slice(-OUTPUT_LIMIT) : output };
+    return { ok: out.success, code: out.code, output: output.length > OUTPUT_LIMIT ? "…" + output.slice(-OUTPUT_LIMIT) : output, needsSudo: !out.success && sudoWanted(output) };
   } catch (err) {
     return { ok: false, code: -1, output: err.message };
   }

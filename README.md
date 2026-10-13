@@ -283,7 +283,7 @@ empty space → Inspect Element works too.
 
 `webkit2gtk-4.1`, `deno`, `wl-clipboard`, `libvips` (built with poppler, for PDF thumbnails) (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
 and GStreamer plugins for in-app video (`gst-plugins-good`, `gst-libav`). `mpv`
-and `xdg-open` are used for "open externally". `udisks2` (`udisksctl`) and a polkit agent mount drives from the sidebar.
+and `xdg-open` are used for "open externally". `udisks2` (`udisksctl`) mounts removable drives from the sidebar; a system drive's mount, like everything phil does as root, goes through `sudo`.
 
 ## How it works
 
@@ -427,7 +427,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Ctrl+H | show hidden files |
 | hover / click the sidebar button (the folder in the top left corner), F9 | the sidebar slides out over the folder / stays open beside it (home folders, drives in /run/media and /mnt, and /etc/fstab's network shares and other mounts, each with its free space ("758 GB free of 1.8 TB"; a share that isn't mounted yet isn't woken for it); refreshed when the window gets focus) |
 | right-click a drive in the sidebar → Properties | the drive under it (model, NVMe/USB/SATA, the disk device under partitions and encryption), file system, space, and its read speed: "Run speed test" reads up to 4 GB straight from the disk (`dd`, O_DIRECT, 15 s at most; as root, with sudo: it asks for the password unless sudo still remembers it, as for saving root's files in the editors), and the result is kept per disk |
-| click a dimmed drive in the sidebar | mount it and open it: partitions nothing has mounted (an internal drive's, like Windows': only removable ones are mounted by themselves), by udisks under /run/media, asking for the password for a system drive; right-click a drive in /run/media → Unmount |
+| click a dimmed drive in the sidebar | mount it and open it: partitions nothing has mounted (an internal drive's, like Windows': only removable ones are mounted by themselves), by udisks under /run/media, a system drive's with sudo (the password box, unless sudo remembers it); right-click a drive in /run/media → Unmount |
 | F4 / Ctrl+` | toggle the terminal panel |
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
 | Ctrl + / − / wheel | thumbnail size |
@@ -442,10 +442,17 @@ failed (the engine's log has the output). Through a link, it's the file the
 link points to that's watched, so a link in `Documents/Config` with
 `sudo systemctl restart keyd` restarts keyd whenever `/etc/keyd/default.conf`
 is saved. A plain command like that runs as phil's own child, so sudo goes
-without asking while it remembers the password you gave the editor to save
-the file (otherwise it fails with "a password is required"). Opening or
+without asking while it remembers the password you gave phil for anything
+else; when it doesn't, phil asks for it (the password box) and runs it again. Opening or
 touching the file doesn't count, nor do changes the command makes itself.
 A tile with a hook has a ⚡.
+
+**Root access**, wherever phil needs it (saving a file of root's in the
+editors, mounting a system drive, a hook's `sudo`, a drive's speed test), is
+one way: `sudo`. While sudo remembers a password (`timestamp_timeout`, 5
+minutes by default; for phil as a whole) nothing is asked; otherwise a small
+password box over the window asks, saying what for, and the password goes
+to sudo and nowhere else.
 
 **Descriptions.** Properties also takes a description, for a file or a
 folder, shown in italics above its name (kept in the same metadata.json).
