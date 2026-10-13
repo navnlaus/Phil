@@ -193,6 +193,18 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 }
 .transfer-bar .cancel:hover { background: rgba(255, 255, 255, 0.2); }
 .transfer-bar.paused .fill { opacity: 0.45; }
+
+/* Copied (Ctrl+C) or cut (Ctrl+X), waiting to be pasted. */
+.tile.clip-copy::before, .tile.clip-cut::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  z-index: 3;
+  border: 2px dashed var(--accent);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.tile.clip-cut > * { opacity: 0.45; }
 .transfer-bar.deleting .fill { background: #c94b4b; }
 /* Counting before deleting: no percentage yet, stripes going by. */
 .transfer-bar.counting .fill {

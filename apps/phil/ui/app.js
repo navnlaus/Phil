@@ -1,4 +1,4 @@
-import { appUrl, askPassword, clipboardKey, closeWindow, copyText, embedOf, holdFocus, ready, tooltips } from "/engine/ui/kit.js";
+import { appUrl, askPassword, clipboardKey, closeWindow, copyText, embedOf, holdFocus, pasteText, ready, tooltips } from "/engine/ui/kit.js";
 import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
 
 tooltips(); // the page's own, in the theme's style (kit.js)
@@ -32,6 +32,7 @@ const state = {
   space: {}, // the sidebar's drives: {path: {size, avail}}
   speeds: {}, // their last read speed tests: {path: {read, at}} (Properties → Run speed test)
   transfers: new Map(), // copies and moves under way: id -> their progress (the server's transfer())
+  clip: null, // files copied or cut, in any phil window: {op, paths, text}
   settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, theme: "overlay" },
 };
 const tiles = new Map(); // path -> tile element
@@ -131,6 +132,7 @@ const thumbs = {
       if (this.tagging) this.tag(this.tagging);
       if (this.totals.size) this.send({ totals: [...this.totals] }); // asked for before the connection was up
       loadTransfers();
+      api("/api/clipboard").then((c) => ((state.clip = c), markClipboard()), () => {});
       this.totals.clear();
       this.flush();
     };
@@ -143,6 +145,7 @@ const thumbs = {
       if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes);
       if (msg.hook) return onHookRan(msg.hook);
       if (msg.transfer) return onTransfer(msg.transfer);
+      if ("clipboard" in msg) return (state.clip = msg.clipboard), markClipboard();
       const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
       this.folders.delete(path);
@@ -682,6 +685,7 @@ function render(selectPath = state.view[state.selected]?.path) {
   if (marked.size > 1) setMarked([...marked].filter((p) => tiles.has(p))); // survive re-sort/filter
   updateStatus();
   showTransfers();
+  markClipboard();
 }
 
 // The extension, if the name has a short one ("md", "json"; not "tar.gz"'s "tar").
@@ -1024,6 +1028,7 @@ function renderPlaces() {
         ["Open", () => navigate(p.path)],
         ["Properties", () => showProperties({ path: p.path, name: p.name, kind: "dir" })],
         ...(remote ? [[`SSH here (${remote.host})`, () => sshTo(p.path)]] : []),
+        ["Paste into", () => pasteFiles(p.path)],
         ...newItemsIn(p.path, " inside"),
         ...(p.mounted ? [["Unmount", () => unmount(p)]] : []),
       ]);
@@ -1538,6 +1543,8 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "video") items.push(["Play here", () => viewer.open(state.view.indexOf(entry))]);
   if (isJson(entry)) items.push(["Edit in jsonedit", () => openInApp("jsonedit", { file: entry.path })]);
   if (isJson(entry) || tiles.get(entry.path)?.firstElementChild.text) items.push(["Add to Config", () => addToConfig(entry)]);
+  items.push(...clipItems(entry));
+  if (entry.kind === "dir") items.push(["Paste into", () => pasteFiles(entry.path)]);
   items.push(["Rename…", () => startRename(state.view.indexOf(entry))]);
   items.push(["Copy path", () => copyText(entry.path)]);
   items.push([state.marked.size > 1 ? `Add tags to ${state.marked.size} items…` : "Add tags…", addTags]);
@@ -2527,6 +2534,65 @@ async function transfer(op, items, dest, { resume = false, target = null } = {})
   }
 }
 
+// ---------------------------------------------------------------- cut, copy, paste
+
+// Ctrl+C / Ctrl+X: the selection, to paste (Ctrl+V) here or in another phil
+// window; the desktop's clipboard gets their paths as text, as before (a
+// terminal, a chat...). Pasting goes by what that has now: still these, or
+// files copied in another program (file:// URIs, or paths, one per line); text
+// copied since means there's nothing to paste.
+async function clipFiles(op, entries = markedEntries()) {
+  const paths = entries.map((e) => e.path);
+  const text = paths.join("\n");
+  await copyText(text);
+  await api("/api/clipboard", { method: "PUT", body: JSON.stringify({ op, paths, text }) }).catch(() => {});
+  state.clip = { op, paths, text };
+  markClipboard();
+  flashStatus(`${op === "cut" ? "Cut" : "Copied"} ${paths.length === 1 ? paths[0].split("/").pop() : `${paths.length} items`}: Ctrl+V pastes`);
+}
+
+async function pasteFiles(dest) {
+  const text = (await pasteText()).trim();
+  const clip = await api("/api/clipboard").catch(() => null);
+  let op = "copy", paths;
+  if (clip && clip.text.trim() === text) {
+    op = clip.op === "cut" ? "move" : "copy";
+    paths = clip.paths;
+  } else {
+    paths = text.split(/\r?\n/).map((l) => l.trim()).flatMap((l) => {
+      if (l.startsWith("file://")) {
+        try {
+          return [decodeURIComponent(new URL(l).pathname)];
+        } catch {
+          return [];
+        }
+      }
+      return l.startsWith("/") ? [l] : [];
+    });
+  }
+  // A cut pasted where it is stays; nothing goes into itself.
+  paths = paths.filter((p) => !(op === "move" && parentOf(p) === dest) && dest !== p && !dest.startsWith(p + "/"));
+  if (!paths.length) return flashStatus(text ? "Nothing to paste here" : "Nothing to paste: copy or cut files first (Ctrl+C, Ctrl+X)");
+  await transfer(op, paths.map((path) => ({ path })), dest);
+  if (op === "move") await api("/api/clipboard", { method: "DELETE" }).catch(() => {}); // moved: nothing left to paste
+}
+
+// Tiles of what's copied (outlined) or cut (outlined and faded).
+function markClipboard() {
+  document.querySelectorAll(".tile.clip-copy, .tile.clip-cut").forEach((t) => t.classList.remove("clip-copy", "clip-cut"));
+  for (const path of state.clip?.paths ?? []) tiles.get(path)?.classList.add(state.clip.op === "cut" ? "clip-cut" : "clip-copy");
+}
+
+// The menus' Cut, Copy, Paste.
+const clipItems = (entry) => {
+  const many = state.marked.size > 1 && state.marked.has(entry.path);
+  const entries = many ? markedEntries() : [entry];
+  return [
+    [many ? `Cut ${entries.length} items` : "Cut", () => clipFiles("cut", entries)],
+    [many ? `Copy ${entries.length} items` : "Copy", () => clipFiles("copy", entries)],
+  ];
+};
+
 // ---------------------------------------------------------------- copy and move progress
 
 // Copies and moves already under way when this window opened (or its
@@ -2693,7 +2759,7 @@ grid.addEventListener("contextmenu", (e) => {
   // The webview's own menu: Paste in the name field; Shift+right-click on empty space for Inspect Element.
   if (inRename(e) || (i === -1 && e.shiftKey)) return;
   e.preventDefault();
-  if (i === -1) return showMenu(e.clientX, e.clientY, newItemsIn(state.path)); // the empty space
+  if (i === -1) return showMenu(e.clientX, e.clientY, [["Paste", () => pasteFiles(state.path)], ...newItemsIn(state.path)]); // the empty space
   // On Linux this fires when the button goes down. A right press may become a
   // drag, so the menu waits for the release (see endDrag).
   if (drag?.button === 2) return void (drag.wantsMenu = true);
@@ -2922,6 +2988,12 @@ document.addEventListener("keydown", (e) => {
   if (ctrl && e.key === "-") return setZoom(state.settings.zoom - 16), handled();
   if (e.key === "F5" || (ctrl && e.key === "r")) return load(state.path), handled();
 
+  // Files: Ctrl+C / Ctrl+X (and Super+C...) copy or cut the selection, Ctrl+V pastes here.
+  const clip = clipboardKey(e);
+  if (clip && (e.target === grid || e.target === document.body) && !(e.shiftKey && e.key === "Delete")) {
+    if (clip === "paste") return pasteFiles(state.path), handled();
+    if (state.marked.size) return clipFiles(clip), handled();
+  }
   if (e.target !== grid || !state.view.length) return;
   const cols = columns();
   const last = state.view.length - 1;
@@ -2945,8 +3017,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "F2") return startRename(cur), handled();
   if (e.altKey && e.key === "Enter" && cur !== -1) return showProperties(state.view[cur]), handled();
   if (ctrl && e.key === "a") return setMarked(state.view.map((v) => v.path)), updateStatus(), handled();
-  // Ctrl+C / Ctrl+Insert / Super+C: the selected files' paths, one per line.
-  if (clipboardKey(e) === "copy" && state.marked.size) return copyText(markedEntries().map((m) => m.path).join("\n")), handled();
   if (e.key === "Enter" || (e.key === " " && !typed)) return open(cur), handled();
   if (e.key.length === 1 && !ctrl && !e.altKey) return typeAhead(e.key), handled();
 });
