@@ -34,6 +34,11 @@ export function createServer({ profile, controlSocket }) {
   const copyRecords = {
     set: (target, record) => hooks.set(target, { copying: record ?? "" }).catch(() => {}),
     get: async (target) => (await hooks.get(target).catch(() => ({}))).copying ?? null,
+    // A copy done: the records left in it (files cut off before, finished now) go too.
+    clearUnder: async (target) => {
+      const all = await hooks.all().catch(() => ({}));
+      for (const path of Object.keys(all)) if (path.startsWith(target + "/") && all[path].copying) await hooks.set(path, { copying: "" }).catch(() => {});
+    },
   };
 
   // The sidebar's places, with the description each has in its Properties (shown in place of its name).
@@ -1079,7 +1084,7 @@ async function create({ dir, kind }) {
 const transfers = new Map(); // id -> { cancelled, paused, child }
 const liveTargets = new Set(); // what copies under way are making
 
-async function transfer({ op, paths = [], dest, resume = false, target: resumeTarget = null }, { report = () => {}, track = { set() {}, get: async () => null } } = {}) {
+async function transfer({ op, paths = [], dest, resume = false, target: resumeTarget = null }, { report = () => {}, track = { set() {}, get: async () => null, clearUnder: async () => {} } } = {}) {
   if (op !== "move" && op !== "copy") throw httpError(400, "bad op");
   requirePath(dest);
   if (!(await isDir(dest))) throw httpError(400, "destination is not a folder");
@@ -1131,13 +1136,35 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
   const record = (state, done) => current && track.set(current.target, {
     op, from: current.src, state, percent: total ? Math.floor((done / total) * 100) : 0, bytes: done, total, started, updated: Date.now(),
   });
+  // The file being copied: its own record (its percentage) once it's taken a few
+  // seconds, gone when it's done; marked when the copy stops while it's at it.
+  let file = null; // { path, from, since, recorded, percent }
+  const fileRecord = (state) => {
+    if (!file) return;
+    file.recorded = true;
+    liveTargets.add(file.path);
+    track.set(file.path, { op, from: file.from, state, percent: file.percent ?? 0, file: true, updated: Date.now() });
+  };
+  const fileEnd = () => {
+    if (file?.recorded) track.set(file.path, null);
+    if (file) liveTargets.delete(file.path);
+    file = null;
+  };
   const progress = (bytes, extra = {}) => {
+    if (extra.file && extra.file !== file?.path) fileEnd(), (file = { path: extra.file, from: extra.from, since: Date.now(), recorded: false });
+    if (file && extra.filePercent !== undefined) file.percent = extra.filePercent;
+    if (extra.fileDone) fileEnd();
+    else if (file && Date.now() - file.since > 3000 && Date.now() - (file.written ?? 0) > 3000) {
+      file.written = Date.now();
+      fileRecord(job.paused ? "paused" : "running");
+    }
     const done = (lastDone = Math.min(total, doneBefore + base + Math.max(0, bytes - partial)));
     if (Date.now() - lastRecord > 3000) (lastRecord = Date.now()), record(job.paused ? "paused" : "running", done);
     if (Date.now() - last < 250 || !total) return;
     last = Date.now();
     job.last = { id, op, dest, targets: items.filter((it) => !it.quick).map((it) => it.target), items: items.length, bytes: done, total,
-      percent: Math.floor((done / total) * 100), paused: job.paused, ...extra };
+      percent: Math.floor((done / total) * 100), paused: job.paused, file: file?.path ?? null, filePercent: file?.percent ?? null,
+      speed: extra.speed, eta: extra.eta };
     report(job.last);
   };
   // Pausing and going on: the pages hear of it at once, and the record says so, as far as it got.
@@ -1169,17 +1196,23 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
               break;
             } catch (err) {
               if (!job.paused || job.cancelled) throw err;
+              fileRecord("paused"); // the file it stopped in: how far
               lastRecord = 0;
               progress(lastDone - doneBefore - base + partial); // "paused", as far as it got
               await job.resumed;
               if (job.cancelled) throw new Error("cancelled");
             }
           }
+          fileEnd();
           await track.set(target, null); // done: no record
+          await track.clearUnder(target);
         }
         made.push(target);
       } catch (err) {
-        if (!quick) record("stopped", lastDone); // cancelled or failed: it can be resumed
+        if (!quick) { // cancelled or failed: it can be resumed; the file it was at is marked
+          record("stopped", lastDone);
+          if (file) fileRecord("stopped"), liveTargets.delete(file.path), (file = null);
+        }
         errors.push({ path: src, error: job.cancelled ? "cancelled" : err.message });
       }
       doneBefore += sizes[i].total;
@@ -1259,7 +1292,9 @@ async function partialBytes(src, target) {
 }
 
 // rsync of one item (a file, or a folder and all in it) to `target`, telling
-// `progress(bytes, {speed, eta})` how far it is. Files written straight to
+// `progress(bytes, {speed, eta, file, from, filePercent, fileDone})` how far it
+// is: in all, and in the file it's at (rsync's per-file progress; the total is
+// added up here). Files written straight to
 // their names (--inplace: a cut-off one is there to go on with, after a crash
 // too); a file there and shorter is appended to, then checked whole against
 // the source (--append-verify: copied again if they differ); finished ones are
@@ -1267,22 +1302,32 @@ async function partialBytes(src, target) {
 // the emptied folders at the end.
 async function rsync(src, target, { move, posix, job, progress }) {
   const folder = (await Deno.lstat(src)).isDirectory;
-  const args = [posix ? "-a" : "-rlt", "--info=progress2", "--no-inc-recursive", "--inplace", "--append-verify", "--outbuf=L",
+  const args = [posix ? "-a" : "-rlt", "--info=name1,progress1", "--8-bit-output", "--no-inc-recursive", "--inplace", "--append-verify", "--outbuf=L",
     ...(move ? ["--remove-source-files"] : []), "--", folder ? src + "/" : src, target];
   // It stops with phil (closed, crashed, updated): the copy's record says so, and ↻ goes on. Not
   // left running unseen. setpriv execs rsync, so the pid is rsync's (pausing signals it and its helpers).
   const [cmd, ...pre] = (await hasSetpriv) ? ["setpriv", "--pdeathsig", "TERM", "--", "rsync"] : ["rsync"];
   const child = (job.child = new Deno.Command(cmd, { args: [...pre, ...args], stdin: "null", stdout: "piped", stderr: "piped" }).spawn());
   const stderr = new Response(child.stderr).text();
-  let buffer = "";
+  // A file's name (as it's in the folder; a file of its own: its name), then its progress lines.
+  const where = (name) => (folder ? { file: join(target, name), from: join(src, name) } : { file: target, from: src });
+  let buffer = "", current = null, bytes = 0, done = 0;
   for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {
     buffer += chunk;
     const lines = buffer.split(/[\r\n]/);
     buffer = lines.pop();
     for (const line of lines) {
-      // "  1,234,567  45%   12.34MB/s    0:00:05 (xfr#3, to-chk=10/20)"
-      const m = /^\s*([\d,]+)\s+\d+%\s+(\S+)\s+(\d+:\d+:\d+)/.exec(line);
-      if (m) progress(Number(m[1].replaceAll(",", "")), { speed: m[2], eta: m[3] });
+      // "  1,234,567  45%   12.34MB/s    0:00:05 (xfr#3, to-chk=10/20)": the file's; xfr#: it's done
+      const m = /^\s*([\d,]+)\s+(\d+)%\s+(\S+)\s+(\d+:\d+:\d+)(.*xfr#)?/.exec(line);
+      if (m) {
+        bytes = Number(m[1].replaceAll(",", ""));
+        progress(done + bytes, { speed: m[3], eta: m[4], ...(current && where(current)), filePercent: Number(m[2]), fileDone: !!m[5] });
+        if (m[5]) (done += bytes), (bytes = 0), (current = null);
+      } else if (line.trim() && !line.endsWith("/")) {
+        if (current) done += bytes; // a file with no last line (skipped as it was)
+        current = line;
+        bytes = 0;
+      }
     }
   }
   const { success } = await child.status;
