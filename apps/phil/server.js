@@ -77,6 +77,9 @@ export function createServer({ profile, controlSocket }) {
   // Files copied or cut (Ctrl+C / Ctrl+X), for every window: pasting goes by the
   // desktop's clipboard, which has their paths as text (`text`) while they're it.
   let fileClipboard = null;
+  // A drag a phil window started: another window's drop gets its files from here when the
+  // drop itself doesn't carry them (a drag out of one WebKit view into another), and its button.
+  let philDrag = null;
   const shown = new Map(); // page WebSocket -> the folder it shows
   const broadcast = (msg) => {
     for (const socket of shown.keys()) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
@@ -152,6 +155,14 @@ export function createServer({ profile, controlSocket }) {
       }
       case "POST /api/transfer-cancel": // {id}: stops a copy or move (what's done stays done; it can be resumed)
         return json({ cancelled: cancelTransfer((await req.json()).id) });
+      case "PUT /api/drag": // {paths, button}: a phil window started dragging these (for another window's drop)
+        philDrag = { ...await req.json(), at: Date.now() };
+        return json({ ok: true });
+      case "GET /api/drag": // the drag a phil window started, if it's recent
+        return json(philDrag && Date.now() - philDrag.at < 2 * 60_000 ? philDrag : null);
+      case "DELETE /api/drag":
+        philDrag = null;
+        return json({ ok: true });
       case "GET /api/clipboard": // files copied or cut in phil (any window): {op, paths, text} or null
         return json(fileClipboard);
       case "PUT /api/clipboard": { // {op: "copy" | "cut", paths, text}: the desktop's clipboard has `text` (their paths)
