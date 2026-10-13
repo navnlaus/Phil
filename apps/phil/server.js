@@ -116,6 +116,14 @@ export function createServer({ profile, controlSocket }) {
         return json(await create(await req.json()));
       case "GET /api/properties":
         return json({ ...await properties(requirePath(path)), meta: await hooks.get(path) });
+      case "GET /api/drive-speeds": { // ?path=...&path=...: the sidebar's drives' last speed tests, {path: {read, at}}
+        const out = {};
+        await Promise.all(url.searchParams.getAll("path").map(async (p) => {
+          const info = await driveInfo(p, speedsFile).catch(() => null);
+          if (info?.speed) out[p] = info.speed;
+        }));
+        return json(out);
+      }
       case "GET /api/drive": // a mount point's drive (Properties of the sidebar's drives), with its last speed test
         return json(await driveInfo(requirePath(path), speedsFile));
       case "POST /api/sudo": { // {password}: for sudo (sudo.js), after a 401; 401 again when it's wrong
