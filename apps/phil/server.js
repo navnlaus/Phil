@@ -1122,14 +1122,17 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
   // Done: the items finished (doneBefore), what was at the current one's target
   // when its rsync started (base: resumed, or going on after a pause), and what
   // that rsync has copied.
-  let doneBefore = 0, base = 0, last = 0, lastRecord = 0, lastDone = 0;
+  // rsync counts neither the files it skips (base has them) nor, until it gets
+  // there, the part of a cut-off file that's there: then all of it at once
+  // (partial; a resumed rsync gets there first: what's before it is done).
+  let doneBefore = 0, base = 0, partial = 0, last = 0, lastRecord = 0, lastDone = 0;
   const started = Date.now();
   let current = null;
   const record = (state, done) => current && track.set(current.target, {
     op, from: current.src, state, percent: total ? Math.floor((done / total) * 100) : 0, bytes: done, total, started, updated: Date.now(),
   });
   const progress = (bytes, extra = {}) => {
-    const done = (lastDone = Math.min(total, doneBefore + base + bytes));
+    const done = (lastDone = Math.min(total, doneBefore + base + Math.max(0, bytes - partial)));
     if (Date.now() - lastRecord > 3000) (lastRecord = Date.now()), record(job.paused ? "paused" : "running", done);
     if (Date.now() - last < 250 || !total) return;
     last = Date.now();
@@ -1138,7 +1141,7 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
     report(job.last);
   };
   // Pausing and going on: the pages hear of it at once, and the record says so, as far as it got.
-  job.tell = () => ((last = 0), (lastRecord = 0), progress(lastDone - doneBefore - base, { speed: job.last?.speed, eta: job.last?.eta }));
+  job.tell = () => ((last = 0), (lastRecord = 0), progress(lastDone - doneBefore - base + partial, { speed: job.last?.speed, eta: job.last?.eta }));
   try {
     for (const [i, it] of items.entries()) {
       const { src, target, quick } = it;
@@ -1159,6 +1162,7 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
             if (job.paused) await job.resumed; // paused between two
             if (job.cancelled) throw new Error("cancelled");
             base = await apparentSize(target);
+            partial = base ? await partialBytes(src, target) : 0;
             record(job.paused ? "paused" : "running", doneBefore + base);
             try {
               await rsync(src, target, { move: op === "move", posix: !NON_POSIX_FS.test(destFs.type), job, progress });
@@ -1166,7 +1170,7 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
             } catch (err) {
               if (!job.paused || job.cancelled) throw err;
               lastRecord = 0;
-              progress(lastDone - doneBefore - base); // "paused", as far as it got
+              progress(lastDone - doneBefore - base + partial); // "paused", as far as it got
               await job.resumed;
               if (job.cancelled) throw new Error("cancelled");
             }
@@ -1179,7 +1183,7 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
         errors.push({ path: src, error: job.cancelled ? "cancelled" : err.message });
       }
       doneBefore += sizes[i].total;
-      base = 0;
+      base = partial = 0;
     }
   } finally {
     transfers.delete(id);
@@ -1200,7 +1204,7 @@ function cancelTransfer(id) {
   return true;
 }
 
-// Pausing stops rsync (it keeps the file it was writing in .phil-partial); going on starts it again over
+// Pausing stops rsync (the file it was writing stays, cut off); going on starts it again, appending, over
 // what's there. Not SIGSTOP: a frozen rsync couldn't be stopped if phil went away meanwhile.
 function pauseTransfer(id, pause) {
   const job = transfers.get(id);
@@ -1240,15 +1244,31 @@ async function apparentSize(path) {
   }
 }
 
+// What's at `target` in files shorter than their `src` (cut off mid-copy): bytes.
+async function partialBytes(src, target) {
+  let sum = 0;
+  const walk = async (s, t) => {
+    const [a, b] = await Promise.all([Deno.lstat(s).catch(() => null), Deno.lstat(t).catch(() => null)]);
+    if (!a || !b) return;
+    if (a.isDirectory && b.isDirectory) {
+      for await (const e of Deno.readDir(t)) await walk(join(s, e.name), join(t, e.name));
+    } else if (a.isFile && b.isFile && b.size < a.size) sum += b.size;
+  };
+  await walk(src, target).catch(() => {});
+  return sum;
+}
+
 // rsync of one item (a file, or a folder and all in it) to `target`, telling
-// `progress(bytes, {speed, eta})` how far it is. Files there already are
-// skipped (a resumed copy goes on where it stopped); a file cut off goes to
-// .phil-partial when rsync's stopped, and is picked up from there. A move
-// removes each file once it's copied, and the emptied folders at the end.
+// `progress(bytes, {speed, eta})` how far it is. Files written straight to
+// their names (--inplace: a cut-off one is there to go on with, after a crash
+// too); a file there and shorter is appended to, then checked whole against
+// the source (--append-verify: copied again if they differ); finished ones are
+// skipped (same size and time). A move removes each file once it's copied, and
+// the emptied folders at the end.
 async function rsync(src, target, { move, posix, job, progress }) {
   const folder = (await Deno.lstat(src)).isDirectory;
-  const args = [posix ? "-a" : "-rlt", "--info=progress2", "--no-inc-recursive", "--ignore-existing", "--outbuf=L",
-    "--partial-dir=.phil-partial", ...(move ? ["--remove-source-files"] : []), "--", folder ? src + "/" : src, target];
+  const args = [posix ? "-a" : "-rlt", "--info=progress2", "--no-inc-recursive", "--inplace", "--append-verify", "--outbuf=L",
+    ...(move ? ["--remove-source-files"] : []), "--", folder ? src + "/" : src, target];
   // It stops with phil (closed, crashed, updated): the copy's record says so, and ↻ goes on. Not
   // left running unseen. setpriv execs rsync, so the pid is rsync's (pausing signals it and its helpers).
   const [cmd, ...pre] = (await hasSetpriv) ? ["setpriv", "--pdeathsig", "TERM", "--", "rsync"] : ["rsync"];
