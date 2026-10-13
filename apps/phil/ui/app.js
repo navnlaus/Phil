@@ -2410,7 +2410,9 @@ async function runInTerminal(argv) {
   const wasOpen = terminal.isOpen;
   setTerminalCover(true);
   setTerminalOpen(true);
-  for (let i = 0; i < 100 && !(terminal.isRunning && terminal.atEmptyPrompt); i++) await new Promise((r) => setTimeout(r, 50));
+  // A new shell: wait for its prompt. Busy means a program runs there (Esc a script, or Ctrl+C).
+  for (let i = 0; i < 100 && !(terminal.isRunning && terminal.cwd && !terminal.busy); i++) await new Promise((r) => setTimeout(r, 50));
+  terminal.fitNow(); // its size covering the window, before the screen is cleared for the output
   // As you'd type it: ./name (bash name) when the shell is in its folder, quoted only when needed.
   const file = argv.at(-1), dir = parentOf(file), name = file.slice(dir === "/" ? 1 : dir.length + 1);
   const word = (s) => (/^[\w.+@%/:=-]+$/.test(s) ? s : shellQuote(s));
