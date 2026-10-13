@@ -74,6 +74,9 @@ export function createServer({ profile, controlSocket }) {
       const description = p.path ? (await hooks.get(p.path).catch(() => null))?.description : null;
       return description ? { ...p, description } : p;
     }));
+  // Files copied or cut (Ctrl+C / Ctrl+X), for every window: pasting goes by the
+  // desktop's clipboard, which has their paths as text (`text`) while they're it.
+  let fileClipboard = null;
   const shown = new Map(); // page WebSocket -> the folder it shows
   const broadcast = (msg) => {
     for (const socket of shown.keys()) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
@@ -149,6 +152,18 @@ export function createServer({ profile, controlSocket }) {
       }
       case "POST /api/transfer-cancel": // {id}: stops a copy or move (what's done stays done; it can be resumed)
         return json({ cancelled: cancelTransfer((await req.json()).id) });
+      case "GET /api/clipboard": // files copied or cut in phil (any window): {op, paths, text} or null
+        return json(fileClipboard);
+      case "PUT /api/clipboard": { // {op: "copy" | "cut", paths, text}: the desktop's clipboard has `text` (their paths)
+        const { op, paths = [], text = "" } = await req.json();
+        fileClipboard = (op === "copy" || op === "cut") && paths.length ? { op, paths: paths.map(requirePath), text } : null;
+        broadcast({ clipboard: fileClipboard });
+        return json({ ok: true });
+      }
+      case "DELETE /api/clipboard": // pasted (a cut), or emptied
+        fileClipboard = null;
+        broadcast({ clipboard: null });
+        return json({ ok: true });
       case "GET /api/transfers": // copies and moves under way: their last progress (a window just opened shows them)
         return json([...transfers.values()].map((job) => job.last).filter(Boolean));
       case "POST /api/transfer-pause": { // {id, pause}: pauses or goes on with a copy or move

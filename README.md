@@ -405,7 +405,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | double-click a script (`#!`, `.sh`…) or program | run it in the terminal, covering the window; Esc stops it and puts the terminal back |
 | arrows, Home/End, PgUp/PgDn | move selection (with Shift: extend it) |
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; click empty space to clear |
-| Ctrl+C / Ctrl+Insert / Super+C | copy the selected files' paths, one per line |
+| Ctrl+C / Ctrl+X (Super+C / Super+X), Ctrl+V (Super+V) | copy or cut the selected files and folders (their tiles outlined; cut: faded too), paste them into the folder shown (right-click: Cut, Copy, Paste, Paste into a folder), in this window or another phil window. Pasting copies or moves as dragging does: across drives with rsync's progress, pause, stop and resume. The desktop's clipboard gets their paths as text too (a terminal, a chat), and files copied in another program (their paths or file:// URIs) paste here as copies; text copied since leaves nothing to paste |
 | drag (Ctrl/Shift+drag) | select everything the rectangle touches (add to the selection); scrolls at the edges |
 | drag a selected file or folder | drag the selection out as files: onto a browser page (an upload), another file manager, a chat; onto a folder in phil: "Move to" / "Copy to" |
 | type a name | jump to the next entry starting with it (repeat a letter to cycle) |
