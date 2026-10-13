@@ -40,7 +40,10 @@ const scrollPositions = new Map(); // path -> scrollTop, restored on back/up
 
 // ---------------------------------------------------------------- helpers
 
-const icon = (name, cls = "") => `<svg class="${cls}"><use href="#i-${name}"/></svg>`;
+// phil's own icons (index.html), and with "l:" in front, Lucide's (vendor/lucide-sprite.svg:
+// what a folder's icon is picked from, in its Properties).
+const LUCIDE = "/ui/vendor/lucide-sprite.svg";
+const icon = (name, cls = "") => `<svg class="${cls}"><use href="${name.startsWith("l:") ? `${LUCIDE}#${name.slice(2)}` : `#i-${name}`}"/></svg>`;
 const fileUrl = (path) => `/file?path=${encodeURIComponent(path)}`;
 const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 const parentOf = (path) => (path === "/" ? null : path.replace(/\/[^/]+$/, "") || "/");
@@ -754,7 +757,8 @@ function showMarks(tile, entry) {
   tile.classList.toggle("has-hook", !!entry.onChange);
   if (!entry.onChange) label.querySelector(".hook-mark")?.remove();
   else if (!label.querySelector(".hook-mark")) label.insertAdjacentHTML("beforeend", `<span class="hook-mark">${icon("bolt")}</span>`);
-  const marks = [entry.kind === "video" && ["play", ""], entry.kind === "dir" && ["folder", "folder fill"]].filter(Boolean);
+  const folderMark = entry.icon ? [`l:${entry.icon}`, "folder line custom"] : ["folder", "folder fill"]; // its own icon, picked in Properties
+  const marks = [entry.kind === "video" && ["play", ""], entry.kind === "dir" && folderMark].filter(Boolean);
   const key = marks.flat().join(" ");
   let el = tile.querySelector(":scope > .marks");
   if (el?.dataset.key === key) return;
@@ -816,8 +820,8 @@ function showFolderInfo(tile, entry) {
   // {url} for an image or video thumbnail, {text} for a text file; a bare URL in older summaries.
   const previews = (summary?.previews ?? []).map((p) => (typeof p === "string" ? { url: p } : p));
   const look = previews.map((p) => p.url ?? `text:${p.text.lines.slice(0, 4).join("|")}`).join(" ") ||
-    (summary?.files ? "file" : summary?.dirs ? "folder" : "");
-  if (box.dataset.look !== look || !box.firstChild) fillFolderFace(box, summary, previews);
+    (entry.icon ? `icon:${entry.icon}` : summary?.files ? "file" : summary?.dirs ? "folder" : "");
+  if (box.dataset.look !== look || !box.firstChild) fillFolderFace(box, summary, previews, entry);
   box.dataset.look = look;
   const meta = tile.querySelector(".meta");
   meta.textContent = summary ? folderContents(summary, entry.total) : "";
@@ -826,7 +830,8 @@ function showFolderInfo(tile, entry) {
   tile.classList.toggle("empty-dir", !!summary && !summary.files && !summary.dirs);
 }
 
-function fillFolderFace(box, summary, previews) {
+// Without pictures, a folder's own icon (Properties), else one for what it holds.
+function fillFolderFace(box, summary, previews, entry) {
   const face = document.createElement("div");
   face.className = "face";
   if (previews.length) {
@@ -841,6 +846,8 @@ function fillFolderFace(box, summary, previews) {
       img.onerror = () => img.remove(); // the thumbnail cache was cleared since
       face.append(img);
     }
+  } else if (entry.icon) {
+    face.innerHTML = icon(`l:${entry.icon}`, "kind custom");
   } else if (summary?.files || summary?.dirs) {
     face.innerHTML = icon(summary.files ? "file" : "folder", "kind");
   }
@@ -994,7 +1001,7 @@ function renderPlaces() {
     a.classList.toggle("folder", !!p.folder); // the user's (see placeGapAt)
     a.draggable = true; // as an element, not as a link: WebKit starts those itself, and not always
     a.title = p.path;
-    a.innerHTML = icon(p.icon);
+    a.innerHTML = icon(p.customIcon ? `l:${p.customIcon}` : p.icon); // the icon picked in its Properties, if any
     const space = state.space[p.path];
     if (isMount(p)) {
       // Drives and shares: their free space under the name (and copies to them, see showTransfers).
@@ -1834,6 +1841,20 @@ async function showProperties(entry) {
   autoBox.disabled = !state.init.tagging?.available && !autoBox.checked;
   descInput.value = p.meta?.description ?? "";
   input.value = p.meta?.onChange ?? "";
+  // A folder's icon, for its tile and in the sidebar: picked from a list (pickIcon).
+  let iconPick = p.meta?.icon ?? "";
+  const iconButton = $p("#props-icon"), iconReset = $p("#props-icon-reset");
+  $p(".icon-row").hidden = p.kind !== "folder";
+  const showIcon = () => {
+    iconButton.innerHTML = icon(iconPick ? `l:${iconPick}` : "folder") + `<span>${iconPick ? iconPick.replaceAll("-", " ") : "The usual folder"}</span>`;
+    iconReset.hidden = !iconPick;
+  };
+  showIcon();
+  iconButton.onclick = async () => {
+    const picked = await pickIcon(iconPick, p.name);
+    if (picked !== null) (iconPick = picked), showIcon();
+  };
+  iconReset.onclick = () => ((iconPick = ""), showIcon());
   output.hidden = true;
   $p(".run").onclick = async () => {
     const command = input.value.trim();
@@ -1868,17 +1889,151 @@ async function showProperties(entry) {
     if (tags.join("\n") !== (p.meta?.tags ?? []).join("\n")) changes.tags = tags;
     if (p.kind === "file" && onChange !== (p.meta?.onChange ?? "")) changes.onChange = onChange;
     if (p.kind === "folder" && autoBox.checked !== !!p.meta?.autoTags) changes.autoTags = autoBox.checked;
+    if (p.kind === "folder" && iconPick !== (p.meta?.icon ?? "")) changes.icon = iconPick;
     if (!Object.keys(changes).length) return;
     try {
       await api("/api/meta", { method: "PUT", body: JSON.stringify({ path: p.path, ...changes }) });
       if ("onChange" in changes) flashStatus(onChange ? `${p.name}: when it changes, phil runs ${onChange}` : `${p.name}: nothing runs when it changes`);
       refresh();
-      if ("description" in changes) refreshPlaces(); // a place's description is its label in the sidebar
+      if ("description" in changes || "icon" in changes) refreshPlaces(); // a place's description is its label in the sidebar, its icon its icon
       if ((changes.tags?.length || "autoTags" in changes) && state.autoTagged) thumbs.tag(state.path); // the tag list may have grown
     } catch (err) {
       alert(`Couldn't save: ${err.message}`);
     }
   }, { once: true });
+}
+
+// ---------------------------------------------------------------- folder icons
+
+// Lucide's icons ({name: [tags]}), loaded when the picker first opens.
+let lucideTags = null;
+const loadLucideTags = async () => (lucideTags ??= await fetch("/ui/vendor/lucide-tags.json").then((r) => r.json()));
+
+// Words in a folder's name, and the icons they usually mean (beyond Lucide's own names and tags).
+const FOLDER_WORDS = {
+  download: ["download", "hard-drive-download", "arrow-down-to-line"],
+  document: ["file-text", "files", "folder-open"], doc: ["file-text", "files"], paper: ["file-text", "newspaper"],
+  picture: ["image", "images", "camera"], photo: ["camera", "image", "images", "aperture"], pic: ["image", "camera"], wallpaper: ["image", "wallpaper", "mountain-snow"], screenshot: ["monitor", "scan", "camera"], dcim: ["camera", "image"], image: ["image", "images"],
+  video: ["film", "clapperboard", "video", "tv"], movie: ["clapperboard", "film", "popcorn"], film: ["film", "clapperboard", "popcorn"], show: ["tv", "clapperboard"], series: ["tv", "tv-minimal-play"], tv: ["tv"], anime: ["tv", "sparkles"],
+  music: ["music", "headphones", "disc-3", "guitar"], song: ["music", "music-2"], audio: ["audio-lines", "headphones", "music"], podcast: ["mic", "radio"], sound: ["volume-2", "audio-lines"],
+  game: ["gamepad-2", "joystick", "dices", "swords"], steam: ["gamepad-2", "joystick"], rom: ["gamepad-2", "cpu"],
+  project: ["folder-kanban", "code", "rocket"], code: ["code", "folder-code", "terminal"], src: ["code", "folder-code"], dev: ["code", "terminal", "bug"], repo: ["folder-git-2", "git-branch"], git: ["folder-git-2", "git-branch"],
+  work: ["briefcase", "building"], job: ["briefcase"], office: ["building", "briefcase"], client: ["users", "handshake"],
+  school: ["graduation-cap", "school", "book-open"], study: ["graduation-cap", "book-open"], course: ["graduation-cap", "presentation"], university: ["graduation-cap", "landmark"],
+  book: ["book", "book-open", "library"], ebook: ["book-open", "tablet"], library: ["library", "book"], comic: ["book-open", "sparkles"],
+  backup: ["archive", "database-backup", "save"], archive: ["archive", "package"], old: ["archive", "clock"],
+  config: ["settings", "sliders-horizontal", "wrench"], setting: ["settings", "sliders-horizontal"], dotfile: ["settings", "file-cog"],
+  desktop: ["monitor"], template: ["layout-template", "copy"], public: ["globe", "share-2"], share: ["share-2", "users"], shared: ["share-2", "users"],
+  note: ["notebook-pen", "sticky-note", "notebook"], journal: ["notebook-pen", "book-heart"], diary: ["book-heart", "notebook-pen"],
+  recipe: ["chef-hat", "utensils", "cooking-pot"], food: ["utensils", "apple"], cook: ["chef-hat", "cooking-pot"],
+  money: ["wallet", "piggy-bank", "banknote"], finance: ["wallet", "landmark", "chart-line"], bank: ["landmark", "piggy-bank"], tax: ["receipt", "landmark"], invoice: ["receipt", "file-text"], receipt: ["receipt"], bill: ["receipt", "banknote"],
+  travel: ["plane", "map", "luggage"], trip: ["plane", "map", "luggage"], vacation: ["tree-palm", "plane"], holiday: ["tree-palm", "sun"],
+  trash: ["trash"], junk: ["trash"], temp: ["clock", "timer"], tmp: ["clock"],
+  cloud: ["cloud"], sync: ["refresh-cw", "cloud"], drive: ["hard-drive"], disk: ["hard-drive", "disc"], iso: ["disc", "disc-3"],
+  phone: ["smartphone"], mobile: ["smartphone"], android: ["smartphone"],
+  font: ["type", "a-large-small"], script: ["terminal", "scroll"], bin: ["terminal", "binary"], app: ["app-window", "layout-grid"], program: ["app-window", "package"], software: ["package", "app-window"], driver: ["cpu", "package"], install: ["package", "download"],
+  family: ["users", "heart", "house"], kid: ["baby", "toy-brick"], baby: ["baby"], friend: ["users", "heart"], people: ["users"], wedding: ["heart", "gem"],
+  home: ["house"], house: ["house"], car: ["car"], bike: ["bike"], health: ["heart-pulse", "stethoscope"], medical: ["stethoscope", "pill"], fitness: ["dumbbell", "heart-pulse"], sport: ["trophy", "volleyball"],
+  art: ["palette", "brush"], design: ["pen-tool", "palette"], drawing: ["pencil", "brush"], paint: ["paintbrush", "palette"], model: ["box", "boxes"], print: ["printer"], "3d": ["box", "printer"],
+  mail: ["mail"], email: ["mail"], web: ["globe"], site: ["globe"], blog: ["rss", "pen-line"],
+  log: ["scroll-text"], data: ["database"], db: ["database"], vm: ["server", "monitor"], server: ["server"], docker: ["container"], key: ["key-round", "lock"], secret: ["lock", "shield"], private: ["lock", "eye-off"], password: ["key-round", "lock"],
+  fav: ["star", "heart"], favorite: ["star", "heart"], favourite: ["star", "heart"], best: ["star", "trophy"], todo: ["list-todo", "square-check"], inbox: ["inbox"], misc: ["shapes", "package"], stuff: ["shapes", "package"], other: ["shapes"],
+  pet: ["paw-print", "dog", "cat"], dog: ["dog", "paw-print"], cat: ["cat", "paw-print"], garden: ["flower-2", "sprout", "trees"], plant: ["sprout", "leaf"], nature: ["trees", "mountain"],
+  science: ["flask-conical", "atom"], research: ["microscope", "flask-conical"], math: ["sigma", "calculator"], ai: ["brain", "sparkles", "bot"], robot: ["bot"], electronics: ["cpu", "circuit-board"], arduino: ["cpu", "circuit-board"], tool: ["wrench", "hammer"], 
+  map: ["map", "map-pinned"], gps: ["map-pin", "navigation"], weather: ["cloud-sun"], astro: ["telescope", "moon-star"], space: ["rocket", "orbit"], star: ["star"],
+};
+// What any folder might be: after the suggestions from its name.
+const COMMON_FOLDER_ICONS = ["folder", "folder-open", "folder-heart", "folder-lock", "folder-code", "folder-git-2", "folder-kanban", "folder-archive", "folder-cog", "folder-search", "star", "heart", "bookmark", "house", "briefcase", "book-open", "code", "terminal", "music", "image", "camera", "film", "clapperboard", "tv", "gamepad-2", "download", "archive", "package", "cloud", "hard-drive", "database", "settings", "wrench", "lock", "key-round", "users", "graduation-cap", "file-text", "notebook-pen", "globe", "wallet", "receipt", "plane", "map", "palette", "pen-tool", "printer", "flask-conical", "rocket", "sparkles", "trophy", "flag", "zap", "trash"];
+
+// Icons for a folder called `name`: its words, as Lucide names them (or tags
+// them), and as FOLDER_WORDS has them; then the common ones.
+function suggestIcons(name, current) {
+  const words = name.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2);
+  const forms = [...new Set(words.flatMap((w) => [w, w.replace(/(ies)$/, "y"), w.replace(/s$/, "")]))].filter((w) => w.length >= 2);
+  const out = [];
+  const add = (n) => lucideTags[n] && !out.includes(n) && out.push(n);
+  if (current) add(current);
+  for (const w of forms) (FOLDER_WORDS[w] ?? []).forEach(add);
+  for (const w of forms.filter((w) => w.length >= 3)) {
+    for (const n of Object.keys(lucideTags)) if (n === w || n.startsWith(w + "-")) add(n);
+  }
+  for (const w of forms.filter((w) => w.length >= 3)) {
+    for (const [n, tags] of Object.entries(lucideTags)) if (tags.includes(w)) add(n);
+  }
+  out.splice(30);
+  COMMON_FOLDER_ICONS.forEach(add);
+  return out.slice(0, 60);
+}
+
+// The picker (over Properties): resolves to the icon's name, or null when closed.
+// Typing searches all of them by name and tags; Enter takes the best match.
+const iconPicker = $("#icon-picker");
+async function pickIcon(current, folderName) {
+  await loadLucideTags();
+  const button = (name) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.name = name;
+    b.title = name.replaceAll("-", " ");
+    b.innerHTML = icon(`l:${name}`);
+    b.classList.toggle("current", name === current);
+    return b;
+  };
+  const all = $("#icons-all");
+  if (!all.firstChild) all.append(...Object.keys(lucideTags).map(button)); // once: they're the same every time
+  for (const b of all.children) b.classList.toggle("current", b.dataset.name === current);
+  $("#icons-suggested").replaceChildren(...suggestIcons(folderName, current).map(button));
+  const search = $("#icon-search");
+  search.value = "";
+  // Searching: the matches, best first (the word as the name, or part of it,
+  // or a tag; then names and tags that only contain it), in place of the lists.
+  const suggested = $("#icons-suggested").children.length ? [...$("#icons-suggested").children] : [];
+  const filter = () => {
+    const words = search.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const searching = words.length > 0;
+    iconPicker.querySelector("h3.suggested").textContent = searching ? "Matches" : "Suggested";
+    iconPicker.querySelectorAll(".all, #icons-all").forEach((el) => (el.hidden = searching));
+    if (!searching) {
+      $("#icons-suggested").replaceChildren(...suggested);
+      iconPicker.querySelector(".none").hidden = true;
+      return;
+    }
+    const score = (name) => {
+      const parts = name.split("-"), tags = lucideTags[name];
+      let total = 0;
+      for (const w of words) {
+        const s = name === w ? 8 : parts.includes(w) ? 6 : tags.includes(w) ? 5 : parts.some((p) => p.startsWith(w)) ? 3 : tags.some((t) => t.split(" ").includes(w)) ? 3 : name.includes(w) ? 1 : tags.some((t) => t.includes(w)) ? 0.5 : 0;
+        if (!s) return 0;
+        total += s;
+      }
+      return total;
+    };
+    const found = Object.keys(lucideTags).map((n) => [n, score(n)]).filter(([, s]) => s).sort((a, b) => b[1] - a[1] || a[0].length - b[0].length);
+    $("#icons-suggested").replaceChildren(...found.slice(0, 240).map(([n]) => button(n)));
+    iconPicker.querySelector(".none").hidden = found.length > 0;
+  };
+  filter();
+  search.oninput = filter;
+  iconPicker.querySelector(".scroll").scrollTop = 0;
+  return new Promise((resolve) => {
+    let picked = null;
+    iconPicker.onclick = (e) => {
+      const b = e.target.closest(".grid button");
+      if (!b) return;
+      picked = b.dataset.name;
+      iconPicker.close();
+    };
+    search.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const first = $("#icons-suggested").firstElementChild;
+      if (first) (picked = first.dataset.name), iconPicker.close();
+    };
+    iconPicker.addEventListener("close", () => resolve(picked), { once: true });
+    iconPicker.showModal();
+    search.focus();
+  });
 }
 
 // rwxr-xr-x, with a leading d for a folder, and setuid, setgid and sticky

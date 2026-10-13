@@ -125,6 +125,13 @@
         <label for="props-tags" class="tags-label">Tags</label>
         <input id="props-tags" type="text" autocomplete="off" placeholder="separated by commas">
         <p class="hint" id="props-found" hidden></p>
+        <div class="icon-row">
+          <label for="props-icon">Icon</label>
+          <div class="icon-pick">
+            <button type="button" id="props-icon" title="Pick an icon, for its tile and in the sidebar"></button>
+            <button type="button" id="props-icon-reset" title="Back to the usual folder icon">Usual</button>
+          </div>
+        </div>
         <div class="autotag">
           <label class="check"><input type="checkbox" id="props-autotag"> Tag the pictures in it automatically, and make them findable by what they show</label>
           <p class="hint" id="props-autotag-hint"></p>
@@ -142,6 +149,23 @@
       <div class="buttons">
         <button value="cancel">Cancel</button>
         <button value="save" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- A folder's icon (Properties): suggestions for it, then all of them (vendor/lucide-*), searchable. -->
+  <dialog id="icon-picker">
+    <form method="dialog">
+      <div class="head">
+        <input id="icon-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search icons (car, music, star…)">
+        <button value="cancel" class="close" title="Close (Esc)"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="scroll">
+        <h3 class="suggested">Suggested</h3>
+        <div class="grid suggested" id="icons-suggested"></div>
+        <h3 class="all">All icons</h3>
+        <div class="grid" id="icons-all"></div>
+        <p class="none" hidden>No icon matches that.</p>
       </div>
     </form>
   </dialog>
