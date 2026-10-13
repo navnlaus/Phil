@@ -229,6 +229,26 @@
 }
 
 /* askPassword() (kit.js): a small box at the top of the page. */
+/* Tooltips (kit.js tooltips()): the page's own, for every title. */
+.kit-tip {
+  position: fixed;
+  z-index: 100;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  font: 12px/1.45 system-ui, sans-serif;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  animation: kit-tip-in 0.12s ease-out;
+}
+.kit-tip[hidden] { display: none; }
+@keyframes kit-tip-in { from { opacity: 0; transform: translateY(-2px); } }
+
 /* A <dialog> (showModal: over anything, other dialogs too); the layout is its form's. */
 .kit-password {
   position: fixed;

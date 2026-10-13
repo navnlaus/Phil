@@ -1,5 +1,7 @@
-import { appUrl, askPassword, clipboardKey, closeWindow, copyText, embedOf, holdFocus, ready } from "/engine/ui/kit.js";
+import { appUrl, askPassword, clipboardKey, closeWindow, copyText, embedOf, holdFocus, ready, tooltips } from "/engine/ui/kit.js";
 import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
+
+tooltips(); // the page's own, in the theme's style (kit.js)
 
 const $ = (sel) => document.querySelector(sel);
 const grid = $("#grid");

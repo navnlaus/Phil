@@ -1,4 +1,6 @@
-import { closeWindow, holdFocus, onCloseRequest, ready } from "../engine/ui/kit.js";
+import { closeWindow, holdFocus, onCloseRequest, ready, tooltips } from "../engine/ui/kit.js";
+
+tooltips(); // the page's own, in the theme's style (kit.js)
 
 const $ = (sel) => document.querySelector(sel);
 const view = $("#view"), frame = $("#frame"), cropEl = $("#crop"), resultImg = $("#result");
