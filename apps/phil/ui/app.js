@@ -993,7 +993,7 @@ function renderPlaces() {
       const text = document.createElement("span");
       text.className = "place-text";
       const name = document.createElement("span");
-      name.textContent = p.name;
+      name.textContent = p.description || p.name;
       text.append(name);
       if (space) {
         const free = document.createElement("span");
@@ -1003,11 +1003,11 @@ function renderPlaces() {
         a.title += `\n${formatSize(space.avail)} free of ${formatSize(space.size)} (${Math.round((1 - space.avail / space.size) * 100)}% used)`;
       }
       const speed = state.speeds[p.path], mbs = speed?.read ?? speed?.buffered;
-      if (speed?.write) a.title += `\nSpeed: ${Math.round(speed.read).toLocaleString()} MB/s down, ${Math.round(speed.write).toLocaleString()} MB/s up (tested ${formatDate(speed.at)})`;
-      else if (mbs) a.title += `\nRead speed: ${Math.round(mbs).toLocaleString()} MB/s (tested ${formatDate(speed.at)})`;
+      if (speed?.write) a.title += `\n${Math.round(speed.read).toLocaleString()} MB/s down, ${Math.round(speed.write).toLocaleString()} MB/s up`;
+      else if (mbs) a.title += `\n${Math.round(mbs).toLocaleString()} MB/s`;
       a.append(text);
     } else {
-      a.append(p.name);
+      a.append(p.description || p.name); // its Properties' description, when it has one
     }
     a.classList.toggle("active", p.path === state.path);
     // A network share: double-click (or the menu) for a terminal on that machine.
@@ -1846,6 +1846,7 @@ async function showProperties(entry) {
       await api("/api/meta", { method: "PUT", body: JSON.stringify({ path: p.path, ...changes }) });
       if ("onChange" in changes) flashStatus(onChange ? `${p.name}: when it changes, phil runs ${onChange}` : `${p.name}: nothing runs when it changes`);
       refresh();
+      if ("description" in changes) refreshPlaces(); // a place's description is its label in the sidebar
       if ((changes.tags?.length || "autoTags" in changes) && state.autoTagged) thumbs.tag(state.path); // the tag list may have grown
     } catch (err) {
       alert(`Couldn't save: ${err.message}`);
