@@ -27,6 +27,7 @@ const state = {
   selected: -1, // index into view: the keyboard cursor
   marked: new Set(), // paths of the selected entries (one or more)
   anchor: -1, // where Shift+click / Shift+arrow ranges start
+  space: {}, // the sidebar's drives: {path: {size, avail}}
   settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, theme: "overlay" },
 };
 const tiles = new Map(); // path -> tile element
@@ -865,8 +866,23 @@ function renderCrumbs() {
 // Drives and shares come and go (USB, mounts): the list is fetched again
 // whenever the window gets focus.
 addEventListener("focus", () => refreshPlaces());
+// The sidebar's drives and shares (not home and its folders): their space is shown.
+const isMount = (p) => !p.unmounted && (p.icon === "drive" || p.icon === "network");
+
+// Their size and free space ({path: {size, avail}}), fetched after the places
+// (df can take a moment) and again with them.
+async function refreshSpace() {
+  const paths = state.init.places.filter(isMount).map((p) => p.path);
+  if (!paths.length) return;
+  const space = await api(`/api/space?${paths.map((p) => `path=${encodeURIComponent(p)}`).join("&")}`).catch(() => null);
+  if (!space || JSON.stringify(space) === JSON.stringify(state.space)) return;
+  state.space = space;
+  renderPlaces();
+}
+
 async function refreshPlaces() {
   const fresh = await api("/api/places").catch(() => null);
+  refreshSpace();
   if (!fresh) return;
   state.init.mounts = fresh.mounts;
   if (JSON.stringify(fresh.places) === JSON.stringify(state.init.places)) return;
@@ -921,7 +937,22 @@ function renderPlaces() {
     a.dataset.path = p.path; // drop target
     a.title = p.path;
     a.innerHTML = icon(p.icon);
-    a.append(p.name);
+    const space = state.space[p.path];
+    if (isMount(p) && space) {
+      // Drives and shares: their free space under the name.
+      const text = document.createElement("span");
+      text.className = "place-text";
+      const name = document.createElement("span");
+      name.textContent = p.name;
+      const free = document.createElement("span");
+      free.className = "space";
+      free.textContent = `${formatSize(space.avail)} free of ${formatSize(space.size)}`;
+      text.append(name, free);
+      a.append(text);
+      a.title += `\n${formatSize(space.avail)} free of ${formatSize(space.size)} (${Math.round((1 - space.avail / space.size) * 100)}% used)`;
+    } else {
+      a.append(p.name);
+    }
     a.classList.toggle("active", p.path === state.path);
     // A network share: double-click (or the menu) for a terminal on that machine.
     const remote = remoteOf(p.path);
@@ -2551,6 +2582,7 @@ ready(JSON.stringify({ script: Math.round(performance.now()) }));
 state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
 applySettings();
+refreshSpace(); // the drives' free space, once the sidebar is there
 listThemes();
 const thumbDirEl = $("#status-thumbdir");
 thumbDirEl.textContent = (state.init.incognito ? "Incognito · " : "") + `Thumbnails: ${state.init.thumbDir}`;
