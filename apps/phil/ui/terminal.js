@@ -64,6 +64,11 @@ export class TerminalPanel {
     this.panel.hidden = true;
   }
 
+  /** Fits the terminal to its panel now (after the panel changed size), not on the next frame. */
+  fitNow() {
+    if (this.fit && !this.panel.hidden) this.fit.fit();
+  }
+
   async start(cwd) {
     // xterm.js is big; it's only loaded once the panel is first opened.
     const [{ Terminal }, { FitAddon }] = await Promise.all([
@@ -246,14 +251,18 @@ export class TerminalPanel {
 
   /**
    * Runs a command at the prompt (typed, as if by hand); false if the shell is
-   * busy. `clear`: on a cleared terminal, without the prompt and the command
-   * line, so its output starts at the top.
+   * busy running something. Anything typed at the prompt is cleared first.
+   * `clear`: on an empty screen (what was on it scrolls up into the
+   * scrollback), without the prompt and the command line, so its output
+   * starts at the top.
    */
   run(command, { clear = false } = {}) {
-    if (!this.isRunning || !this.atEmptyPrompt) return false;
+    if (!this.isRunning || this.running) return false;
+    if (!this.atEmptyPrompt) this.send("\x05\x15"); // something typed: Ctrl+E, Ctrl+U
     if (clear) {
-      this.term.clear(); // the scrollback, leaving the prompt's line
-      this.term.write("\x1b[2K\r"); // and that
+      const buf = this.term.buffer.active;
+      // The prompt's line goes; the lines above it scroll off the top (into the scrollback).
+      this.term.write(`\x1b[2K\x1b[${this.term.rows};1H${"\n".repeat(buf.cursorY)}\x1b[H`);
       this.hideLine = true;
     }
     this.typed(command + "\r");

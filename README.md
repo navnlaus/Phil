@@ -353,9 +353,11 @@ Ctrl+F in it toggles between covering the whole window and its own height.
 
 Double-clicking a script or program runs it there: a file with a `#!` line, a
 shell script by its name (`.sh`, `.bash`, `.zsh`, `.fish`), or an executable
-program. The terminal is cleared and covers the window while it runs (`./build.sh`,
-or through its interpreter when it isn't executable: `bash build.sh`), its
-output from the top line (the command line isn't shown; it's in the history); **Esc** stops it
+program. The terminal covers the window while it runs (`./build.sh`, or through its
+interpreter when it isn't executable: `bash build.sh`), its output from the top
+line: what was on the screen scrolls up into the scrollback, and the command
+line isn't shown (it's in the history). Anything half-typed at the prompt is
+cleared first; only a program still running there keeps it from starting; **Esc** stops it
 (Ctrl+C) and puts the terminal back as it was. "Edit as text" (right-click)
 still opens one in the editor.
 It is a real terminal (xterm.js on a pseudo-terminal), started with your
