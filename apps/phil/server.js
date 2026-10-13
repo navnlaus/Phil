@@ -117,12 +117,14 @@ export function createServer({ profile, controlSocket }) {
         return json({ ...await properties(requirePath(path)), meta: await hooks.get(path) });
       case "GET /api/drive": // a mount point's drive (Properties of the sidebar's drives), with its last speed test
         return json(await driveInfo(requirePath(path), speedsFile));
-      case "POST /api/drive-speed": // {path}: time reading from it (hdparm, asking for the password)
+      case "POST /api/drive-speed": { // {path, sudo}: time reading from it, as root (401: sudo's password needed)
+        const body = await req.json();
         try {
-          return json(await driveSpeed(requirePath((await req.json()).path), speedsFile));
+          return json(await driveSpeed(requirePath(body.path), speedsFile, body.sudo));
         } catch (err) {
-          throw httpError(500, err.message);
+          throw err.status ? err : httpError(500, err.message);
         }
+      }
       case "GET /api/folder-size":
         return json(await folderSize(requirePath(path)));
       case "PUT /api/meta": { // {path, description, onChange, tags, autoTags}: Properties' phil section

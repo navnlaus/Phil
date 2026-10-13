@@ -1,4 +1,4 @@
-import { appUrl, clipboardKey, closeWindow, copyText, embedOf, holdFocus, ready } from "/engine/ui/kit.js";
+import { appUrl, askPassword, clipboardKey, closeWindow, copyText, embedOf, holdFocus, ready } from "/engine/ui/kit.js";
 import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -1839,19 +1839,36 @@ async function showDrive(path, fact) {
     button.type = "button";
     button.className = "speed-test";
     button.textContent = mbs ? "Test again" : "Run speed test";
-    button.title = "Reads up to 4 GB straight from the disk, 15 s at most; asks for your password (reading the disk directly needs root)";
+    button.title = "Reads up to 4 GB straight from the disk, 15 s at most; as root, with sudo (it asks for the password unless sudo still remembers it)";
     button.onclick = async () => {
       button.disabled = true;
       // Until the password's given there's no telling; then the test takes up to 15 s.
       const spinner = Object.assign(document.createElement("span"), { className: "spinner" });
       const status = document.createElement("span");
       button.replaceChildren(spinner, status);
-      const started = Date.now();
-      const tick = () => (status.textContent = `Testing… ${Math.round((Date.now() - started) / 1000)} s (after your password)`);
-      tick();
-      const timer = setInterval(tick, 500);
+      let started = Date.now(), timer = null;
+      const tick = () => (status.textContent = `Testing… ${Math.round((Date.now() - started) / 1000)} s`);
+      const test = (sudo) => api("/api/drive-speed", { method: "POST", body: JSON.stringify({ path, sudo }) });
       try {
-        show(await api("/api/drive-speed", { method: "POST", body: JSON.stringify({ path }) }));
+        tick();
+        timer = setInterval(tick, 500);
+        let result;
+        for (let sudo; ;) { // sudo remembers the password a while; when it doesn't, it's asked for
+          try {
+            result = await test(sudo);
+            break;
+          } catch (err) {
+            if (err.status !== 401) throw err;
+            clearInterval(timer);
+            status.textContent = "Waiting for the password…";
+            sudo = await askPassword(err.message, { ok: "Run" });
+            if (sudo === null) throw new Error("Cancelled");
+            started = Date.now();
+            tick();
+            timer = setInterval(tick, 500);
+          }
+        }
+        show(result);
       } catch (err) {
         show(s, err.message);
       } finally {

@@ -161,12 +161,13 @@ export function onCloseRequest(fn) {
  * Asks for a password (to save with sudo, say), in a small box over the page.
  * Resolves to it, or null when cancelled. It isn't kept anywhere.
  */
-export function askPassword(message) {
+export function askPassword(message, { ok = "Save" } = {}) {
   return new Promise((resolve) => {
     const form = document.createElement("form");
     form.className = "kit-password";
     form.innerHTML = `<label></label><div><input type="password" autocomplete="current-password" spellcheck="false"><button type="submit">Save</button><button type="button">Cancel</button></div>`;
     form.querySelector("label").textContent = message;
+    form.querySelector("button[type=submit]").textContent = ok;
     const input = form.querySelector("input");
     const back = document.activeElement;
     const done = (value) => {
