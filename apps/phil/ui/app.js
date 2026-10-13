@@ -495,6 +495,7 @@ async function load(path) {
   document.title = (listing.path === "/" ? "/" : listing.path.split("/").pop()) + (state.init.incognito ? " — phil (incognito)" : " — phil");
   renderCrumbs();
   renderPlaces();
+  refreshSpace(); // into a share that mounts on use: now it has its space
   $("#btn-up").disabled = !listing.parent;
   filterInput.value = "";
 
@@ -870,12 +871,16 @@ addEventListener("focus", () => refreshPlaces());
 const isMount = (p) => !p.unmounted && (p.icon === "drive" || p.icon === "network");
 
 // Their size and free space ({path: {size, avail}}), fetched after the places
-// (df can take a moment) and again with them.
+// (df can take a moment), again with them, and after each folder opened (going
+// into a share that mounts itself on use mounts it). A share that has unmounted
+// itself again keeps what it last had.
 async function refreshSpace() {
   const paths = state.init.places.filter(isMount).map((p) => p.path);
   if (!paths.length) return;
-  const space = await api(`/api/space?${paths.map((p) => `path=${encodeURIComponent(p)}`).join("&")}`).catch(() => null);
-  if (!space || JSON.stringify(space) === JSON.stringify(state.space)) return;
+  const fresh = await api(`/api/space?${paths.map((p) => `path=${encodeURIComponent(p)}`).join("&")}`).catch(() => null);
+  if (!fresh) return;
+  const space = Object.fromEntries(paths.filter((p) => fresh[p] || state.space[p]).map((p) => [p, fresh[p] ?? state.space[p]]));
+  if (JSON.stringify(space) === JSON.stringify(state.space)) return;
   state.space = space;
   renderPlaces();
 }
@@ -2582,7 +2587,6 @@ ready(JSON.stringify({ script: Math.round(performance.now()) }));
 state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
 applySettings();
-refreshSpace(); // the drives' free space, once the sidebar is there
 listThemes();
 const thumbDirEl = $("#status-thumbdir");
 thumbDirEl.textContent = (state.init.incognito ? "Incognito · " : "") + `Thumbnails: ${state.init.thumbDir}`;
