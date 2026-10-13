@@ -1828,28 +1828,34 @@ async function showDrive(path, fact) {
   if (space) fact("Space", `${formatSize(space.avail)} free of ${formatSize(space.size)}`, { dim: `  ${Math.round((1 - space.avail / space.size) * 100)}% used` });
   if (!d.disk) return;
   const speed = fact("Read speed");
-  const show = (s) => {
+  const show = (s, error) => {
     const text = document.createElement("span");
-    text.textContent = s
-      ? `${Math.round(s.buffered).toLocaleString()} MB/s from the disk, ${Math.round(s.cached).toLocaleString()} MB/s from its cache`
-      : "not tested yet";
+    const mbs = s?.read ?? s?.buffered; // .buffered: hdparm's, from before
+    text.textContent = mbs ? `${Math.round(mbs).toLocaleString()} MB/s reading from the disk` : "not tested yet";
     const when = document.createElement("span");
     when.className = "dim";
-    when.textContent = s ? `  ${formatDate(s.at)}` : "";
+    when.textContent = error ? `  ${error}` : s ? `  ${formatDate(s.at)}` : "";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "speed-test";
-    button.textContent = s ? "Test again" : "Run speed test";
-    button.title = "hdparm -tT: about 10 seconds; asks for your password (it reads the disk directly)";
+    button.textContent = mbs ? "Test again" : "Run speed test";
+    button.title = "Reads up to 4 GB straight from the disk, 15 s at most; asks for your password (reading the disk directly needs root)";
     button.onclick = async () => {
       button.disabled = true;
-      button.textContent = "Testing… (password?)";
+      // Until the password's given there's no telling; then the test takes up to 15 s.
+      const spinner = Object.assign(document.createElement("span"), { className: "spinner" });
+      const status = document.createElement("span");
+      button.replaceChildren(spinner, status);
+      const started = Date.now();
+      const tick = () => (status.textContent = `Testing… ${Math.round((Date.now() - started) / 1000)} s (after your password)`);
+      tick();
+      const timer = setInterval(tick, 500);
       try {
         show(await api("/api/drive-speed", { method: "POST", body: JSON.stringify({ path }) }));
       } catch (err) {
-        button.disabled = false;
-        button.textContent = s ? "Test again" : "Run speed test";
-        when.textContent = `  ${err.message}`;
+        show(s, err.message);
+      } finally {
+        clearInterval(timer);
       }
     };
     speed.replaceChildren(text, when, document.createElement("br"), button);
