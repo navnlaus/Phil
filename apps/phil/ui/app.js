@@ -992,6 +992,7 @@ function renderPlaces() {
     a.href = "#" + encodePath(p.path);
     a.dataset.path = p.path; // drop target
     a.classList.toggle("folder", !!p.folder); // the user's (see placeGapAt)
+    a.draggable = true; // as an element, not as a link: WebKit starts those itself, and not always
     a.title = p.path;
     a.innerHTML = icon(p.icon);
     const space = state.space[p.path];
@@ -2116,6 +2117,28 @@ grid.addEventListener("pointerdown", (e) => {
   addEventListener("pointercancel", endDrag);
 });
 
+// A place in the sidebar right- or middle-dragged: as a folder tile is (its
+// menu, shown on the press, goes once it moves). See placeItem.
+$("#places").addEventListener("pointerdown", (e) => {
+  if (e.button !== 1 && e.button !== 2) return;
+  const place = placeItem(e.target);
+  if (!place) return;
+  if (e.button === 1) e.preventDefault(); // no autoscroll
+  drag = { id: e.pointerId, button: e.button, place, start: [e.clientX, e.clientY], client: [e.clientX, e.clientY] };
+  addEventListener("pointermove", moveDrag);
+  addEventListener("pointerup", endDrag);
+  addEventListener("pointercancel", endDrag);
+});
+
+// The sidebar's place under `el`, as a dragged item: {item, fixed}. A drive,
+// home or / (`fixed`) only moves within the sidebar: it isn't moved or copied.
+function placeItem(el) {
+  const a = el.closest?.("#places a[data-path]");
+  const p = a && state.init.places.find((p) => p.path === a.dataset.path);
+  if (!p) return null;
+  return { item: { path: p.path, name: p.description || p.name, kind: "dir" }, fixed: isMount(p) || p.path === "/" || p.path === state.init.home };
+}
+
 function moveDrag(e) {
   if (!drag || e.pointerId !== drag.id) return;
   drag.client = [e.clientX, e.clientY];
@@ -2160,13 +2183,16 @@ function dragOut() {
 function startDrag() {
   drag.active = true;
   hideContextMenu();
-  if (!state.marked.has(state.view[drag.index].path)) select(drag.index, { scroll: false });
-  drag.items = markedEntries();
+  if (drag.place) drag.items = [drag.place.item], drag.fixed = drag.place.fixed;
+  else {
+    if (!state.marked.has(state.view[drag.index].path)) select(drag.index, { scroll: false });
+    drag.items = markedEntries();
+  }
   drag.paths = new Set(drag.items.map((e) => e.path));
   drag.dirs = drag.items.filter((e) => e.kind === "dir").map((e) => e.path + "/");
   const ghost = (drag.ghost = document.createElement("div"));
   ghost.className = "drag-ghost";
-  drag.picture = dragPicture(drag.items, state.view[drag.index]);
+  drag.picture = dragPicture(drag.items, drag.place ? drag.items[0] : state.view[drag.index]);
   drag.label = Object.assign(document.createElement("span"), { className: "drag-action" });
   ghost.append(drag.picture, drag.label);
   document.body.append(ghost);
@@ -2365,7 +2391,7 @@ function updateDrag() {
   markTarget(drag.target, target);
   drag.target = target;
   const verb = drag.button === 1 ? "Move" : "Move or copy";
-  drag.label.textContent = target?.gap ? "Add to the sidebar" : target?.here ? "Copy here" : target ? `${verb} to ${target.path.split("/").pop() || "/"}` : "";
+  drag.label.textContent = target?.gap ? (drag.place ? "Move it here" : "Add to the sidebar") : target?.here ? "Copy here" : target ? `${verb} to ${target.path.split("/").pop() || "/"}` : "";
 }
 
 function endDrag(e) {
@@ -2437,22 +2463,22 @@ grid.addEventListener("dragstart", (e) => {
 // A place in the sidebar dragged: to another spot among its folders, or (a
 // folder, not a drive, home or /) onto a folder, as a tile is: moved or copied there.
 $("#places").addEventListener("dragstart", (e) => {
-  const a = e.target.closest?.("a[data-path]");
-  const p = a && state.init.places.find((p) => p.path === a.dataset.path);
-  if (!p) return e.preventDefault();
+  const place = placeItem(e.target);
+  if (!place) return e.preventDefault();
   hideContextMenu();
-  const item = { path: p.path, name: p.description || p.name, kind: "dir" };
+  const { item, fixed } = place;
   const picture = dragPicture([item]);
   picture.style.cssText += `position: fixed; z-index: 30; left: ${e.clientX - DRAG_HOTSPOT[0]}px; top: ${e.clientY - DRAG_HOTSPOT[1]}px;`;
   document.body.append(picture);
   e.dataTransfer.setDragImage(picture, DRAG_HOTSPOT[0], DRAG_HOTSPOT[1]);
   setTimeout(() => picture.remove());
-  const fixed = isMount(p) || p.path === "/" || p.path === state.init.home;
-  fileDrag = { items: [item], paths: new Set([p.path]), dirs: [p.path + "/"], button: 0, fixed };
-  fileDrag.id = announceDrag([p.path], 0);
-  e.dataTransfer.effectAllowed = fixed ? "link" : "copyMoveLink";
-  e.dataTransfer.setData("text/uri-list", fileUri(p.path));
-  e.dataTransfer.setData("text/plain", p.path);
+  fileDrag = { items: [item], paths: new Set([item.path]), dirs: [item.path + "/"], button: 0, fixed };
+  fileDrag.id = announceDrag([item.path], 0);
+  // (Moving it in the sidebar is a "move" too: WebKit drops nothing whose
+  // effect the drag didn't allow, and a page's drags can't allow "link".)
+  e.dataTransfer.effectAllowed = "copyMove";
+  e.dataTransfer.setData("text/uri-list", fileUri(item.path));
+  e.dataTransfer.setData("text/plain", item.path);
 });
 
 // Whatever is dragged over the window, nothing dropped on it loads in it (the
@@ -2557,7 +2583,7 @@ addEventListener("dragover", (e) => {
   const target = dropTargetAt(e.clientX, e.clientY, fileDrag);
   markTarget(fileDrag.target, target);
   fileDrag.target = target;
-  e.dataTransfer.dropEffect = target?.gap ? "link" : target ? "move" : "none";
+  e.dataTransfer.dropEffect = target ? "move" : "none"; // between the sidebar's folders too (see its dragstart)
 });
 addEventListener("dragenter", () => staleDrag().then((stale) => stale && endFileDrag()));
 addEventListener("drop", async (e) => {
