@@ -229,15 +229,15 @@
 }
 
 /* askPassword() (kit.js): a small box at the top of the page. */
+/* A <dialog> (showModal: over anything, other dialogs too); the layout is its form's. */
 .kit-password {
   position: fixed;
   z-index: 50;
   top: 48px;
   left: 50%;
   transform: translateX(-50%);
+  margin: 0;
   width: min(460px, calc(100vw - 32px));
-  display: grid;
-  gap: 8px;
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -245,6 +245,11 @@
   color: var(--text);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
   font: 13px/1.4 system-ui, sans-serif;
+}
+.kit-password::backdrop { background: rgba(0, 0, 0, 0.2); }
+.kit-password form {
+  display: grid;
+  gap: 8px;
 }
 .kit-password label {
   white-space: pre-line;
