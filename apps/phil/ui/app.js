@@ -1417,7 +1417,11 @@ const inRename = (e) => e.target.closest?.(".rename");
 // ---------------------------------------------------------------- context menu
 
 function showContextMenu(x, y, entry) {
-  const items = [["Properties", () => showProperties(entry)]];
+  // Edit as text, Open with default app and Properties first; then what fits the kind.
+  const items = [];
+  if (entry.kind === "file") items.push(["Edit as text", () => openInApp("textedit", { file: entry.path })]);
+  items.push(["Open with default app", () => openExternal(entry.path)]);
+  items.push(["Properties", () => showProperties(entry)]);
   if (entry.kind === "dir") items.push(["Open", () => navigate(entry.path)], ...newItemsIn(entry.path, " inside"));
   if (entry.kind === "dir" && remoteOf(entry.path)) items.push([`SSH here (${remoteOf(entry.path).host})`, () => sshTo(entry.path)]);
   if (entry.kind === "image") items.push(["View", () => open(state.view.indexOf(entry))]);
@@ -1425,9 +1429,7 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
   if (entry.kind === "video") items.push(["Play here", () => viewer.open(state.view.indexOf(entry))]);
   if (isJson(entry)) items.push(["Edit in jsonedit", () => openInApp("jsonedit", { file: entry.path })]);
-  if (entry.kind === "file") items.push(["Edit as text", () => openInApp("textedit", { file: entry.path })]);
   if (isJson(entry) || tiles.get(entry.path)?.firstElementChild.text) items.push(["Add to Config", () => addToConfig(entry)]);
-  items.push(["Open with default app", () => openExternal(entry.path)]);
   items.push(["Rename…", () => startRename(state.view.indexOf(entry))]);
   items.push(["Copy path", () => copyText(entry.path)]);
   items.push([state.marked.size > 1 ? `Add tags to ${state.marked.size} items…` : "Add tags…", addTags]);
