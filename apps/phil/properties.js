@@ -119,3 +119,81 @@ async function describe(path) {
     return null;
   }
 }
+
+// ---------------------------------------------------------------- drives
+
+const run = async (cmd, args, ms = 10_000) => {
+  const out = await new Deno.Command(cmd, { args, stdin: "null", stdout: "piped", stderr: "piped", signal: AbortSignal.timeout(ms) }).output();
+  return { ok: out.success, code: out.code, stdout: new TextDecoder().decode(out.stdout), stderr: new TextDecoder().decode(out.stderr) };
+};
+
+/**
+ * The drive a mount point is on (Properties of the sidebar's drives): {mount,
+ * fstype, source, network, disk: {path, model, serial, size, transport,
+ * rotational}, speed}: the physical disk under partitions, encryption and the
+ * like; `speed` is the last read speed test of it (driveSpeed), or null.
+ */
+export async function driveInfo(path, cacheFile) {
+  const fm = await run("findmnt", ["-J", "-o", "SOURCE,FSTYPE,TARGET", "--mountpoint", path]);
+  const all = fm.ok ? JSON.parse(fm.stdout).filesystems ?? [] : [];
+  const fs = all.filter((f) => f.fstype !== "autofs").at(-1) ?? all[0]; // an automount: the share mounted on it
+  if (!fs) return null;
+  const source = fs.source.replace(/\[.*\]$/, ""); // btrfs: /dev/mapper/root[/@]
+  const info = { mount: fs.target, fstype: fs.fstype, source, network: !source.startsWith("/dev/"), disk: null, speed: null };
+  if (info.network) return info;
+  const tree = await run("lsblk", ["-J", "-s", "-o", "NAME,TYPE,PATH,MODEL,SERIAL,SIZE,TRAN,ROTA", source]);
+  if (tree.ok) {
+    // -s: inverted, the device first and what it's on as its children, down to the disk.
+    let node = JSON.parse(tree.stdout).blockdevices?.[0], transport = null;
+    while (node) {
+      transport ??= node.tran;
+      if (node.type === "disk") {
+        info.disk = { path: node.path, model: node.model?.trim() || null, serial: node.serial?.trim() || null, size: node.size, transport: node.tran ?? transport, rotational: !!node.rota };
+        break;
+      }
+      node = node.children?.[0];
+    }
+  }
+  if (info.disk) info.speed = (await readSpeeds(cacheFile))[speedKey(info.disk)] ?? null;
+  return info;
+}
+
+const speedKey = (disk) => (disk.model || disk.serial ? `${disk.model ?? ""}|${disk.serial ?? ""}` : disk.path);
+
+async function readSpeeds(cacheFile) {
+  try {
+    return JSON.parse(await Deno.readTextFile(cacheFile));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Times reading from the drive under mount point `path` (hdparm -tT: from its
+ * cache, and from the disk itself), as root: pkexec asks for the password (the
+ * desktop's polkit agent). Kept in `cacheFile` by the disk's model and serial,
+ * for driveInfo to show. {cached, buffered} in MB/s, `at`.
+ */
+export async function driveSpeed(path, cacheFile) {
+  const info = await driveInfo(path, cacheFile);
+  if (!info?.disk) throw new Error(info?.network ? "A network share has no disk here to time" : "Not a drive");
+  let r;
+  try {
+    r = await run("pkexec", ["hdparm", "-tT", info.disk.path], 180_000);
+  } catch (err) {
+    throw new Error(err instanceof Deno.errors.NotFound ? "Needs pkexec (polkit) and hdparm" : "The test didn't finish");
+  }
+  if (r.code === 126) throw new Error("Cancelled (the password wasn't given)");
+  if (r.code === 127) throw new Error("Not allowed (polkit said no)");
+  const rate = (what) => {
+    const m = new RegExp(`Timing ${what}:.*=\\s*([\\d.]+)\\s*(k|M|G)B/sec`).exec(r.stdout);
+    return m ? Number(m[1]) * { k: 1 / 1024, M: 1, G: 1024 }[m[2]] : null;
+  };
+  const result = { cached: rate("cached reads"), buffered: rate("buffered disk reads"), at: Date.now(), device: info.disk.path };
+  if (result.buffered === null) throw new Error((r.stderr || r.stdout).trim().split("\n").at(-1) || "hdparm failed");
+  const all = await readSpeeds(cacheFile);
+  all[speedKey(info.disk)] = result;
+  await Deno.mkdir(dirname(cacheFile), { recursive: true });
+  await Deno.writeTextFile(cacheFile, JSON.stringify(all, null, 2) + "\n");
+  return result;
+}

@@ -426,6 +426,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | `/` or Ctrl+F | filter |
 | Ctrl+H | show hidden files |
 | hover / click the sidebar button (the folder in the top left corner), F9 | the sidebar slides out over the folder / stays open beside it (home folders, drives in /run/media and /mnt, and /etc/fstab's network shares and other mounts, each with its free space ("758 GB free of 1.8 TB"; a share that isn't mounted yet isn't woken for it); refreshed when the window gets focus) |
+| right-click a drive in the sidebar → Properties | the drive under it (model, NVMe/USB/SATA, the disk device under partitions and encryption), file system, space, and its read speed: "Run speed test" times it with `hdparm -tT` (as root: it asks for your password), and the result is kept per disk |
 | click a dimmed drive in the sidebar | mount it and open it: partitions nothing has mounted (an internal drive's, like Windows': only removable ones are mounted by themselves), by udisks under /run/media, asking for the password for a system drive; right-click a drive in /run/media → Unmount |
 | F4 / Ctrl+` | toggle the terminal panel |
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |

@@ -9,7 +9,7 @@ import { FolderSummaries, makeSummary } from "./folders.js";
 import { Hooks, metadataFile, runHook } from "./hooks.js";
 import { taggable, Tagging } from "./tagging.js";
 import { home, serverConfig } from "./launch.js";
-import { canWrite, folderSize, me, properties } from "./properties.js";
+import { canWrite, driveInfo, driveSpeed, folderSize, me, properties } from "./properties.js";
 import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
@@ -25,6 +25,7 @@ export function createServer({ profile, controlSocket }) {
   const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
   const folders = new FolderSummaries(config.incognito ? null : join(thumbs.dir, "folders"));
   const totals = new FolderTotals(config.incognito ? null : thumbs.dir);
+  const speedsFile = join(dirname(config.stateFile), "drive-speeds.json"); // the drives' read speed tests
   const shown = new Map(); // page WebSocket -> the folder it shows
   const broadcast = (msg) => {
     for (const socket of shown.keys()) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
@@ -114,6 +115,14 @@ export function createServer({ profile, controlSocket }) {
         return json(await create(await req.json()));
       case "GET /api/properties":
         return json({ ...await properties(requirePath(path)), meta: await hooks.get(path) });
+      case "GET /api/drive": // a mount point's drive (Properties of the sidebar's drives), with its last speed test
+        return json(await driveInfo(requirePath(path), speedsFile));
+      case "POST /api/drive-speed": // {path}: time reading from it (hdparm, asking for the password)
+        try {
+          return json(await driveSpeed(requirePath((await req.json()).path), speedsFile));
+        } catch (err) {
+          throw httpError(500, err.message);
+        }
       case "GET /api/folder-size":
         return json(await folderSize(requirePath(path)));
       case "PUT /api/meta": { // {path, description, onChange, tags, autoTags}: Properties' phil section
