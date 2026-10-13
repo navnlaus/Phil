@@ -295,7 +295,7 @@ export function createServer({ profile, controlSocket }) {
     }
     // While we're here, this folder's own summary, from thumbnails already cached.
     const previewOf = (e) => (e.kind === "file" ? textPreviewOf(e) : typeof e.thumb === "string" ? { url: e.thumb } : e.thumb ?? null);
-    makeSummary({ entries, mtime, sort, previewOf })
+    makeSummary({ entries, mtime, sort, previewOf, subfolderPreviewOf: async (e) => (e.summary ? lentPreview(e.summary) ?? false : null) }) // none yet: incomplete, made when its tile shows
       .then((summary) => folders.save(dir, summary))
       .catch((err) => console.error(`phil: can't save folder summary: ${err.message}`));
     return { path: dir, parent: dir === "/" ? null : dirname(dir), entries, autoTags: !!meta[dir]?.autoTags };
@@ -348,7 +348,13 @@ export function createServer({ profile, controlSocket }) {
 
   // A folder tile came into view without an up-to-date summary: read the folder
   // and make previews of its first files in the view's sort order.
-  async function summarize(path, sort, signal) {
+  // What a subfolder lends its folder's tile: its first picture (an image's or a
+  // video's thumbnail), its first text only when it has no picture.
+  const lentPreview = (summary) => summary?.previews?.find((p) => p.url) ?? summary?.previews?.[0];
+
+  // A folder with too few files of its own borrows its first subfolders' first
+  // previews (`deep`: their summaries made too, one level down).
+  async function summarize(path, sort, signal, deep = true) {
     const mtime = (await Deno.stat(path)).mtime?.getTime() ?? 0;
     const entries = await readEntries(path, { lookups: false });
     signal.throwIfAborted();
@@ -365,6 +371,13 @@ export function createServer({ profile, controlSocket }) {
           return false; // can't be thumbnailed: skipped, not retried
         }
       },
+      subfolderPreviewOf: deep
+        ? async (e) => {
+          const known = await folders.get(e.path);
+          const theirs = known?.mtime === e.mtime ? known : await summarize(e.path, sort, signal, false).catch(() => null);
+          return lentPreview(theirs) ?? false;
+        }
+        : null,
     });
     await folders.save(path, summary);
     return summary;
