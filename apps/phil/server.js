@@ -126,6 +126,41 @@ export function createServer({ profile, controlSocket }) {
   const broadcast = (msg) => {
     for (const socket of shown.keys()) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
   };
+  // Copies, moves and deletes under way, for the bar (the phil widget for
+  // Omarchy's bar, extras/omarchy-bar): $XDG_RUNTIME_DIR/phil/progress.json,
+  // {pid, updated, jobs: [{id, op, name, items, dest, percent, bytes, total,
+  // speed, eta, paused, counting, found, started}]}, written at most once a
+  // second as they go, and every 5 seconds while there are any (a paused one
+  // reports nothing): `updated` going stale means this phil is gone. The bar
+  // shows the ones that have taken more than 10 seconds. Not incognito ones.
+  const barFile = config.incognito ? null : join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", "phil", "progress.json");
+  const barJobs = new Map(); // id -> its last progress, and when it was first heard of
+  let barTimer = 0, barWritten = 0, barBeat = 0;
+  const writeBar = async () => {
+    barTimer = 0;
+    barWritten = Date.now();
+    const jobs = [...barJobs.values()].map((p) => ({
+      id: p.id, op: p.op, name: basename(p.targets?.[0] ?? p.dest ?? ""), items: p.items ?? 1, dest: p.dest,
+      percent: p.percent ?? 0, bytes: p.bytes ?? 0, total: p.total ?? 0, speed: p.speed ?? null, eta: p.eta ?? null,
+      paused: !!p.paused, counting: !!p.counting, found: p.found ?? 0, started: p.started,
+    }));
+    try {
+      await Deno.mkdir(dirname(barFile), { recursive: true });
+      const tmp = `${barFile}.${crypto.randomUUID().slice(0, 8)}.tmp`;
+      await Deno.writeTextFile(tmp, JSON.stringify({ pid: Deno.pid, updated: Date.now(), jobs }) + "\n");
+      await Deno.rename(tmp, barFile);
+    } catch { /* no runtime folder: no bar */ }
+    clearInterval(barBeat);
+    barBeat = jobs.length ? setInterval(writeBar, 5000) : 0;
+  };
+  const barProgress = (p) => {
+    if (!barFile) return;
+    if (p.finished) barJobs.delete(p.id);
+    else barJobs.set(p.id, { ...p, started: barJobs.get(p.id)?.started ?? Date.now() });
+    if (!barTimer) barTimer = setTimeout(writeBar, p.finished ? 0 : Math.max(0, 1000 - (Date.now() - barWritten)));
+  };
+  if (barFile) writeBar(); // none: a phil that was stopped mid-copy left its own
+
   // A hook ran: the windows showing its folder say so.
   const hooks = new Hooks(metadataFile(config.settingsFile), {
     persist: !config.incognito,
@@ -187,13 +222,13 @@ export function createServer({ profile, controlSocket }) {
         return openExternal(await req.json());
       case "POST /api/delete": {
         const paths = (await req.json()).paths ?? [];
-        const result = await deletePaths(paths, { report: (progress) => broadcast({ transfer: progress }), forget: forgetDeleted });
+        const result = await deletePaths(paths, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress)), forget: forgetDeleted });
         await movedHooks(paths, result, () => null);
         return json(result);
       }
       case "POST /api/transfer": { // {op, paths, dest}; progress to every page as {transfer} (see transfer())
         const body = await req.json();
-        const result = await transfer(body, { report: (progress) => broadcast({ transfer: progress }), track: copyRecords });
+        const result = await transfer(body, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress)), track: copyRecords });
         if (body.op === "move") await movedHooks(body.paths ?? [], result, (p) => join(body.dest, basename(p)));
         return json(result);
       }

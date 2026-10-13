@@ -9,6 +9,7 @@
 #    apps (the inode/directory MIME default), and "Show in folder" from
 #    browsers, file pickers and portals, which use the
 #    org.freedesktop.FileManager1 D-Bus service instead
+#  - on Omarchy, a widget for its bar: copies, moves and deletes under way
 #  - desktop entries for jsonedit, textedit and imageview, the default apps for
 #    JSON, text and image files (what xdg-open, browsers' download lists and
 #    file pickers use), and for imageresize, offered under "Open with"
@@ -44,6 +45,15 @@ xdg-mime default textedit.desktop $text_types
 xdg-mime default imageview.desktop $(sed -n 's/^MimeType=//p' data/imageview.desktop | tr ';' ' ')
 # Have the session bus pick up the new service file.
 busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig >/dev/null 2>&1 || true
+# Omarchy: phil's widget for its bar (long copies, moves and deletes, with
+# their progress), a shell plugin in ~/.config/omarchy/plugins/phil, put
+# before the clock unless it's on the bar already.
+omarchy_config=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy
+if [[ -d $omarchy_config ]] && command -v omarchy >/dev/null; then
+  for f in manifest.json BarWidget.qml; do install -Dm644 "data/omarchy-bar/phil/$f" "$omarchy_config/plugins/phil/$f"; done
+  omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+  omarchy bar put phil --section center --before omarchy.clock >/dev/null 2>&1 || echo "Couldn't put phil's widget on the bar: omarchy bar put phil"
+fi
 # Running engines (and phils from before the engine) keep their open windows
 # but stop taking new ones and exit once those are closed, so the next launch
 # runs the new build.

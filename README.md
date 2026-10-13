@@ -93,6 +93,14 @@ after changing the code.
   (`apps/phil/dbus.js`), which opens a phil window per request with the items
   selected, and exits after 10 idle minutes. While Nautilus is running it
   holds that D-Bus name itself, so those requests go to Nautilus until it quits.
+- On [Omarchy](https://omarchy.org): a widget for its bar
+  (`data/omarchy-bar/phil`, installed to `~/.config/omarchy/plugins/phil` and
+  put before the clock). It shows copies, moves and deletes that have taken
+  more than 10 seconds: "󰆏 Top Gear 45%" with a thin progress bar under it
+  ("+2" when there are more), all of them with speed and time left in its
+  tooltip; a click opens where the first one goes in phil. phil keeps them in
+  `$XDG_RUNTIME_DIR/phil/progress.json` (not incognito windows'); the widget
+  hides them when that's more than 15 seconds old, phil being gone.
 - `jsonedit.desktop` and `textedit.desktop`, made the default apps for JSON and
   for text files (plain text, Markdown, scripts, code, configs, logs; not HTML
   or XML), so they open from browsers' download lists, `xdg-open` and file
