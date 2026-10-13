@@ -28,6 +28,7 @@ const state = {
   marked: new Set(), // paths of the selected entries (one or more)
   anchor: -1, // where Shift+click / Shift+arrow ranges start
   space: {}, // the sidebar's drives: {path: {size, avail}}
+  transfers: new Map(), // copies and moves under way: id -> their progress (the server's transfer())
   settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, theme: "overlay" },
 };
 const tiles = new Map(); // path -> tile element
@@ -109,6 +110,7 @@ const thumbs = {
       if ("searched" in msg) return onSearched(msg);
       if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes);
       if (msg.hook) return onHookRan(msg.hook);
+      if (msg.transfer) return onTransfer(msg.transfer);
       const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
       this.folders.delete(path);
@@ -647,6 +649,7 @@ function render(selectPath = state.view[state.selected]?.path) {
   if (idx !== -1) select(idx, { scroll: false });
   if (marked.size > 1) setMarked([...marked].filter((p) => tiles.has(p))); // survive re-sort/filter
   updateStatus();
+  showTransfers();
 }
 
 // The extension, if the name has a short one ("md", "json"; not "tar.gz"'s "tar").
@@ -943,18 +946,21 @@ function renderPlaces() {
     a.title = p.path;
     a.innerHTML = icon(p.icon);
     const space = state.space[p.path];
-    if (isMount(p) && space) {
-      // Drives and shares: their free space under the name.
+    if (isMount(p)) {
+      // Drives and shares: their free space under the name (and copies to them, see showTransfers).
       const text = document.createElement("span");
       text.className = "place-text";
       const name = document.createElement("span");
       name.textContent = p.name;
-      const free = document.createElement("span");
-      free.className = "space";
-      free.textContent = `${formatSize(space.avail)} free of ${formatSize(space.size)}`;
-      text.append(name, free);
+      text.append(name);
+      if (space) {
+        const free = document.createElement("span");
+        free.className = "space";
+        free.textContent = `${formatSize(space.avail)} free of ${formatSize(space.size)}`;
+        text.append(free);
+        a.title += `\n${formatSize(space.avail)} free of ${formatSize(space.size)} (${Math.round((1 - space.avail / space.size) * 100)}% used)`;
+      }
       a.append(text);
-      a.title += `\n${formatSize(space.avail)} free of ${formatSize(space.size)} (${Math.round((1 - space.avail / space.size) * 100)}% used)`;
     } else {
       a.append(p.name);
     }
@@ -977,6 +983,7 @@ function renderPlaces() {
     };
     return a;
   }));
+  showTransfers();
 }
 
 // A drive that isn't mounted (an internal one's partition: nothing mounts
@@ -2276,6 +2283,10 @@ async function transfer(op, items, dest) {
   }
   progress.textContent = "";
   updateProgress();
+  if (result.cancelled) {
+    result.errors = result.errors.filter((e) => e.error !== "cancelled");
+    flashStatus(`${op === "move" ? "Moving" : "Copying"} cancelled: what was done stays ${op === "move" ? "moved" : "copied"}`);
+  }
   await load(state.path);
   // What's made here (copies in the same folder) is selected.
   const made = new Set(result.made ?? []);
@@ -2289,6 +2300,60 @@ async function transfer(op, items, dest) {
     alert(`Couldn't ${op} ${result.errors.length} item(s):\n` +
       result.errors.map((e) => `${e.path.split("/").pop()}: ${e.error}`).join("\n"));
   }
+}
+
+// ---------------------------------------------------------------- copy and move progress
+
+// The server's progress for a copy or move ({id, op, dest, bytes, total,
+// percent, speed, eta}, then {id, finished}): a bar on the folder it goes to
+// (its tile, when it's shown) and under the drive in the sidebar, each with ×
+// to cancel it; and the status line.
+function onTransfer(p) {
+  if (p.finished) state.transfers.delete(p.id);
+  else state.transfers.set(p.id, p);
+  showTransfers();
+  const all = [...state.transfers.values()];
+  if (all.length) {
+    const t = all[0];
+    $("#status-progress").textContent = `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest.split("/").pop() || "/"}: ${t.percent}% ` +
+      `(${formatSize(t.bytes)} of ${formatSize(t.total)}${t.speed ? `, ${t.speed}, ${t.eta} left` : ""})` + (all.length > 1 ? ` and ${all.length - 1} more` : "");
+  }
+}
+
+function showTransfers() {
+  document.querySelectorAll(".transfer-bar").forEach((el) => el.remove());
+  for (const t of state.transfers.values()) {
+    tiles.get(t.dest)?.append(transferBar(t));
+    // The drive it goes to: the sidebar's mount with the longest path that holds it.
+    const mount = state.init?.places.filter((p) => isMount(p) && (t.dest === p.path || t.dest.startsWith(p.path === "/" ? "/" : p.path + "/")))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    if (mount) $(`#places a[data-path="${CSS.escape(mount.path)}"] .place-text`)?.append(transferBar(t));
+  }
+}
+
+function transferBar(t) {
+  const bar = document.createElement("div");
+  bar.className = "transfer-bar";
+  bar.title = `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest}: ${formatSize(t.bytes)} of ${formatSize(t.total)}` +
+    (t.speed ? `, ${t.speed}, ${t.eta} left` : "");
+  const fill = document.createElement("div");
+  fill.className = "fill";
+  fill.style.width = `${t.percent}%`;
+  const label = document.createElement("span");
+  label.className = "pct"; // not .label: that's the tile's name
+  label.textContent = `${t.percent}%`;
+  const cancel = document.createElement("button");
+  cancel.className = "cancel";
+  cancel.textContent = "×";
+  cancel.title = `Cancel ${t.op === "move" ? "moving" : "copying"} (what's done stays)`;
+  for (const type of ["pointerdown", "mousedown", "dblclick"]) cancel.addEventListener(type, (e) => e.stopPropagation());
+  cancel.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    api("/api/transfer-cancel", { method: "POST", body: JSON.stringify({ id: t.id }) }).catch(() => {});
+  });
+  bar.append(fill, label, cancel);
+  return bar;
 }
 
 function updateBand() {

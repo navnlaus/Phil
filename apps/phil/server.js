@@ -26,6 +26,9 @@ export function createServer({ profile, controlSocket }) {
   const folders = new FolderSummaries(config.incognito ? null : join(thumbs.dir, "folders"));
   const totals = new FolderTotals(config.incognito ? null : thumbs.dir);
   const shown = new Map(); // page WebSocket -> the folder it shows
+  const broadcast = (msg) => {
+    for (const socket of shown.keys()) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
+  };
   // A hook ran: the windows showing its folder say so.
   const hooks = new Hooks(metadataFile(config.settingsFile), {
     persist: !config.incognito,
@@ -89,12 +92,14 @@ export function createServer({ profile, controlSocket }) {
         await movedHooks(paths, result, () => null);
         return json(result);
       }
-      case "POST /api/transfer": {
+      case "POST /api/transfer": { // {op, paths, dest}; progress to every page as {transfer} (see transfer())
         const body = await req.json();
-        const result = await transfer(body);
+        const result = await transfer(body, (progress) => broadcast({ transfer: progress }));
         if (body.op === "move") await movedHooks(body.paths ?? [], result, (p) => join(body.dest, basename(p)));
         return json(result);
       }
+      case "POST /api/transfer-cancel": // {id}: stops a copy or move (what's done stays done)
+        return json({ cancelled: cancelTransfer((await req.json()).id) });
       case "POST /api/rename": {
         const body = await req.json();
         const result = await rename(body);
@@ -960,16 +965,30 @@ async function create({ dir, kind }) {
   throw httpError(409, "too many with that name already");
 }
 
-// Drag and drop: move or copy items into `dest`. mv/cp handle folders,
-// symlinks (copied as links) and moves across filesystems. Nothing is ever
-// overwritten: a name that already exists in `dest` is reported and skipped,
-// except a copy into the item's own folder, which gets a number ("photo
-// 2.jpg"). `made`: the paths of what's there now.
-async function transfer({ op, paths = [], dest }) {
+// Drag and drop: move or copy items into `dest`. Nothing is ever overwritten:
+// a name that already exists in `dest` is reported and skipped, except a copy
+// into the item's own folder, which gets a number ("photo 2.jpg"). `made`: the
+// paths of what's there now.
+//
+// A move within a file system is a rename (mv), and a copy within one that
+// clones files (btrfs, xfs) is cp's clone: instant both. Anything else goes
+// through rsync, which tells how far it is: `report` gets {id, op, dest, items,
+// bytes, total, percent, speed, eta} a few times a second, then {id, finished}.
+// A move through rsync removes each file once it's copied, so cancelling
+// (cancelTransfer) leaves everything in one place or the other.
+const transfers = new Map(); // id -> { cancelled, child }
+
+async function transfer({ op, paths = [], dest }, report = () => {}) {
   if (op !== "move" && op !== "copy") throw httpError(400, "bad op");
   requirePath(dest);
   if (!(await isDir(dest))) throw httpError(400, "destination is not a folder");
   const errors = [], made = [];
+  const id = crypto.randomUUID().slice(0, 8);
+  const job = { cancelled: false, child: null };
+  transfers.set(id, job);
+  const destFs = await fsOf(dest);
+  // What goes where, checked first; then the sizes, for the progress.
+  const items = [];
   for (const src of paths) {
     try {
       requirePath(src);
@@ -979,17 +998,107 @@ async function transfer({ op, paths = [], dest }) {
       if (dirname(src) === dest && !copyHere) throw new Error("it's already in that folder");
       const target = copyHere ? await freeName(src) : join(dest, basename(src));
       if (await Deno.lstat(target).then(() => true, () => false)) throw new Error("an item with that name already exists there");
-      const [cmd, ...args] = op === "move" ? ["mv", "-n", "-T"] : ["cp", "-a", "-n", "-T"];
-      const result = await new Deno.Command(cmd, { args: [...args, "--", src, target], stdin: "null", stdout: "null", stderr: "piped" }).output();
-      if (!result.success) {
-        throw new Error(new TextDecoder().decode(result.stderr).trim().split("\n").at(-1) || `${cmd} failed`);
-      }
-      made.push(target);
+      const sameFs = (await fsOf(dirname(src))).dev === destFs.dev;
+      const quick = sameFs && (op === "move" || CLONING_FS.test(destFs.type));
+      items.push({ src, target, quick });
     } catch (err) {
       errors.push({ path: src, error: err.message });
     }
   }
-  return { errors, made };
+  const sizes = await Promise.all(items.map((it) => (it.quick ? 0 : apparentSize(it.src))));
+  const total = sizes.reduce((a, b) => a + b, 0);
+  let doneBefore = 0, last = 0;
+  const progress = (bytes, extra = {}) => {
+    if (Date.now() - last < 250 || !total) return;
+    last = Date.now();
+    const done = Math.min(total, doneBefore + bytes);
+    report({ id, op, dest, items: items.length, bytes: done, total, percent: Math.floor((done / total) * 100), ...extra });
+  };
+  try {
+    for (const [i, { src, target, quick }] of items.entries()) {
+      if (job.cancelled) {
+        errors.push({ path: src, error: "cancelled" });
+        continue;
+      }
+      try {
+        if (quick) {
+          const [cmd, ...args] = op === "move" ? ["mv", "-n", "-T"] : ["cp", "-a", "-n", "-T"];
+          const result = await new Deno.Command(cmd, { args: [...args, "--", src, target], stdin: "null", stdout: "null", stderr: "piped" }).output();
+          if (!result.success) throw new Error(new TextDecoder().decode(result.stderr).trim().split("\n").at(-1) || `${cmd} failed`);
+        } else {
+          await rsync(src, target, { move: op === "move", posix: !NON_POSIX_FS.test(destFs.type), job, progress });
+        }
+        made.push(target);
+      } catch (err) {
+        errors.push({ path: src, error: job.cancelled ? "cancelled" : err.message });
+      }
+      doneBefore += sizes[i];
+    }
+  } finally {
+    transfers.delete(id);
+    report({ id, dest, finished: true });
+  }
+  return { errors, made, cancelled: job.cancelled };
+}
+
+function cancelTransfer(id) {
+  const job = transfers.get(id);
+  if (!job) return false;
+  job.cancelled = true;
+  try {
+    job.child?.kill("SIGTERM"); // rsync removes the file it was writing
+  } catch { /* finished meanwhile */ }
+  return true;
+}
+
+const CLONING_FS = /^(btrfs|xfs|bcachefs)$/; // cp clones files there: a copy is instant
+const NON_POSIX_FS = /^(msdos|vfat|exfat|fuseblk|ntfs3?)$/; // no owners or permissions to keep
+
+// The file system `path` is on: { dev, type } (stat -f's type name).
+async function fsOf(path) {
+  const info = await Deno.stat(path);
+  const out = await new Deno.Command("stat", { args: ["-f", "-c", "%T", "--", path], stdin: "null", stdout: "piped", stderr: "null" }).output();
+  return { dev: info.dev, type: new TextDecoder().decode(out.stdout).trim() };
+}
+
+// The bytes in `path`, everything under it (du -sb), 0 if that fails.
+async function apparentSize(path) {
+  try {
+    const out = await new Deno.Command("du", { args: ["-sb", "--", path], stdin: "null", stdout: "piped", stderr: "null" }).output();
+    return parseInt(new TextDecoder().decode(out.stdout)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+// rsync of one item (a file, or a folder and all in it) to `target`, telling
+// `progress(bytes, {speed, eta})` how far it is. A move removes each file once
+// it's copied, and the emptied folders at the end.
+async function rsync(src, target, { move, posix, job, progress }) {
+  const folder = (await Deno.lstat(src)).isDirectory;
+  const args = [posix ? "-a" : "-rlt", "--info=progress2", "--no-inc-recursive", "--ignore-existing", "--outbuf=L",
+    ...(move ? ["--remove-source-files"] : []), "--", folder ? src + "/" : src, target];
+  const child = (job.child = new Deno.Command("rsync", { args, stdin: "null", stdout: "piped", stderr: "piped" }).spawn());
+  const stderr = new Response(child.stderr).text();
+  let buffer = "";
+  for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {
+    buffer += chunk;
+    const lines = buffer.split(/[\r\n]/);
+    buffer = lines.pop();
+    for (const line of lines) {
+      // "  1,234,567  45%   12.34MB/s    0:00:05 (xfr#3, to-chk=10/20)"
+      const m = /^\s*([\d,]+)\s+\d+%\s+(\S+)\s+(\d+:\d+:\d+)/.exec(line);
+      if (m) progress(Number(m[1].replaceAll(",", "")), { speed: m[2], eta: m[3] });
+    }
+  }
+  const { success } = await child.status;
+  job.child = null;
+  if (job.cancelled) throw new Error("cancelled");
+  if (!success) throw new Error((await stderr).trim().split("\n").at(-1) || "rsync failed");
+  if (move) {
+    if (folder) await new Deno.Command("find", { args: [src, "-depth", "-type", "d", "-empty", "-delete"], stdin: "null", stdout: "null", stderr: "null" }).output();
+    if (await Deno.lstat(src).then(() => true, () => false)) throw new Error("copied, but some of it couldn't be removed from where it was");
+  }
 }
 
 // A name for a copy of `path` beside it: the next number after the name, before
