@@ -1403,11 +1403,13 @@ function askConfirm({ title, detail, ok, cancel = "Cancel", danger = true, copya
     // Copy: the message, for pasting somewhere (it stays open).
     const copy = confirmDialog.querySelector("[value=copy]");
     copy.hidden = !copyable;
-    copy.textContent = "Copy";
+    copy.innerHTML = `<svg><use href="#i-copy"/></svg>`;
+    copy.title = "Copy the message";
     copy.onclick = (e) => {
       e.preventDefault();
       copyText(detail ? `${title}\n${detail}` : title);
-      copy.textContent = "Copied";
+      copy.innerHTML = `<svg><use href="#i-check"/></svg>`; // copied
+      copy.title = "Copied";
     };
     confirmDialog.returnValue = "";
     confirmDialog.showModal();

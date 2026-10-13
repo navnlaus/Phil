@@ -1106,7 +1106,8 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
       const target = resume && resumeTarget && dirname(resumeTarget) === dest ? resumeTarget
         : copyHere ? await freeName(src) : join(dest, basename(src));
       const there = await Deno.lstat(target).then(() => true, () => false);
-      const resuming = there && resume && (await track.get(target))?.from === src;
+      // A copy of this very item that was cut off (its record says so): copying it again goes on with it.
+      const resuming = there && (await track.get(target))?.from === src;
       if (there && !resuming) throw new Error("an item with that name already exists there");
       if (liveTargets.has(target)) throw new Error("it's being copied there already");
       const sameFs = (await fsOf(dirname(src))).dev === destFs.dev;
@@ -1151,6 +1152,8 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
     file = null;
   };
   const progress = (bytes, extra = {}) => {
+    // (A file copied on its own is the item: its record is the item's.)
+    if (extra.file && extra.file === current?.target) extra.file = undefined;
     if (extra.file && extra.file !== file?.path) fileEnd(), (file = { path: extra.file, from: extra.from, since: Date.now(), recorded: false });
     if (file && extra.filePercent !== undefined) file.percent = extra.filePercent;
     if (extra.fileDone) fileEnd();
