@@ -767,6 +767,20 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   box-shadow: inset 0 0 0 3px var(--accent);
   pointer-events: none;
 }
+/* Between two of the sidebar's folders: a folder dropped there goes in the sidebar. */
+#places a.folder { position: relative; }
+#places a.gap-before::before, #places a.gap-after::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+#places a.gap-before::before { top: 0; }
+#places a.gap-after::after { bottom: 0; }
 #crumbs button.drop-target, #places a.drop-target {
   background: var(--accent-bg);
   box-shadow: inset 0 0 0 2px var(--accent);

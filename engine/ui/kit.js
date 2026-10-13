@@ -201,7 +201,7 @@ export function askPassword(message, { ok = "Save" } = {}) {
  * WebKitGTK's own come up unreliably and look like the toolkit's, these are
  * the theme's (.kit-tip in themes/base.css). Shown after a moment on hover,
  * at once when moving on from one just shown; gone on a click, a key, a
- * scroll, or leaving. A title moves to data-tip when first hovered, so the
+ * scroll, or leaving; none during a drag. A title moves to data-tip when first hovered, so the
  * browser's own doesn't show as well; setting it again later works. Inside an
  * open dialog, the tip goes in it (a modal one is over everything else).
  */
@@ -246,7 +246,7 @@ export function tooltips() {
     if (el === target) return;
     hide();
     target = el;
-    if (!el || !textOf(el)) return;
+    if (!el || e.buttons || !textOf(el)) return; // none while dragging
     x = e.clientX;
     y = e.clientY;
     timer = setTimeout(show, Date.now() - hiddenAt < 500 ? 0 : 450);

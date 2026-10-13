@@ -145,6 +145,7 @@ const thumbs = {
       if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes);
       if (msg.hook) return onHookRan(msg.hook);
       if (msg.transfer) return onTransfer(msg.transfer);
+      if (msg.places) return refreshPlaces(); // the sidebar arranged, in some window
       if ("clipboard" in msg) return (state.clip = msg.clipboard), markClipboard();
       const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
@@ -990,6 +991,7 @@ function renderPlaces() {
     const a = document.createElement("a");
     a.href = "#" + encodePath(p.path);
     a.dataset.path = p.path; // drop target
+    a.classList.toggle("folder", !!p.folder); // the user's (see placeGapAt)
     a.title = p.path;
     a.innerHTML = icon(p.icon);
     const space = state.space[p.path];
@@ -1031,6 +1033,7 @@ function renderPlaces() {
         ["Paste into", () => pasteFiles(p.path)],
         ...newItemsIn(p.path, " inside"),
         ...(p.mounted ? [["Unmount", () => unmount(p)]] : []),
+        ...(p.folder ? [["Remove from sidebar", () => removeFromSidebar(p)]] : []),
       ]);
     };
     return a;
@@ -2140,7 +2143,7 @@ function dragOut() {
   drag = null;
   d.ghost.remove();
   document.body.classList.remove("dragging");
-  d.target?.el.classList.remove("drop-target");
+  markTarget(d.target, null);
   fileDrag = { items: d.items, paths: d.paths, dirs: d.dirs, button: d.button };
   fileDrag.id = announceDrag([...d.paths], d.button);
   native.postMessage("drag:" + JSON.stringify({
@@ -2291,7 +2294,12 @@ function fitText(ctx, text, max) {
 // Where a drag would drop: a folder (its tile, a place, a part of the path).
 // A right-drag can also go to the folder it came from (the tiles' empty space,
 // a file's tile, that folder in the path), for copies there (`here`).
+// Between the sidebar's folders, a folder goes in it (`gap`). A sidebar's drive
+// (or home, or /) dragged goes only there (`fixed`: not moved or copied).
 function dropTargetAt(x, y, drag) {
+  const gap = drag.dirs.length ? placeGapAt(x, y) : null;
+  if (gap) return gap;
+  if (drag.fixed) return null;
   const el = document.elementFromPoint(x, y);
   const tile = el?.closest(".tile");
   const target = tile ? state.view[tile.dataset.index] : null;
@@ -2304,17 +2312,60 @@ function dropTargetAt(x, y, drag) {
   return { path, el: tile ?? el.closest("[data-path]") };
 }
 
+// Shows where a drag would drop (and stops showing where it was): a folder lit
+// up, or a line between two of the sidebar's folders (`cls`).
+function markTarget(old, next) {
+  if (old?.el === next?.el && old?.cls === next?.cls) return;
+  old?.el.classList.remove(old.cls ?? "drop-target");
+  next?.el.classList.add(next.cls ?? "drop-target");
+}
+
+// Between two of the sidebar's folders, or after the last (within a few pixels
+// of where they meet): a folder dropped there goes in the sidebar as a link,
+// or moves there if it's in it already. {before: the folder after it, or null}.
+function placeGapAt(x, y) {
+  const nav = $("#places");
+  const r = nav.getBoundingClientRect();
+  if (x < r.left || x > r.right) return null;
+  const folders = [...nav.querySelectorAll("a.folder")];
+  for (const [i, a] of folders.entries()) {
+    const b = a.getBoundingClientRect();
+    if (y >= b.top - 4 && y < b.top + 5) return { gap: true, before: a.dataset.path, el: a, cls: "gap-before" };
+    if (y >= b.bottom - 5 && y < b.bottom + 4) {
+      const next = folders[i + 1];
+      return next ? { gap: true, before: next.dataset.path, el: next, cls: "gap-before" } : { gap: true, before: null, el: a, cls: "gap-after" };
+    }
+  }
+  return null;
+}
+
+// Folders dropped between the sidebar's: links to them there (`before` that one; null: last).
+async function addToSidebar(paths, before) {
+  try {
+    await api("/api/sidebar", { method: "POST", body: JSON.stringify({ add: paths, before }) });
+    await refreshPlaces();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function removeFromSidebar(p) {
+  try {
+    await api("/api/sidebar", { method: "POST", body: JSON.stringify({ remove: p.path }) });
+    await refreshPlaces();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 function updateDrag() {
   const [x, y] = drag.client;
   drag.ghost.style.transform = `translate(${x - DRAG_HOTSPOT[0]}px, ${y - DRAG_HOTSPOT[1]}px)`;
   const target = dropTargetAt(x, y, drag);
-  if (target?.el !== drag.target?.el) {
-    drag.target?.el.classList.remove("drop-target");
-    target?.el.classList.add("drop-target");
-  }
+  markTarget(drag.target, target);
   drag.target = target;
   const verb = drag.button === 1 ? "Move" : "Move or copy";
-  drag.label.textContent = target?.here ? "Copy here" : target ? `${verb} to ${target.path.split("/").pop() || "/"}` : "";
+  drag.label.textContent = target?.gap ? "Add to the sidebar" : target?.here ? "Copy here" : target ? `${verb} to ${target.path.split("/").pop() || "/"}` : "";
 }
 
 function endDrag(e) {
@@ -2333,10 +2384,11 @@ function endDrag(e) {
   }
   d.ghost.remove();
   document.body.classList.remove("dragging");
-  d.target?.el.classList.remove("drop-target");
+  markTarget(d.target, null);
   if (e.type === "pointercancel") return;
   d.target = dropTargetAt(e.clientX, e.clientY, d); // where it's let go
   if (!d.target) return;
+  if (d.target.gap) return addToSidebar(d.dirs.map((p) => p.slice(0, -1)), d.target.before);
   const name = d.target.path.split("/").pop() || "/";
   if (d.button === 1) return transfer("move", d.items, d.target.path);
   if (d.target.here) return showMenu(e.clientX, e.clientY, [["Copy here", () => transfer("copy", d.items, d.target.path)]]);
@@ -2382,6 +2434,27 @@ grid.addEventListener("dragstart", (e) => {
   e.dataTransfer.setData("text/plain", items.map((m) => m.path).join("\n"));
 });
 
+// A place in the sidebar dragged: to another spot among its folders, or (a
+// folder, not a drive, home or /) onto a folder, as a tile is: moved or copied there.
+$("#places").addEventListener("dragstart", (e) => {
+  const a = e.target.closest?.("a[data-path]");
+  const p = a && state.init.places.find((p) => p.path === a.dataset.path);
+  if (!p) return e.preventDefault();
+  hideContextMenu();
+  const item = { path: p.path, name: p.description || p.name, kind: "dir" };
+  const picture = dragPicture([item]);
+  picture.style.cssText += `position: fixed; z-index: 30; left: ${e.clientX - DRAG_HOTSPOT[0]}px; top: ${e.clientY - DRAG_HOTSPOT[1]}px;`;
+  document.body.append(picture);
+  e.dataTransfer.setDragImage(picture, DRAG_HOTSPOT[0], DRAG_HOTSPOT[1]);
+  setTimeout(() => picture.remove());
+  const fixed = isMount(p) || p.path === "/" || p.path === state.init.home;
+  fileDrag = { items: [item], paths: new Set([p.path]), dirs: [p.path + "/"], button: 0, fixed };
+  fileDrag.id = announceDrag([p.path], 0);
+  e.dataTransfer.effectAllowed = fixed ? "link" : "copyMoveLink";
+  e.dataTransfer.setData("text/uri-list", fileUri(p.path));
+  e.dataTransfer.setData("text/plain", p.path);
+});
+
 // Whatever is dragged over the window, nothing dropped on it loads in it (the
 // webview would open a dropped file in place of phil).
 // Drops from outside: another phil window, a file manager... Their files come
@@ -2392,6 +2465,8 @@ let outsideTarget = null;
 const carriesFiles = (dt) => [...(dt?.types ?? [])].some((t) => t === "text/uri-list" || t === "Files");
 
 function outsideTargetAt(x, y) {
+  const gap = placeGapAt(x, y);
+  if (gap) return gap;
   const el = document.elementFromPoint(x, y);
   const tile = el?.closest(".tile");
   const entry = tile ? state.view[tile.dataset.index] : null;
@@ -2402,9 +2477,7 @@ function outsideTargetAt(x, y) {
 }
 
 function setOutsideTarget(target) {
-  if (target?.el === outsideTarget?.el) return;
-  outsideTarget?.el.classList.remove("drop-target");
-  target?.el.classList.add("drop-target");
+  markTarget(outsideTarget, target);
   outsideTarget = target;
 }
 
@@ -2457,6 +2530,7 @@ async function dropFromOutside(e, carried) {
     paths = phil.paths;
     api("/api/drag", { method: "DELETE" }).catch(() => {});
   }
+  if (target.gap) return addToSidebar(paths, target.before);
   paths = paths.filter((p) => p !== target.path && !target.path.startsWith(p + "/")); // not into itself
   if (!paths.length) return flashStatus("Only files and folders can be dropped here");
   const items = paths.map((path) => ({ path }));
@@ -2480,13 +2554,10 @@ addEventListener("dragover", (e) => {
     e.dataTransfer.dropEffect = outsideTarget ? "copy" : "none";
     return;
   }
-  const target = fileDrag && dropTargetAt(e.clientX, e.clientY, fileDrag);
-  if (target?.el !== fileDrag?.target?.el) {
-    fileDrag.target?.el.classList.remove("drop-target");
-    target?.el.classList.add("drop-target");
-  }
-  if (fileDrag) fileDrag.target = target;
-  e.dataTransfer.dropEffect = target ? "move" : "none";
+  const target = dropTargetAt(e.clientX, e.clientY, fileDrag);
+  markTarget(fileDrag.target, target);
+  fileDrag.target = target;
+  e.dataTransfer.dropEffect = target?.gap ? "link" : target ? "move" : "none";
 });
 addEventListener("dragenter", () => staleDrag().then((stale) => stale && endFileDrag()));
 addEventListener("drop", async (e) => {
@@ -2495,9 +2566,10 @@ addEventListener("drop", async (e) => {
   if (fileDrag && (await staleDrag())) endFileDrag(), setOutsideTarget(outsideTargetAt(e.clientX, e.clientY));
   if (!fileDrag) return dropFromOutside(e, carried);
   const target = fileDrag?.target;
-  const { items, button } = fileDrag ?? {};
+  const { items, button, dirs } = fileDrag ?? {};
   endFileDrag();
   if (!target) return;
+  if (target.gap) return addToSidebar(dirs.map((p) => p.slice(0, -1)), target.before);
   if (button === 1) return transfer("move", items, target.path);
   const name = target.path.split("/").pop() || "/";
   showMenu(e.clientX, e.clientY, [
@@ -2506,7 +2578,7 @@ addEventListener("drop", async (e) => {
   ]);
 });
 function endFileDrag() {
-  fileDrag?.target?.el.classList.remove("drop-target");
+  markTarget(fileDrag?.target, null);
   fileDrag = null;
 }
 addEventListener("dragend", endFileDrag);
