@@ -16,10 +16,12 @@
     <img id="mjpeg" alt="" hidden>
   </main>
   <p id="message" hidden></p>
+  <pre id="stats" hidden></pre>
 
   <header id="bar" class="overlay-bar top">
     <div id="title"><span id="name"></span><span id="info"></span></div>
     <select id="quality" title="Which of the camera's streams (Q)"></select>
+    <button id="btn-stats" class="icon toggle" title="Stats: frames per second, delay, data (D)"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
     <button id="btn-invert" class="icon toggle" title="Mounted upside down: turn the controls around (I)" hidden><svg viewBox="0 0 24 24"><path d="M7 4v14M3 14l4 4 4-4M17 20V6M13 10l4-4 4 4"/></svg></button>
     <button id="btn-snap" class="icon" title="Take a picture, into Pictures/Cameras (S)"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     <button id="btn-full" class="icon" title="Fullscreen (F)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>

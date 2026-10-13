@@ -644,6 +644,17 @@ them at the bottom of its sidebar; double-click one to show it in that window
   camera, in `cameras.json`.
 - **Presets** (its saved positions, along the bottom): click one or press 1–9
   to go there, + saves where it points now, right-click removes one.
+- **Stats** (the chart button in the top bar, or D; remembered): how the
+  stream is shown and its codec, its size, frames per second and dropped
+  frames, how far behind live it plays here (what's buffered and not shown yet;
+  the camera's encoding and the network add a few hundred ms before that), the
+  data coming in, how long it's been connected and how often it reconnected.
+- **Cameras that get ONVIF half right** (cheap ones, like EYEPLUS / YCC365):
+  answers with a wrong length are read up to their end, an empty answer to a
+  move counts, and an answer to a question it doesn't support (some replay
+  their previous answer) hides that part (its presets, say) instead of failing.
+  A stream that drops is connected again by itself (when it ends, or after 8 s
+  without video).
 - S takes a picture (the best stream's, into `~/Pictures/Cameras`), F or a
   double-click is fullscreen, Esc closes.
 

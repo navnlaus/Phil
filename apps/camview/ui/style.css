@@ -24,7 +24,23 @@ body { background: #000; overflow: hidden; }
 #info { margin-left: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 #quality { height: 28px; }
 #btn-invert[hidden] { display: none; }
-#btn-invert.on { background: var(--accent-bg); color: var(--accent); }
+#btn-invert.on, #btn-stats.on { background: var(--accent-bg); color: var(--accent); }
+
+/* The stats (D): top left, under the bar. */
+#stats {
+  position: fixed;
+  z-index: 4;
+  top: 44px;
+  left: 10px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #e8e8e8;
+  font: 12px/1.45 ui-monospace, "JetBrains Mono", monospace;
+  pointer-events: none;
+}
+#stats[hidden] { display: none; }
 
 /* The controls: over the video, faded until the pointer is over the window. */
 #ptz, #presets {

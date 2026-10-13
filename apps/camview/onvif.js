@@ -59,25 +59,66 @@ async function security(user, password) {
     `<wsu:Created>${created}</wsu:Created></wsse:UsernameToken></wsse:Security></s:Header>`;
 }
 
-/** Calls `body` (a request element, using the prefixes in NS) at `url`; resolves to the answer's XML. */
+// What a request is answered with: its body's first element, "...Response"
+// (cameras with slipshod servers answer some requests with an earlier answer).
+const opOf = (body) => /^\s*<(?:([\w-]+):)?(\w+)/.exec(body);
+// Requests some cameras answer with nothing at all, having done it.
+const NO_ANSWER_NEEDED = new Set(["ContinuousMove", "Stop", "GotoPreset", "RemovePreset", "RelativeMove", "AbsoluteMove"]);
+
+/**
+ * Calls `body` (a request element, using the prefixes in NS) at `url`; resolves
+ * to the answer's XML. Copes with cameras that get HTTP wrong: an answer is
+ * read up to its end (some send a wrong Content-Length and close the
+ * connection early), and some move or stop with an empty answer. An answer to
+ * something else (the previous request's, from a camera that doesn't do this
+ * one) throws an OnvifError with `unsupported`.
+ */
 export async function soap(url, body, { user = "", password = "", timeout = TIMEOUT_MS } = {}) {
   const xmlns = Object.entries(NS).map(([p, uri]) => ` xmlns:${p}="${uri}"`).join("");
   const envelope = `<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"${xmlns}>` +
     (user ? await security(user, password) : "") + `<s:Body>${body}</s:Body></s:Envelope>`;
-  let res;
+  const [, prefix, op] = opOf(body) ?? [];
+  const action = NS[prefix] && op ? `; action="${NS[prefix]}/${op}"` : "";
+  let res, xml;
   try {
-    res = await fetch(url, { method: "POST", headers: { "content-type": "application/soap+xml; charset=utf-8" }, body: envelope, signal: AbortSignal.timeout(timeout) });
+    res = await fetch(url, { method: "POST", headers: { "content-type": `application/soap+xml; charset=utf-8${action}` }, body: envelope, signal: AbortSignal.timeout(timeout) });
+    xml = await readEnvelope(res);
   } catch (err) {
     throw new OnvifError(err.name === "TimeoutError" ? "the camera didn't answer" : `can't reach the camera (${err.message})`);
   }
-  const xml = await res.text();
   if (/<(?:[\w-]+:)?Fault\b/.test(xml) || !res.ok) {
     const reason = textOf(xml, "Text") ?? textOf(xml, "Reason") ?? `HTTP ${res.status}`;
     const auth = res.status === 401 || /NotAuthorized|not ?authori[sz]ed|Sender not Authorized|password|authenticat/i.test(xml);
     throw new OnvifError(auth ? "the camera wants a login (user name and password)" : reason, { auth });
   }
+  if (!xml.trim() && NO_ANSWER_NEEDED.has(op)) return "";
   if (!/Envelope/.test(xml)) throw new OnvifError("not an ONVIF answer");
+  const answer = /<(?:[\w-]+:)?Body[^>]*>\s*<(?:[\w-]+:)?(\w+)/.exec(xml)?.[1];
+  if (op && answer && answer !== `${op}Response` && !NO_ANSWER_NEEDED.has(op)) throw Object.assign(new OnvifError(`the camera doesn't do ${op}`), { unsupported: true });
   return xml;
+}
+
+// The answer's text, up to the end of its envelope: not waiting for more when a
+// camera's Content-Length is wrong, and keeping what came when it then closes.
+async function readEnvelope(res) {
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (/<\/(?:[\w-]+:)?Envelope\s*>/.test(text)) {
+        reader.cancel().catch(() => {});
+        break;
+      }
+    }
+  } catch (err) {
+    if (!text) throw err;
+  }
+  return text;
 }
 
 // ---------------------------------------------------------------- what a camera is
