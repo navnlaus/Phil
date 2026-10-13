@@ -130,6 +130,7 @@ const thumbs = {
       if (this.watching) this.watch(this.watching);
       if (this.tagging) this.tag(this.tagging);
       if (this.totals.size) this.send({ totals: [...this.totals] }); // asked for before the connection was up
+      loadTransfers();
       this.totals.clear();
       this.flush();
     };
@@ -2446,6 +2447,16 @@ async function transfer(op, items, dest, { resume = false, target = null } = {})
 }
 
 // ---------------------------------------------------------------- copy and move progress
+
+// Copies and moves already under way when this window opened (or its
+// connection came back): a paused one sends nothing till it goes on.
+async function loadTransfers() {
+  const list = await api("/api/transfers").catch(() => null);
+  if (!list) return;
+  state.transfers = new Map(list.map((t) => [t.id, t]));
+  showTransfers();
+  if (list.length) onTransfer(list[0]);
+}
 
 // The server's progress for a copy or move ({id, op, dest, bytes, total,
 // percent, speed, eta}, then {id, finished}): a bar on the folder it goes to
