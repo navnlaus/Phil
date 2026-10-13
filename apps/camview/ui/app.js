@@ -21,6 +21,7 @@ const state = {
   presets: [],
   player: null, // the stream being played (see play)
   mode: "copy", // how (see MODES)
+  connects: 0, // streams started since the window opened (1: never reconnected)
   move: null, // {x, y, zoom}: under way
   moveTimer: 0,
   keys: new Set(), // arrow keys held
@@ -58,7 +59,8 @@ const mjpeg = $("#mjpeg");
 function play() {
   stopPlayer();
   const mode = MODES.includes(state.mode) ? state.mode : "copy";
-  const player = (state.player = { abort: new AbortController(), lastData: Date.now(), retry: 0, mode });
+  const player = (state.player = { abort: new AbortController(), lastData: Date.now(), retry: 0, mode, bytes: 0, jpegs: 0, started: Date.now() });
+  state.connects++;
   showMessage("Connecting…");
   if (mode === "mjpeg") return showJpegs(player);
   video.hidden = false;
@@ -133,7 +135,7 @@ function checkPicture(player) {
 function showJpegs(player) {
   video.hidden = true;
   mjpeg.hidden = false;
-  mjpeg.onload = () => player === state.player && (showMessage(""), player.logged || ((player.logged = true), log(`${state.id}: mjpeg shows`)));
+  mjpeg.onload = () => player === state.player && (player.jpegs++, showMessage(""), player.logged || ((player.logged = true), log(`${state.id}: mjpeg shows`)));
   mjpeg.onerror = () => {
     if (player !== state.player) return;
     showMessage("The camera's stream stopped\nTrying again…");
@@ -156,6 +158,7 @@ async function run(player) {
     if (head.length > 4_000_000) throw new Error("Can't tell what the camera's video is");
   }
   const type = `video/mp4; codecs="${codec}"`;
+  player.codec = codec;
   if (!globalThis.MediaSource?.isTypeSupported(type)) return nextMode(player, `can't be played here (${codec})`); // H.265, say
   const source = new MediaSource();
   video.src = URL.createObjectURL(source);
@@ -201,6 +204,7 @@ async function run(player) {
     const { value, done } = await reader.read();
     if (done) throw new Error("The camera's stream ended");
     player.lastData = Date.now();
+    player.bytes += value.length;
     queue.push(value);
     pump();
   }
@@ -367,6 +371,52 @@ async function toggleInvert() {
   }
 }
 
+// ---------------------------------------------------------------- stats
+
+// Over the video, top left (the chart button, or D): how it's shown, its
+// frames per second and dropped frames, how far behind live it plays (what's
+// buffered here and not shown yet; the camera's own encoding and the network
+// before it come on top, a few hundred ms), the data coming in, and how often
+// it had to connect again. Each second, while shown; remembered.
+const statsBox = $("#stats");
+const MODE_NAMES = { copy: "camera's own", h264: "re-encoded H.264", mjpeg: "MJPEG pictures" };
+let statsTimer = 0, last = null;
+
+function showStats(on) {
+  statsBox.hidden = !on;
+  $("#btn-stats").setAttribute("aria-pressed", String(on));
+  $("#btn-stats").classList.toggle("on", on);
+  save("stats", on ? "1" : "");
+  clearInterval(statsTimer);
+  last = null;
+  if (on) updateStats(), (statsTimer = setInterval(updateStats, 1000));
+}
+
+function updateStats() {
+  const p = state.player;
+  if (!p) return (statsBox.textContent = "not connected");
+  const quality = video.getVideoPlaybackQuality?.();
+  const now = { t: performance.now(), frames: p.mode === "mjpeg" ? p.jpegs : quality?.totalVideoFrames ?? 0, bytes: p.bytes, player: p };
+  const dt = last && last.player === p ? (now.t - last.t) / 1000 : 0;
+  const fps = dt ? (now.frames - last.frames) / dt : null;
+  const mbit = dt && p.mode !== "mjpeg" ? ((now.bytes - last.bytes) * 8) / dt / 1e6 : null;
+  last = now;
+  const b = video.buffered;
+  const behind = p.mode !== "mjpeg" && b.length ? b.end(b.length - 1) - video.currentTime : null;
+  const size = p.mode === "mjpeg" ? `${mjpeg.naturalWidth}×${mjpeg.naturalHeight}` : `${video.videoWidth}×${video.videoHeight}`;
+  const up = Math.round((Date.now() - p.started) / 1000);
+  statsBox.textContent = [
+    `stream    ${MODE_NAMES[p.mode]}${p.codec ? ` (${p.codec})` : ""}`,
+    `size      ${size}`,
+    `fps       ${fps === null ? "…" : fps.toFixed(1)}${quality && p.mode !== "mjpeg" ? `   dropped ${quality.droppedVideoFrames}` : ""}`,
+    behind !== null ? `behind    ${behind.toFixed(2)} s${video.playbackRate !== 1 ? `   catching up ×${video.playbackRate}` : ""}` : null,
+    mbit !== null ? `data      ${mbit.toFixed(2)} Mbit/s` : null,
+    `connected ${up < 120 ? `${up} s` : `${Math.round(up / 60)} min`}${state.connects > 1 ? `   reconnects ${state.connects - 1}` : ""}`,
+  ].filter(Boolean).join("\n");
+}
+
+$("#btn-stats").onclick = () => showStats(statsBox.hidden);
+
 // ---------------------------------------------------------------- the rest
 
 async function snapshot() {
@@ -422,6 +472,7 @@ document.addEventListener("keydown", (e) => {
   if (key === "f") return toggleFullscreen(), handled();
   if (key === "s") return snapshot(), handled();
   if (key === "i" && state.info?.ptz) return toggleInvert(), handled();
+  if (key === "d") return showStats(statsBox.hidden), handled();
   if (key === "q" && state.info?.profiles.length > 1) {
     const q = $("#quality");
     q.selectedIndex = (q.selectedIndex + 1) % q.options.length;
@@ -492,6 +543,7 @@ try {
     if (ptz.presets) loadPresets();
   }
   play();
+  if (load("stats", "")) showStats(true);
 } catch (err) {
   showMessage(err.message);
 }
