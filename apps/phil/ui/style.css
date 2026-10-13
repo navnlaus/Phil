@@ -147,6 +147,18 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 #places .place-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
 #places .place-text > span { overflow: hidden; text-overflow: ellipsis; }
 #places .space { font-size: 11px; color: var(--text-dim); }
+#props .speed-test .spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 #props .speed-test { margin-top: 6px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-hover); color: inherit; }
 
 /* A copy or move under way: on the folder's tile and under its drive in the sidebar. */

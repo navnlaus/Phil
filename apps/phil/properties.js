@@ -168,29 +168,36 @@ async function readSpeeds(cacheFile) {
   }
 }
 
+const testing = new Set(); // disks being timed now
+
 /**
- * Times reading from the drive under mount point `path` (hdparm -tT: from its
- * cache, and from the disk itself), as root: pkexec asks for the password (the
- * desktop's polkit agent). Kept in `cacheFile` by the disk's model and serial,
- * for driveInfo to show. {cached, buffered} in MB/s, `at`.
+ * Times reading from the drive under mount point `path`: up to 4 GB read
+ * straight from the disk (dd, O_DIRECT: past the page cache), stopped after 15 s
+ * on a slow one; as root: pkexec asks for the password (the desktop's polkit
+ * agent). Not hdparm -t: it flushes the disk's caches first, which can wait
+ * behind everything else on the disk (it did, for minutes). Kept in `cacheFile`
+ * by the disk's model and serial, for driveInfo to show: {read} in MB/s, `at`.
  */
 export async function driveSpeed(path, cacheFile) {
   const info = await driveInfo(path, cacheFile);
   if (!info?.disk) throw new Error(info?.network ? "A network share has no disk here to time" : "Not a drive");
+  if (testing.has(info.disk.path)) throw new Error("A test of this drive is running already");
+  testing.add(info.disk.path);
   let r;
   try {
-    r = await run("pkexec", ["hdparm", "-tT", info.disk.path], 180_000);
+    // At 15 s, USR1 makes dd report how far it got (SIGINT may be ignored here); killed a second later.
+    r = await run("pkexec", ["timeout", "-s", "USR1", "-k", "1", "15", "dd", `if=${info.disk.path}`, "of=/dev/null", "bs=4M", "count=1024", "iflag=direct"], 300_000);
   } catch (err) {
-    throw new Error(err instanceof Deno.errors.NotFound ? "Needs pkexec (polkit) and hdparm" : "The test didn't finish");
+    throw new Error(err instanceof Deno.errors.NotFound ? "Needs pkexec (polkit)" : "The test didn't finish");
+  } finally {
+    testing.delete(info.disk.path);
   }
   if (r.code === 126) throw new Error("Cancelled (the password wasn't given)");
   if (r.code === 127) throw new Error("Not allowed (polkit said no)");
-  const rate = (what) => {
-    const m = new RegExp(`Timing ${what}:.*=\\s*([\\d.]+)\\s*(k|M|G)B/sec`).exec(r.stdout);
-    return m ? Number(m[1]) * { k: 1 / 1024, M: 1, G: 1024 }[m[2]] : null;
-  };
-  const result = { cached: rate("cached reads"), buffered: rate("buffered disk reads"), at: Date.now(), device: info.disk.path };
-  if (result.buffered === null) throw new Error((r.stderr || r.stdout).trim().split("\n").at(-1) || "hdparm failed");
+  // dd's report (the first, if it made two): "2147483648 bytes (2.1 GB, 2.0 GiB) copied, 0.71 s, 3.0 GB/s"
+  const m = /(\d+) bytes .*copied, ([\d.]+) s/.exec(r.stderr);
+  if (!m || !Number(m[2])) throw new Error(r.stderr.trim().split("\n").at(-1) || "dd failed");
+  const result = { read: Number(m[1]) / Number(m[2]) / 1048576, bytes: Number(m[1]), seconds: Number(m[2]), at: Date.now(), device: info.disk.path };
   const all = await readSpeeds(cacheFile);
   all[speedKey(info.disk)] = result;
   await Deno.mkdir(dirname(cacheFile), { recursive: true });
