@@ -54,6 +54,8 @@ export function createServer({ profile, controlSocket }) {
     switch (route) {
       case "GET /api/places": // again, when the window gets focus: drives come and go
         return json({ places: await places(), mounts: await networkMounts() });
+      case "GET /api/space": // ?path=...&path=...: the sidebar's drives, size and free space
+        return json(await freeSpace(url.searchParams.getAll("path")));
       case "GET /api/init":
         return json({
           start: (await lastDir()) ?? config.startDir, // windows asked for a folder get it in the URL
@@ -716,6 +718,35 @@ async function places() {
   // are mounted by themselves), for a click to mount them.
   for (const d of await unmountedDrives(drives)) out.push({ name: driveName(d), path: null, device: d.path, icon: "drive", unmounted: true });
   out.push({ name: "Filesystem", path: "/", icon: "drive" });
+  return out;
+}
+
+// Size and free space of the sidebar's drives and shares ({path: {size, avail}},
+// bytes; df), for those mounted now: not an automount point that isn't (a share
+// whose server would have to wake up), and 2 s at most each.
+async function freeSpace(paths) {
+  // Read by cat: Deno wants --allow-all for /proc/self itself, which the installed build hasn't.
+  let mounts = "";
+  try {
+    const r = await new Deno.Command("cat", { args: ["/proc/self/mounts"], stdin: "null", stdout: "piped", stderr: "null" }).output();
+    mounts = new TextDecoder().decode(r.stdout);
+  } catch { /* no /proc */ }
+  const mounted = new Set(mounts.split("\n").map((l) => l.split(" "))
+    .filter((f) => f[2] && f[2] !== "autofs").map((f) => f[1].replace(/\\040/g, " ")));
+  const out = {};
+  await Promise.all(paths.filter((p) => mounted.has(p)).map(async (path) => {
+    try {
+      const r = await new Deno.Command("df", {
+        args: ["-B1", "--output=size,avail", "--", path],
+        stdin: "null",
+        stdout: "piped",
+        stderr: "null",
+        signal: AbortSignal.timeout(2000),
+      }).output();
+      const [size, avail] = new TextDecoder().decode(r.stdout).trim().split("\n").at(-1).trim().split(/\s+/).map(Number);
+      if (size > 0) out[path] = { size, avail };
+    } catch { /* df failed, or took too long */ }
+  }));
   return out;
 }
 

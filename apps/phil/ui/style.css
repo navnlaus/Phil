@@ -144,6 +144,9 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 #places a.unmounted { color: var(--text-dim); opacity: .7; } /* a drive not mounted: a click mounts it */
 #places a.unmounted:hover { opacity: 1; }
 #places a.busy { cursor: progress; }
+#places .place-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+#places .place-text > span { overflow: hidden; text-overflow: ellipsis; }
+#places .space { font-size: 11px; color: var(--text-dim); }
 #places svg { width: 16px; height: 16px; color: var(--text-dim); }
 #places a.active svg { color: inherit; }
 
