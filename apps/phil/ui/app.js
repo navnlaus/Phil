@@ -2416,7 +2416,7 @@ async function runInTerminal(argv) {
   const word = (s) => (/^[\w.+@%/:=-]+$/.test(s) ? s : shellQuote(s));
   const target = terminal.cwd === dir ? (argv.length === 1 ? "./" : "") + word(name) : word(file);
   const command = [...argv.slice(0, -1).map(word), target].join(" ");
-  if (!terminal.run(command)) {
+  if (!terminal.run(command, { clear: true })) { // the output at the top, without the command line
     setTerminalCover(false);
     if (!wasOpen) setTerminalOpen(false);
     return alert("The terminal is busy: finish what's running there first.");

@@ -34,6 +34,7 @@ export class TerminalPanel {
     this.running = false; // a command was entered and its prompt hasn't come back
     this.promptRow = null; // buffer line where the current prompt began, if at column 0
     this.dropEcho = false; // swallow the newline bash echoes for a silent cd's Enter
+    this.hideLine = false; // swallow what the shell echoes up to the end of the line (a command run quietly)
     this.exited = false;
   }
 
@@ -162,6 +163,12 @@ export class TerminalPanel {
         return;
       }
       let data = new Uint8Array(e.data);
+      if (this.hideLine) {
+        const nl = data.indexOf(10);
+        if (nl === -1) return;
+        this.hideLine = false;
+        data = data.subarray(nl + 1);
+      }
       if (this.dropEcho) {
         this.dropEcho = false;
         if (data[0] === 13 && data[1] === 10) data = data.subarray(2);
@@ -237,9 +244,18 @@ export class TerminalPanel {
     return name(a) === name(b);
   }
 
-  /** Runs a command at the prompt (typed, as if by hand); false if the shell is busy. */
-  run(command) {
+  /**
+   * Runs a command at the prompt (typed, as if by hand); false if the shell is
+   * busy. `clear`: on a cleared terminal, without the prompt and the command
+   * line, so its output starts at the top.
+   */
+  run(command, { clear = false } = {}) {
     if (!this.isRunning || !this.atEmptyPrompt) return false;
+    if (clear) {
+      this.term.clear(); // the scrollback, leaving the prompt's line
+      this.term.write("\x1b[2K\r"); // and that
+      this.hideLine = true;
+    }
     this.typed(command + "\r");
     this.send(command + "\r");
     this.term.focus();
