@@ -413,7 +413,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Super+Insert | a new file, "File.txt" ("File 2.txt"...), the same way |
 | right-click empty space (tiles or sidebar) | New folder / New file here; on a folder (its tile, a place in the sidebar, a part of the path) New folder / New file inside it |
 | F2 | rename in place (Enter or clicking elsewhere renames, Esc cancels) |
-| Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc) |
+| Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc). A big folder shows how far it is (a red bar on it and under its drive, the count in the status line), × stops it (what's gone is gone). What phil kept of what's deleted goes too: its metadata, thumbnails, documents read as Markdown, folder summaries, sizes and tagging |
 | right-click a text or JSON file → Add to Config | a link to it in `Documents/Config`, for config files used often but kept all over (a name that's taken gets its folder's in front: `waybar-config`) |
 | right-click → Properties, Alt+Enter | type, size (a folder's: everything in it), dates, owner, permissions and what you can do with it; and, for a file, phil's own: a **description** shown above the name, and an **on-change hook**: a command run when the file changes (below) |
 | right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, the sidebar); out of the window, the files go on being dragged, for the app they're dropped on to copy, move or ask |

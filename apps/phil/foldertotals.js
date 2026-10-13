@@ -36,6 +36,15 @@ export class FolderTotals {
     return { bytes: known.bytes, stale: known.mtime !== mtime || Date.now() - known.at > MAX_AGE };
   }
 
+  /** Folders deleted: `paths` and everything under them are forgotten. */
+  forget(paths) {
+    let changed = false;
+    for (const key of this.totals.keys()) {
+      if (paths.some((p) => key === p || key.startsWith(p + "/"))) this.totals.delete(key), (changed = true);
+    }
+    if (changed) this.save();
+  }
+
   /** Works the total out (again), calling `done(bytes)`, or done(null) if du fails. */
   refresh(path, done) {
     const callbacks = this.waiting.get(path);

@@ -41,6 +41,33 @@ export function createServer({ profile, controlSocket }) {
     },
   };
 
+  // What phil kept of things deleted goes too: their thumbnails, documents read
+  // as Markdown (both by path, size and time), and folders' summaries, totals and
+  // tagging. (Their metadata goes with movedHooks.)
+  // The cache folders are listed once, and only what's in them is removed (a
+  // big folder is many thousand files, most never seen).
+  const forgetDeleted = async (entries) => {
+    const dirs = entries.filter((e) => e.type === "d").map((e) => e.path);
+    totals.forget(dirs);
+    for (const dir of dirs) await folders.forget(dir), await tagging.forget(dir);
+    const names = async (dir) => {
+      const set = new Set();
+      try {
+        for await (const e of Deno.readDir(dir)) set.add(e.name);
+      } catch { /* none yet */ }
+      return set;
+    };
+    const [inThumbs, inDocuments] = await Promise.all([names(thumbs.dir), names(documentCache)]);
+    if (!inThumbs.size && !inDocuments.size) return;
+    for (const e of entries) {
+      if (e.type !== "f") continue;
+      const key = await thumbs.key(e.path, { size: e.size, mtime: new Date(e.ms) });
+      for (const [set, dir, name] of [[inThumbs, thumbs.dir, `${key}.jpg`], [inThumbs, thumbs.dir, `${key}.fail`], [inDocuments, documentCache, `${key}.md`]]) {
+        if (set.has(name)) await Deno.remove(join(dir, name)).catch(() => {});
+      }
+    }
+  };
+
   // The sidebar's places, with the description each has in its Properties (shown in place of its name).
   const describedPlaces = async () =>
     Promise.all((await places()).map(async (p) => {
@@ -110,7 +137,7 @@ export function createServer({ profile, controlSocket }) {
         return openExternal(await req.json());
       case "POST /api/delete": {
         const paths = (await req.json()).paths ?? [];
-        const result = await deletePaths(paths);
+        const result = await deletePaths(paths, { report: (progress) => broadcast({ transfer: progress }), forget: forgetDeleted });
         await movedHooks(paths, result, () => null);
         return json(result);
       }
@@ -1028,20 +1055,103 @@ async function isDir(path) {
 // Full-size preview for formats the webview can't decode itself (HEIC, TIFF, ...).
 // Permanent delete (Shift+Delete). Folders go recursively; symlinks are
 // removed themselves, never what they point to.
-async function deletePaths(paths) {
+// Deleting: a folder with a lot in it (counted first, find) goes with rm -rv,
+// whose lines say how far it is: `report` gets {id, op: "delete", dest,
+// targets, bytes (entries gone), total, percent} a few times a second, then
+// {id, finished}, as copies do; cancelTransfer stops it (what's gone is gone).
+// Something small just goes.
+async function deletePaths(paths, { report = () => {}, forget = async () => {} } = {}) {
   const errors = [];
+  const id = crypto.randomUUID().slice(0, 8);
+  const job = { cancelled: false, paused: false, child: null };
+  transfers.set(id, job);
+  const checked = [];
   for (const path of paths) {
     try {
       requirePath(path);
-      if (normalize(path) !== path || path === "/" || path === home()) {
-        throw new Error("refusing to delete this path");
-      }
-      await Deno.remove(path, { recursive: true });
+      if (normalize(path) !== path || path === "/" || path === home()) throw new Error("refusing to delete this path");
+      checked.push(path);
     } catch (err) {
       errors.push({ path, error: err.message });
     }
   }
-  return { errors };
+  // Everything in them, with sizes and times: how many there are (the progress), and what to forget after.
+  const listed = await Promise.all(checked.map(entriesIn));
+  const counts = listed.map((l) => l.length);
+  const total = counts.reduce((a, b) => a + b, 0);
+  const started = Date.now();
+  let gone = 0, last = 0;
+  const progress = () => {
+    if (Date.now() - started < 300 || Date.now() - last < 250 || !total) return; // a quick one shows nothing
+    last = Date.now();
+    job.last = { id, op: "delete", dest: dirname(checked[0]), targets: checked, items: checked.length, bytes: Math.min(gone, total), total,
+      percent: Math.floor((Math.min(gone, total) / total) * 100) };
+    report(job.last);
+  };
+  try {
+    for (const [i, path] of checked.entries()) {
+      if (job.cancelled) {
+        errors.push({ path, error: "cancelled" });
+        continue;
+      }
+      try {
+        if (counts[i] < 200) await Deno.remove(path, { recursive: true });
+        else await removeCounting(path, job, () => (gone++, progress()));
+      } catch (err) {
+        errors.push({ path, error: job.cancelled ? "cancelled" : err.message });
+      }
+      gone = counts.slice(0, i + 1).reduce((a, b) => a + b, 0);
+      progress();
+    }
+  } finally {
+    transfers.delete(id);
+    if (job.last) report({ id, dest: dirname(checked[0] ?? "/"), finished: true });
+  }
+  // What's gone (all of an item deleted; of one stopped or failed, what isn't there any more): its caches go.
+  const failed = new Set(errors.map((e) => e.path));
+  (async () => {
+    const gone = [];
+    for (const [i, path] of checked.entries()) {
+      if (!failed.has(path)) for (const e of listed[i]) gone.push(e); // (not push(...): a big folder is more arguments than a call takes)
+      else {
+        const left = new Set((await entriesIn(path)).map((e) => e.path)); // one find, not a stat each
+        for (const e of listed[i]) if (!left.has(e.path)) gone.push(e);
+      }
+    }
+    await forget(gone);
+  })().catch((err) => console.error(`phil: forgetting what was deleted: ${err.message}`));
+  return { errors, cancelled: job.cancelled };
+}
+
+// Everything at and under `path` (this file system only): {type (f, d, l...), size, ms (modified), path}.
+async function entriesIn(path) {
+  try {
+    const out = await new Deno.Command("find", { args: [path, "-xdev", "-printf", "%y %s %T@ %p\\0"], stdin: "null", stdout: "piped", stderr: "null" }).output();
+    return new TextDecoder().decode(out.stdout).split("\0").filter(Boolean).map((line) => {
+      const [type, size, time] = line.split(" ", 3);
+      const [sec, frac = ""] = time.split(".");
+      return { type, size: Number(size), ms: Number(sec) * 1000 + Number(frac.padEnd(3, "0").slice(0, 3)), path: line.slice(type.length + size.length + time.length + 3) };
+    });
+  } catch {
+    return [{ type: "?", size: 0, ms: 0, path }];
+  }
+}
+
+// rm -rv, calling `each` for every line it gives (one per file or folder removed).
+async function removeCounting(path, job, each) {
+  const child = (job.child = new Deno.Command("rm", { args: ["-rv", "--one-file-system", "--", path], stdin: "null", stdout: "piped", stderr: "piped" }).spawn());
+  const stderr = new Response(child.stderr).text();
+  let buffer = "";
+  for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {
+    buffer += chunk;
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+    for (let n = lines.length; n > 0; n--) each();
+  }
+  const { success } = await child.status;
+  job.child = null;
+  if (job.cancelled) throw new Error("cancelled");
+  if (!success) throw new Error((await stderr).trim().split("\n").at(-1) || "rm failed");
 }
 
 // The + button, Insert, Super+Insert: a new, empty folder ("Folder") or file
