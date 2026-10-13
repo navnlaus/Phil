@@ -625,8 +625,10 @@ them at the bottom of its sidebar; double-click one to show it in that window
   even when it's found again.
 - **The video** is the camera's own H.264, not re-encoded: ffmpeg copies its
   RTSP stream into fragmented MP4, which the page plays through Media Source
-  Extensions (decoded on the GPU), about half a second behind live (when it
-  falls further behind, it plays a little faster until it's caught up). The
+  Extensions (decoded on the GPU), a fragment per frame, about a second behind
+  live. It plays at its own pace: WebKit's player stalls whenever its speed
+  changes, so it never speeds up to catch up; more than 3 s behind (the
+  window was hidden, say), it jumps ahead. The
   camera's streams are in the top bar (main, sub: Q switches). ffmpeg stops
   when the window does.
 - **If the player can't show it** (an H.265 camera, or a player that shows
@@ -648,7 +650,7 @@ them at the bottom of its sidebar; double-click one to show it in that window
   stream is shown and its codec, its size, frames per second and dropped
   frames, how far behind live it plays here (what's buffered and not shown yet;
   the camera's encoding and the network add a few hundred ms before that), the
-  data coming in, how long it's been connected and how often it reconnected.
+  data coming in, how long it's been connected and how often it reconnected. While shown, a summary goes to phil's log every 10 s (`camview: ... stats`).
 - **Cameras that get ONVIF half right** (cheap ones, like EYEPLUS / YCC365):
   answers with a wrong length are read up to their end, an empty answer to a
   move counts, and an answer to a question it doesn't support (some replay

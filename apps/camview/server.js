@@ -128,7 +128,8 @@ async function stream(req, id, profile, mode) {
   } catch (err) {
     throw httpError(err.status ?? (err.auth ? 403 : 502), err.message);
   }
-  const mp4 = ["-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000"];
+  // A fragment per frame: each sent the moment it's there (not ~200 ms of them at once).
+  const mp4 = ["-f", "mp4", "-movflags", "frag_keyframe+frag_every_frame+empty_moov+default_base_moof"];
   const [cmd, args] = await command(["ffmpeg", "-loglevel", "error", "-nostdin", "-rtsp_transport", "tcp", "-timeout", "5000000",
     "-fflags", "nobuffer", "-i", rtsp, "-an", ...how.args, ...(how.mp4 ? mp4 : []), "pipe:1"]);
   const child = new Deno.Command(cmd, { args, stdin: "null", stdout: "piped", stderr: "null" }).spawn();

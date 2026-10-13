@@ -8,10 +8,11 @@ const stage = $("#stage");
 const message = $("#message");
 
 const MOVE_REPEAT_MS = 500; // a held move is repeated this often (the server stops it 1.5 s after the last)
-// Kept close to live: a little behind, it plays a little faster until it's
-// caught up; far behind (a pause, the window hidden), it jumps (a jump lands
-// between the camera's full frames, so it shows nothing right for a moment).
-const CATCH_UP_S = 0.8, CAUGHT_UP_S = 0.35, JUMP_S = 4;
+// Played at its own pace, never faster to catch up: in WebKit a change of
+// speed restarts the player, which stalls it, so it falls further behind.
+// Only when it's this far behind (the window was hidden, say) it jumps ahead
+// (landing between the camera's full frames, it shows nothing right for a moment).
+const JUMP_S = 3;
 const STALL_MS = 8000; // no video for this long: connect again
 
 const state = {
@@ -54,7 +55,7 @@ function showMessage(text, { toast = false } = {}) {
 const MODES = ["copy", "h264", "mjpeg"];
 const mjpeg = $("#mjpeg");
 
-// The camera's stream, kept close to live (see CATCH_UP_S). Connects again
+// The camera's stream, kept close to live (see JUMP_S). Connects again
 // when the stream ends or stalls.
 function play() {
   stopPlayer();
@@ -181,9 +182,7 @@ async function run(player) {
     if (b.length) {
       const start = b.start(b.length - 1), end = b.end(b.length - 1), behind = end - video.currentTime;
       if (video.currentTime < start) video.currentTime = start; // the start (it doesn't begin at 0), or past a gap
-      else if (behind > JUMP_S) video.currentTime = Math.max(start, end - 0.5);
-      else if (behind > CATCH_UP_S) video.playbackRate = 1.25;
-      else if (behind < CAUGHT_UP_S) video.playbackRate = 1;
+      else if (behind > JUMP_S) video.currentTime = Math.max(start, end - 0.3);
       // What's well behind isn't needed: dropped now and then, so the buffer stays small.
       if (video.currentTime - b.start(0) > 30 && Date.now() - trimmed > 10000) {
         trimmed = Date.now();
@@ -380,7 +379,7 @@ async function toggleInvert() {
 // it had to connect again. Each second, while shown; remembered.
 const statsBox = $("#stats");
 const MODE_NAMES = { copy: "camera's own", h264: "re-encoded H.264", mjpeg: "MJPEG pictures" };
-let statsTimer = 0, last = null;
+let statsTimer = 0, last = null, statsLogged = 0;
 
 function showStats(on) {
   statsBox.hidden = !on;
@@ -405,11 +404,15 @@ function updateStats() {
   const behind = p.mode !== "mjpeg" && b.length ? b.end(b.length - 1) - video.currentTime : null;
   const size = p.mode === "mjpeg" ? `${mjpeg.naturalWidth}×${mjpeg.naturalHeight}` : `${video.videoWidth}×${video.videoHeight}`;
   const up = Math.round((Date.now() - p.started) / 1000);
+  // Every 10 s, also to phil's log (camview: ...): what this machine's player does, to look into.
+  if (fps !== null && ++statsLogged % 10 === 0) {
+    log(`${state.id}: stats ${p.mode} ${size} ${fps.toFixed(1)} fps, dropped ${quality?.droppedVideoFrames ?? "?"}, behind ${behind?.toFixed(2) ?? "-"} s, ${mbit?.toFixed(2) ?? "-"} Mbit/s, reconnects ${state.connects - 1}`);
+  }
   statsBox.textContent = [
     `stream    ${MODE_NAMES[p.mode]}${p.codec ? ` (${p.codec})` : ""}`,
     `size      ${size}`,
     `fps       ${fps === null ? "…" : fps.toFixed(1)}${quality && p.mode !== "mjpeg" ? `   dropped ${quality.droppedVideoFrames}` : ""}`,
-    behind !== null ? `behind    ${behind.toFixed(2)} s${video.playbackRate !== 1 ? `   catching up ×${video.playbackRate}` : ""}` : null,
+    behind !== null ? `behind    ${behind.toFixed(2)} s` : null,
     mbit !== null ? `data      ${mbit.toFixed(2)} Mbit/s` : null,
     `connected ${up < 120 ? `${up} s` : `${Math.round(up / 60)} min`}${state.connects > 1 ? `   reconnects ${state.connects - 1}` : ""}`,
   ].filter(Boolean).join("\n");
@@ -543,7 +546,7 @@ try {
     if (ptz.presets) loadPresets();
   }
   play();
-  if (load("stats", "")) showStats(true);
+  if (load("stats", "") || new URLSearchParams(location.search).get("stats") === "1") showStats(true);
 } catch (err) {
   showMessage(err.message);
 }
