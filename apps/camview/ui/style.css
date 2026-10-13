@@ -1,0 +1,87 @@
+/* camview's own; the colors and shared controls are in themes/base.css. */
+
+body { background: #000; overflow: hidden; }
+
+#stage { position: fixed; inset: 0; outline: none; display: grid; place-items: center; }
+#video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+#message {
+  position: fixed;
+  inset: 45% 20px auto;
+  margin: 0;
+  text-align: center;
+  color: #ddd;
+  white-space: pre-line;
+  text-shadow: 0 1px 3px #000;
+  pointer-events: none;
+}
+#message.toast { inset: auto 20px 90px; }
+
+#bar { display: flex; align-items: center; gap: 6px; padding: 4px 6px; }
+#title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#name { font-weight: 600; }
+#info { margin-left: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+#quality { height: 28px; }
+
+/* The controls: over the video, faded until the pointer is over the window. */
+#ptz, #presets {
+  position: fixed;
+  z-index: 4;
+  opacity: 0;
+  transition: opacity 0.2s ease 0.6s;
+}
+body:hover #ptz, body:hover #presets, #ptz:focus-within, #presets:focus-within, body.moving #ptz { opacity: 1; transition: opacity 0.1s; }
+#ptz[hidden], #presets[hidden], #zoom[hidden] { display: none; }
+
+#ptz { right: 16px; bottom: 16px; display: flex; align-items: flex-end; gap: 10px; }
+#pad {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  grid-auto-rows: 44px;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.55);
+}
+#ptz button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+  touch-action: none;
+}
+#ptz button:hover { background: rgba(255, 255, 255, 0.14); }
+#ptz button.held { background: var(--accent); }
+#ptz svg { width: 22px; height: 22px; margin: 0; }
+#pad .dir:not([data-x="0"]):not([data-y="0"]) svg { width: 17px; height: 17px; opacity: 0.8; } /* diagonals */
+#zoom { display: grid; gap: 2px; padding: 6px; border-radius: 12px; background: rgba(0, 0, 0, 0.55); }
+#zoom button { width: 40px; height: 40px; }
+#speed-wrap { display: grid; place-items: center; padding: 10px 6px; border-radius: 12px; background: rgba(0, 0, 0, 0.55); }
+#speed { writing-mode: vertical-lr; direction: rtl; width: 20px; height: 110px; }
+
+#presets {
+  left: 16px;
+  bottom: 16px;
+  right: 260px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+#preset-list { display: contents; }
+#presets button {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 15px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
+#presets button:hover { background: rgba(0, 0, 0, 0.75); }
+#presets button .key { margin-right: 6px; color: rgba(255, 255, 255, 0.55); font-variant-numeric: tabular-nums; }
+#btn-save-preset { width: 30px; padding: 0 !important; font-size: 17px; }
+#preset-form[hidden] { display: none; }
+#preset-name { height: 30px; width: 150px; padding: 0 10px; border: 1px solid var(--accent); border-radius: 15px; background: rgba(0, 0, 0, 0.75); color: #fff; }

@@ -149,6 +149,7 @@ const thumbs = {
       if (msg.hook) return onHookRan(msg.hook);
       if (msg.transfer) return onTransfer(msg.transfer);
       if (msg.places) return refreshPlaces(); // the sidebar arranged, in some window
+      if (msg.cameras) return (state.cameras = msg.cameras), renderCameras(); // found, renamed, forgotten
       if ("clipboard" in msg) return (state.clip = msg.clipboard), markClipboard();
       const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
@@ -913,7 +914,7 @@ function renderCrumbs() {
 
 // Drives and shares come and go (USB, mounts): the list is fetched again
 // whenever the window gets focus.
-addEventListener("focus", () => refreshPlaces());
+addEventListener("focus", () => (refreshPlaces(), loadCameras(true)));
 // The sidebar's drives and shares (not home and its folders): their space is shown.
 const isMount = (p) => !p.unmounted && (p.icon === "drive" || p.icon === "network");
 
@@ -1407,10 +1408,27 @@ const confirmDialog = $("#confirm");
 // `copyable`: a Copy button for the message.
 // One at a time: another waits for this one to close.
 let confirmShown = Promise.resolve();
-function askConfirm({ title, detail, ok, cancel = "Cancel", danger = true, copyable = false }) {
+// With `fields` ([{name, label, type, value, placeholder}]): text boxes, and it
+// resolves to their values ({name: value}), or null when cancelled.
+function askConfirm({ title, detail, ok, cancel = "Cancel", danger = true, copyable = false, fields = null }) {
   const shown = confirmShown.then(() => new Promise((resolve) => {
     confirmDialog.querySelector(".title").textContent = title;
-    confirmDialog.querySelector(".detail").textContent = detail;
+    confirmDialog.querySelector(".detail").textContent = detail ?? "";
+    const box = confirmDialog.querySelector(".fields");
+    box.replaceChildren();
+    box.hidden = !fields;
+    const inputs = (fields ?? []).map((f) => {
+      const label = Object.assign(document.createElement("label"), { textContent: f.label });
+      const input = Object.assign(document.createElement("input"), { type: f.type ?? "text", value: f.value ?? "", placeholder: f.placeholder ?? "", spellcheck: false, autocomplete: "off" });
+      input.name = f.name;
+      input.onkeydown = (e) => {
+        e.stopPropagation(); // typing here isn't the page's keys
+        if (e.key === "Enter") e.preventDefault(), confirmDialog.close("ok");
+      };
+      label.htmlFor = input.id = `field-${f.name}`;
+      box.append(label, input);
+      return input;
+    });
     const okButton = confirmDialog.querySelector("[value=ok]"), cancelButton = confirmDialog.querySelector("[value=cancel]");
     okButton.textContent = ok;
     okButton.classList.toggle("danger", danger);
@@ -1429,8 +1447,12 @@ function askConfirm({ title, detail, ok, cancel = "Cancel", danger = true, copya
     };
     confirmDialog.returnValue = "";
     confirmDialog.showModal();
-    okButton.focus(); // Enter: OK (not Copy, before it)
-    confirmDialog.addEventListener("close", () => resolve(confirmDialog.returnValue === "ok"), { once: true });
+    if (inputs.length) inputs[0].focus(), inputs[0].select();
+    else okButton.focus(); // Enter: OK (not Copy, before it)
+    confirmDialog.addEventListener("close", () => {
+      const yes = confirmDialog.returnValue === "ok";
+      resolve(fields ? (yes ? Object.fromEntries(inputs.map((i) => [i.name, i.value])) : null) : yes);
+    }, { once: true });
   }));
   confirmShown = shown.catch(() => {});
   return shown;
@@ -1901,6 +1923,112 @@ async function showProperties(entry) {
       alert(`Couldn't save: ${err.message}`);
     }
   }, { once: true });
+}
+
+// ---------------------------------------------------------------- cameras
+
+// The network cameras (ONVIF) phil has found, at the bottom of the sidebar
+// (the server looks for them: apps/camview/cameras.js). Double-click shows one
+// in camview, in this window; right-click renames it, logs into it (a camera
+// that wants a login says so), or forgets it.
+state.cameras = [];
+
+// `look`: and have the server look for new ones (it does at most every 10 minutes).
+async function loadCameras(look = false) {
+  const list = await api(`/api/cameras${look ? "?look=1" : ""}`).catch(() => null);
+  if (!list || JSON.stringify(list) === JSON.stringify(state.cameras)) return;
+  state.cameras = list;
+  renderCameras();
+}
+
+function renderCameras() {
+  $("#cameras-panel").hidden = !state.cameras.length;
+  $("#cameras").replaceChildren(...state.cameras.map((c) => {
+    const a = document.createElement("a");
+    a.dataset.camera = c.id;
+    a.tabIndex = 0;
+    a.innerHTML = icon("camera");
+    const text = Object.assign(document.createElement("span"), { className: "cam-text" });
+    text.append(Object.assign(document.createElement("span"), { textContent: c.name }));
+    if (c.needsLogin) text.append(Object.assign(document.createElement("span"), { className: "note", textContent: "needs a login" }));
+    a.append(text);
+    a.title = [c.model, `${c.host}${c.port === 80 ? "" : `:${c.port}`}`, "Double-click: show it"].filter(Boolean).join("\n");
+    a.ondblclick = () => openCamera(c);
+    a.onkeydown = (e) => e.key === "Enter" && (e.preventDefault(), openCamera(c));
+    a.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation(); // not the sidebar's menu
+      showMenu(e.clientX, e.clientY, [
+        ["Show", () => openCamera(c)],
+        ["Rename…", () => renameCamera(c)],
+        [c.login ? "Change login…" : "Log in…", () => loginCamera(c)],
+        ["Forget", () => forgetCamera(c)],
+        ...cameraMenuItems(),
+      ]);
+    };
+    return a;
+  }));
+}
+
+async function openCamera(c) {
+  if (c.needsLogin && !(await loginCamera(c))) return;
+  openInApp("camview", { camera: c.id });
+}
+
+const cameraMenuItems = () => [
+  ["Look for cameras", async () => {
+    flashStatus("Looking for cameras on the network…", 30_000);
+    await loadCameras().catch(() => {});
+    const list = await api("/api/cameras?look=now").catch(() => null);
+    if (list) (state.cameras = list), renderCameras();
+    flashStatus(list ? `${list.length} camera${list.length === 1 ? "" : "s"}` : "Couldn't look for cameras");
+  }],
+  ["Add camera…", addCamera],
+];
+
+async function renameCamera(c) {
+  const answer = await askConfirm({ title: "Rename camera", ok: "Rename", danger: false, fields: [{ name: "name", label: "Name", value: c.name }] });
+  if (!answer) return;
+  await api("/api/camera", { method: "PUT", body: JSON.stringify({ id: c.id, name: answer.name }) }).catch((err) => alert(err.message));
+}
+
+// Resolves to whether it took (the camera is asked first).
+async function loginCamera(c) {
+  const answer = await askConfirm({
+    title: `Log into ${c.name}`, detail: "Its user name and password (the camera's own, not this computer's). Kept in ~/.config/phil/cameras.json, readable only by you.",
+    ok: "Log in", danger: false,
+    fields: [{ name: "user", label: "User name", value: "admin" }, { name: "password", label: "Password", type: "password" }],
+  });
+  if (!answer) return false;
+  try {
+    await api("/api/camera", { method: "PUT", body: JSON.stringify({ id: c.id, ...answer }) });
+    return true;
+  } catch (err) {
+    alert(err.message);
+    return false;
+  }
+}
+
+async function forgetCamera(c) {
+  if (!(await askConfirm({ title: `Forget ${c.name}?`, detail: "It's no longer listed, even when it's found again. Add it back by its address.", ok: "Forget" }))) return;
+  await api("/api/camera", { method: "PUT", body: JSON.stringify({ id: c.id, hidden: true }) }).catch((err) => alert(err.message));
+}
+
+async function addCamera() {
+  const answer = await askConfirm({
+    title: "Add a camera", detail: "An ONVIF camera, by its address (and port, if it isn't a usual one). A login only if it wants one.",
+    ok: "Add", danger: false,
+    fields: [{ name: "address", label: "Address", placeholder: "192.168.1.20 or camera.local:8899" }, { name: "user", label: "User name" }, { name: "password", label: "Password", type: "password" }],
+  });
+  if (!answer?.address) return;
+  flashStatus(`Asking ${answer.address}…`, 20_000);
+  try {
+    const c = await api("/api/cameras", { method: "POST", body: JSON.stringify(answer) });
+    flashStatus(`Added ${c.name}`);
+  } catch (err) {
+    flashStatus("");
+    alert(err.message);
+  }
 }
 
 // ---------------------------------------------------------------- folder icons
@@ -3072,7 +3200,7 @@ $("#btn-new").onclick = () => createIn(state.path, "dir");
 $("#sidebar").addEventListener("contextmenu", (e) => {
   if (e.target.closest("a, button, input") || e.shiftKey) return;
   e.preventDefault();
-  showMenu(e.clientX, e.clientY, newItemsIn(state.path));
+  showMenu(e.clientX, e.clientY, [...newItemsIn(state.path), ...cameraMenuItems()]);
 });
 
 crumbs.addEventListener("click", editLocation);
@@ -3317,6 +3445,7 @@ Object.assign(state.settings, state.init.settings);
 applySettings();
 listThemes();
 refreshSpeeds(); // the drives' last speed tests, for their tooltips
+loadCameras(); // the network cameras found so far (the server keeps looking)
 const thumbDirEl = $("#status-thumbdir");
 thumbDirEl.textContent = (state.init.incognito ? "Incognito · " : "") + `Thumbnails: ${state.init.thumbDir}`;
 thumbDirEl.title = `${state.init.thumbDir} (${state.init.thumbSize})`;
