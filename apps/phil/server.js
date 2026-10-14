@@ -1452,10 +1452,13 @@ async function create({ dir, kind }) {
 // stopped copy (its record says it came from this item) being resumed. `made`:
 // the paths of what's there now.
 //
+const SPEED_WINDOW_MS = 5000; // a copy's speed: over this long
+
 // A move within a file system is a rename (mv), and a copy within one that
 // clones files (btrfs, xfs) is cp's clone: instant both. Anything else goes
 // through rsync, which tells how far it is: `report` gets {id, op, dest,
-// targets, items, bytes, total, percent, speed, eta, paused} a few times a
+// targets, items, bytes, total, percent, speed (bytes/s, over the last few
+// seconds), eta (seconds, or null), paused} a few times a
 // second, then {id, finished}; `track.set(target, record)` keeps the record
 // of each item being made (see copyRecords), null when it's done. Resuming
 // counts what's there already as done; rsync skips the files that are
@@ -1532,6 +1535,19 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
     if (file) liveTargets.delete(file.path);
     file = null;
   };
+  // Its speed: how much it copied over the last few seconds (bytes/s; rsync's own is the file's,
+  // as it is that moment), and from it the time left, in seconds.
+  let samples = [];
+  const speedOf = (done) => {
+    const now = Date.now();
+    if (job.paused) return (samples = []), { speed: 0, eta: null };
+    samples.push([now, done]);
+    while (samples.length > 2 && now - samples[1][0] >= SPEED_WINDOW_MS) samples.shift();
+    const [t0, d0] = samples[0];
+    if (now - t0 < 1000) return { speed: job.last?.speed ?? 0, eta: job.last?.eta ?? null }; // not enough to go by yet
+    const speed = Math.round(((done - d0) * 1000) / (now - t0));
+    return { speed, eta: speed > 0 ? Math.round((total - done) / speed) : null };
+  };
   const progress = (bytes, extra = {}) => {
     // (A file copied on its own is the item: its record is the item's.)
     if (extra.file && extra.file === current?.target) extra.file = undefined;
@@ -1548,11 +1564,11 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
     last = Date.now();
     job.last = { id, op, dest, targets: items.filter((it) => !it.quick).map((it) => it.target), items: items.length, bytes: done, total,
       percent: Math.floor((done / total) * 100), paused: job.paused, file: file?.path ?? null, filePercent: file?.percent ?? null,
-      speed: extra.speed, eta: extra.eta };
+      ...speedOf(done) };
     report(job.last);
   };
   // Pausing and going on: the pages hear of it at once, and the record says so, as far as it got.
-  job.tell = () => ((last = 0), (lastRecord = 0), progress(lastDone - doneBefore - base + partial, { speed: job.last?.speed, eta: job.last?.eta }));
+  job.tell = () => ((last = 0), (lastRecord = 0), progress(lastDone - doneBefore - base + partial));
   try {
     for (const [i, it] of items.entries()) {
       const { src, target, quick } = it;
@@ -1677,7 +1693,7 @@ async function partialBytes(src, target) {
 }
 
 // rsync of one item (a file, or a folder and all in it) to `target`, telling
-// `progress(bytes, {speed, eta, file, from, filePercent, fileDone})` how far it
+// `progress(bytes, {file, from, filePercent, fileDone})` how far it
 // is: in all, and in the file it's at (rsync's per-file progress; the total is
 // added up here). Files written straight to
 // their names (--inplace: a cut-off one is there to go on with, after a crash
@@ -1706,7 +1722,7 @@ async function rsync(src, target, { move, posix, job, progress }) {
       const m = /^\s*([\d,]+)\s+(\d+)%\s+(\S+)\s+(\d+:\d+:\d+)(.*xfr#)?/.exec(line);
       if (m) {
         bytes = Number(m[1].replaceAll(",", ""));
-        progress(done + bytes, { speed: m[3], eta: m[4], ...(current && where(current)), filePercent: Number(m[2]), fileDone: !!m[5] });
+        progress(done + bytes, { ...(current && where(current)), filePercent: Number(m[2]), fileDone: !!m[5] });
         if (m[5]) (done += bytes), (bytes = 0), (current = null);
       } else if (line.trim() && !line.endsWith("/")) {
         if (current) done += bytes; // a file with no last line (skipped as it was)

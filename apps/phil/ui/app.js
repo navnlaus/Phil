@@ -3454,7 +3454,7 @@ function onTransfer(p) {
       return;
     }
     $("#status-progress").textContent = `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest.split("/").pop() || "/"}: ${t.percent}% ` +
-      `(${formatSize(t.bytes)} of ${formatSize(t.total)}${t.speed ? `, ${t.speed}, ${t.eta} left` : ""})` + (all.length > 1 ? ` and ${all.length - 1} more` : "");
+      `(${formatSize(t.bytes)} of ${formatSize(t.total)}${t.paused ? "" : copySpeed(t, ", ")})` + (all.length > 1 ? ` and ${all.length - 1} more` : "");
   }
 }
 
@@ -3619,7 +3619,7 @@ function showTransferCard(card, b) {
     where = t.op === "delete" ? `In ${t.dest}` : `To ${t.dest}`;
     facts = t.op === "delete"
       ? [t.counting ? `${t.found.toLocaleString()} files and folders so far` : `${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} files and folders gone`]
-      : [`${formatSize(t.bytes)} of ${formatSize(t.total)}`, t.paused ? "" : t.speed ?? "", t.paused || !t.eta ? "" : `${t.eta} left`, t.file ? `at ${t.file.split("/").pop()}` : ""];
+      : [`${formatSize(t.bytes)} of ${formatSize(t.total)}`, t.paused ? "" : copySpeed(t, " · ").slice(3), t.file ? `at ${t.file.split("/").pop()}` : ""];
   }
   put(card.querySelector(".tv-state"), "textContent", state);
   put(card.querySelector(".tv-where"), "textContent", where);
@@ -3799,6 +3799,9 @@ function showDownloadBar(bar, d, part = null) {
   put(stop, "title", "Stop and forget this download (what's downloaded stays)");
 }
 
+// A copy's speed and time left (server.js: bytes/s and seconds), after `sep`; "" when not known.
+const copySpeed = (t, sep) => (t.speed ? `${sep}${formatSize(t.speed)}/s` : "") + (t.speed && t.eta != null ? `${sep}${formatDuration(t.eta)} left` : "");
+
 function formatDuration(s) {
   if (s < 60) return `${Math.round(s)} s`;
   if (s < 3600) return `${Math.round(s / 60)} min`;
@@ -3863,9 +3866,10 @@ function showTransferBar(bar, t, { ofFile = false } = {}) {
   }
   put(bar, "title", (ofFile ? `${t.percent}% of this file; ` : "") +
     `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest}: ${formatSize(t.bytes)} of ${formatSize(t.total)}` +
-    (t.speed ? `, ${t.speed}, ${t.eta} left` : ""));
+    (t.paused ? " (paused)" : copySpeed(t, ", ")));
   put(fill.style, "width", `${t.percent}%`);
-  put(label, "textContent", `${t.paused ? "Paused " : ""}${t.percent}%`);
+  // As a download's: how far, and its speed (not on the file it's at: that's only how far into it).
+  put(label, "textContent", `${t.paused ? "Paused " : ""}${t.percent}%${!t.paused && !ofFile && t.speed ? ` · ${formatSize(t.speed)}/s` : ""}`);
   bar.classList.toggle("paused", !!t.paused);
   const [pause, cancel] = bar.querySelectorAll(".cancel");
   putIcon(pause, t.paused ? "l:play" : "l:pause");
