@@ -55,6 +55,27 @@ export function createServer({ profile, controlSocket }) {
     },
   };
 
+  // Copies cut off, wherever they are (the Transfers list shows them, with ↻ and ×): the
+  // records of what they were making, those no copy under way has (not a file's own record
+  // inside one: its folder's goes on with it). One whose target is gone is forgotten.
+  const stoppedTransfers = async () => {
+    const all = await hooks.all().catch(() => ({}));
+    const stopped = [];
+    for (const [path, meta] of Object.entries(all)) {
+      const c = meta.copying;
+      if (!c || c.file || liveTargets.has(path)) continue;
+      const st = await Deno.lstat(path).catch(() => null);
+      if (!st) {
+        await hooks.set(path, { copying: "" }).catch(() => {});
+        continue;
+      }
+      // A file: how far it got is its size (the record is written every few seconds, so it can be behind).
+      const got = st.isFile && c.total ? { bytes: Math.min(st.size, c.total), percent: Math.floor((Math.min(st.size, c.total) / c.total) * 100) } : {};
+      stopped.push({ path, copying: { ...c, ...got, state: "stopped" } });
+    }
+    return stopped.sort((a, b) => (b.copying.updated ?? 0) - (a.copying.updated ?? 0));
+  };
+
   // What phil kept of things deleted goes too: their thumbnails, documents read
   // as Markdown (both by path, size and time), and folders' summaries, totals and
   // tagging. (Their metadata goes with movedHooks.)
@@ -274,6 +295,7 @@ export function createServer({ profile, controlSocket }) {
       case "POST /api/transfer": { // {op, paths, dest}; progress to every page as {transfer} (see transfer())
         const body = await req.json();
         const result = await transfer(body, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress)), track: copyRecords });
+        broadcast({ stoppedTransfers: true }); // cut off (×), or done (a stopped one gone on with)
         if (body.op === "move") await movedHooks(body.paths ?? [], result, (p) => join(body.dest, basename(p)));
         for (const { from, to } of result.moved ?? []) thumbs.carry(from, to).catch(() => {}); // their thumbnails go along
         delete result.moved;
@@ -303,6 +325,8 @@ export function createServer({ profile, controlSocket }) {
         return json({ ok: true });
       case "GET /api/transfers": // copies and moves under way: their last progress (a window just opened shows them)
         return json([...transfers.values()].map((job) => job.last).filter(Boolean));
+      case "GET /api/stopped-transfers": // copies and moves cut off (phil crashed or closed, ×), wherever they are: [{path, copying}]
+        return json(await stoppedTransfers());
       case "POST /api/transfer-pause": { // {id, pause}: pauses or goes on with a copy or move
         const { id, pause } = await req.json();
         return json({ paused: pauseTransfer(id, !!pause) });
@@ -329,6 +353,7 @@ export function createServer({ profile, controlSocket }) {
         }
       case "POST /api/transfer-forget": // {path}: drops a stopped copy's record (what was copied stays)
         await hooks.set(requirePath(path), { copying: "" });
+        broadcast({ stoppedTransfers: true });
         return json({ ok: true });
       case "POST /api/rename": {
         const body = await req.json();
