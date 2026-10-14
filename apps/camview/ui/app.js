@@ -1,4 +1,5 @@
 import { closeWindow, holdFocus, onCloseRequest, ready, tooltips } from "../engine/ui/kit.js";
+import { playHls } from "./hls.js";
 
 tooltips(); // the page's own, in the theme's style (kit.js)
 
@@ -66,6 +67,7 @@ function play() {
   if (mode === "mjpeg") return showJpegs(player);
   video.hidden = false;
   mjpeg.hidden = true;
+  if (!state.noHls) return tryHls(player);
   run(player).catch((err) => {
     if (player !== state.player || player.abort.signal.aborted) return;
     showMessage(`${err.message}\nTrying again…`);
@@ -73,10 +75,29 @@ function play() {
   });
 }
 
+// An HLS stream (a web camera's): played by hls.js in the page, as a browser does (hls.js);
+// not HLS, or it gives up: /stream, as the others.
+async function tryHls(player) {
+  const handle = await playHls(video, state.id, state.profile, {
+    onPlaying: () => player === state.player && showMessage(""),
+    onGiveUp: (why) => {
+      if (player !== state.player) return;
+      log(`${state.id}: ${why}: trying ${player.mode}`);
+      state.noHls = true;
+      play();
+    },
+  }).catch(() => null);
+  if (player !== state.player) return handle?.stop();
+  if (!handle) return (state.noHls = true), play();
+  player.hls = handle;
+  player.mode = "hls";
+}
+
 function stopPlayer() {
   const p = state.player;
   if (!p) return;
   state.player = null;
+  p.hls?.stop();
   p.abort.abort();
   clearTimeout(p.retryTimer);
   clearTimeout(p.checkTimer);
@@ -386,7 +407,7 @@ async function toggleInvert() {
 // before it come on top, a few hundred ms), the data coming in, and how often
 // it had to connect again. Each second, while shown; remembered.
 const statsBox = $("#stats");
-const MODE_NAMES = { copy: "camera's own", h264: "re-encoded H.264", mjpeg: "MJPEG pictures" };
+const MODE_NAMES = { hls: "HLS, played here (hls.js)", copy: "camera's own", h264: "re-encoded H.264", mjpeg: "MJPEG pictures" };
 let statsTimer = 0, last = null, statsLogged = 0;
 
 function showStats(on) {
@@ -549,6 +570,7 @@ try {
   quality.value = state.profile;
   quality.onchange = () => {
     state.profile = quality.value;
+    state.noHls = false; // another stream: HLS maybe
     save(`profile.${state.id}`, state.profile);
     play();
     stage.focus({ preventScroll: true });

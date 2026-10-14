@@ -6,6 +6,7 @@
 // button in the top right corner, or L): every camera, offline and turned off
 // ones too, each turned on or off, removed, and streams added by their URL.
 import { closeWindow, onCloseRequest, ready, tooltips } from "../engine/ui/kit.js";
+import { playHls } from "./hls.js";
 
 tooltips();
 
@@ -129,6 +130,7 @@ function play(t) {
   if (player.mode === "mjpeg") return showJpegs(t, player);
   t.video.hidden = false;
   t.img.hidden = true;
+  if (!t.noHls) return tryHls(t, player);
   run(t, player).catch((err) => {
     if (player !== t.player || player.abort.signal.aborted) return;
     say(t, `${err.message}: trying again…`);
@@ -136,11 +138,28 @@ function play(t) {
   });
 }
 
+// An HLS stream: played by hls.js in the page (hls.js); not HLS, or it gives up: /stream.
+async function tryHls(t, player) {
+  const handle = await playHls(t.video, t.camera.id, t.profile, {
+    onPlaying: () => player === t.player && say(t, ""),
+    onGiveUp: (why) => {
+      if (player !== t.player) return;
+      log(`wall: ${t.camera.id}: ${why}: trying ${t.mode}`);
+      t.noHls = true;
+      play(t);
+    },
+  }).catch(() => null);
+  if (player !== t.player) return handle?.stop();
+  if (!handle) return (t.noHls = true), play(t);
+  player.hls = handle;
+}
+
 function stop(t) {
   if (t.page) return;
   const p = t.player;
   if (!p) return;
   t.player = null;
+  p.hls?.stop();
   p.abort.abort();
   clearTimeout(p.retry);
   clearTimeout(p.check);

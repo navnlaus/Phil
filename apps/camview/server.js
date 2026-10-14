@@ -3,6 +3,8 @@
 // the cameras (cameras.js).
 //   GET  /api/cameras            the cameras phil knows (looked for first, when there are none)
 //   GET  /api/camera?id=         cameras.info(): the camera, its profiles, what its PTZ can do
+//   GET  /api/hls?id=&profile=   {url}: its HLS stream (a web one), for the page to play with
+//                                hls.js; null: not HLS (then /stream)
 //   GET  /stream?id=&profile=&mode=   its live video, as the page can show it (ui/app.js
 //                                tries them in turn): mode=copy (default), the camera's
 //                                own H.264 copied into fragmented MP4, for its Media
@@ -108,6 +110,12 @@ export function createServer({ profile = {} } = {}) {
             return json(await cameras.info(id));
           } catch (err) {
             throw httpError(err.status ?? (err.auth ? 403 : 502), err.message);
+          }
+        case "GET /api/hls": // ?id=&profile=: {url}: its HLS stream, for the page to play itself, or null (then /stream)
+          try {
+            return json({ url: await cameras.hlsUrl(id, url.searchParams.get("profile")) });
+          } catch (err) {
+            throw httpError(err.status ?? 502, err.message);
           }
         case "GET /stream":
           return await stream(req, id, url.searchParams.get("profile"), url.searchParams.get("mode") ?? "copy");

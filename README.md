@@ -664,7 +664,9 @@ them at the bottom of its sidebar; double-click one to show it in that window
   web one (http(s): MJPEG, HLS .m3u8, MP4; a login goes in the URL), checked
   at once. An rtsp.me embed link (https://rtsp.me/embed/…) works too: its
   stream is signed for an hour and for this address, so the link is kept and
-  rtsp.me asked for the stream each time it plays. Any other web page that
+  rtsp.me asked for the stream each time it plays. An HLS stream (rtsp.me's
+  too) is played in the page with hls.js (`ui/vendor`, Apache-2.0), as a
+  browser plays it: ffmpeg's re-packing of its few-second pieces stuttered. Any other web page that
   isn't a stream is shown as the page, in its tile (click: over the wall, to use). Looking for cameras (↻, there or by "Cameras" in the sidebar) checks
   the streams too (ffprobe), and cloud cameras' (go2rtc's): one that doesn't
   answer is offline, out of the sidebar and the wall until it answers again.
