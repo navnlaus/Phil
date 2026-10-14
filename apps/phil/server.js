@@ -143,7 +143,7 @@ export function createServer({ profile, controlSocket }) {
   // Downloads under way (panda-dl's; downloads.js), for every window as
   // {downloads}; what they're writing isn't thumbnailed till they're done.
   const downloads = watchDownloads((list) => {
-    thumbs.downloading(list.map((d) => d.path).filter(Boolean));
+    thumbs.downloading(list.filter((d) => d.state !== "completed").map((d) => d.path).filter(Boolean));
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ downloads: list }));
   });
   // Copies, moves and deletes under way, for the bar (the phil widget for

@@ -233,6 +233,12 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 .transfer-bar.stopped .fill { background: var(--text-dim); opacity: 0.6; }
 .transfer-bar.download .fill { transition: width 1s linear; } /* a download's: told once a second, it glides between */
 .transfer-bar.failed .fill { background: #c94b4b; }
+.transfer-bar.downloaded { width: auto; right: auto; max-width: calc(100% - 16px); background: rgba(0, 0, 0, 0.55); } /* finished, still in panda-dl's list: a small mark, not a bar */
+.transfer-bar.downloaded .fill { display: none; }
+.transfer-bar.downloaded .pct { display: flex; align-items: center; gap: 6px; padding: 0 5px 0 8px; }
+.transfer-bar.downloaded svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.2; flex: none; }
+.transfer-bar.downloaded .seeding { display: flex; align-items: center; gap: 2px; }
+.transfer-bar.downloaded .seeding[hidden] { display: none; }
 #places .place-text { flex: 1; }
 #places .transfer-bar { position: relative; inset: auto; margin-top: 4px; height: 16px; width: 100%; }
 #places .transfer-bar .cancel { height: 16px; width: 18px; font-size: 12px; }
