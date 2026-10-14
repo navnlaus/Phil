@@ -342,7 +342,10 @@ to another host, are refused), static files and window management.
 - Thumbnails that are already cached come back as URLs in the directory listing.
   Missing ones are requested over a WebSocket as tiles scroll into view, and
   cancelled when they scroll out. The server generates the most recently requested
-  ones first, up to `--jobs` at a time.
+  ones first, up to `--jobs` at a time: for files on the system's own drive;
+  on any other (a USB drive, another disk, a network share) at most 3 at once,
+  since more only get in each other's way on a slow drive. One that takes more
+  than 60 s (a file that hangs its decoder) is given up on and not tried again.
 - The server only answers requests with the right `Host` header and a session
   cookie, which it sets from a random token in the URL the window opens with.
 - On NVIDIA, `__NV_DISABLE_EXPLICIT_SYNC=1` is set automatically. Without it,

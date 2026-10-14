@@ -36,8 +36,14 @@ const fileUrl = (path) => `/file?path=${encodeURIComponent(path)}`;
  *
  * Jobs run on a LIFO stack: the most recently requested thumbnails (what the
  * user is looking at now) are generated first, and jobs nobody waits for any
- * more are dropped before they start.
+ * more are dropped before they start. Files on the system's own drive get all
+ * the jobs at once; on any other (USB drives, other disks, network shares: often
+ * slow) at most SLOW_DRIVE_JOBS, since more only get in each other's way there.
+ * A thumbnail that takes longer than JOB_TIMEOUT_MS is given up on (and marked
+ * failed), so a file that hangs its decoder can't hold a job forever.
  */
+const SLOW_DRIVE_JOBS = 3;
+const JOB_TIMEOUT_MS = 60_000;
 export class Thumbnailer {
   constructor({ thumbDir, thumbSize, jobs }) {
     this.width = thumbSize;
@@ -48,6 +54,8 @@ export class Thumbnailer {
     this.stack = [];
     this.jobs = new Map();
     this.running = 0;
+    this.runningOn = new Map(); // device -> jobs running on it
+    this.systemDevice = null; // the device "/" is on: all the jobs at once
   }
 
   async key(path, stat) {
@@ -89,9 +97,10 @@ export class Thumbnailer {
     if (cached === false) throw new Error("thumbnailing failed earlier");
     signal?.throwIfAborted();
 
+    this.systemDevice ??= (await Deno.stat("/").catch(() => null))?.dev ?? -1;
     let job = this.jobs.get(key);
     if (!job) {
-      job = { id: key, key, path, kind, waiters: 0, started: false, ...Promise.withResolvers() };
+      job = { id: key, key, path, kind, dev: stat.dev, waiters: 0, started: false, ...Promise.withResolvers() };
       job.promise.catch(() => {});
       this.jobs.set(key, job);
       this.stack.push(job);
@@ -108,15 +117,22 @@ export class Thumbnailer {
     }
   }
 
+  // The newest job whose drive has room, while there's room overall.
   pump() {
-    while (this.running < this.concurrency && this.stack.length) {
-      const job = this.stack.pop();
+    const room = (dev) => (this.runningOn.get(dev) ?? 0) < (dev === this.systemDevice ? this.concurrency : Math.min(this.concurrency, SLOW_DRIVE_JOBS));
+    while (this.running < this.concurrency) {
+      let i = this.stack.length - 1;
+      while (i >= 0 && !room(this.stack[i].dev)) i--;
+      if (i < 0) break;
+      const [job] = this.stack.splice(i, 1);
       job.started = true;
       this.running++;
+      this.runningOn.set(job.dev, (this.runningOn.get(job.dev) ?? 0) + 1);
       this.generate(job)
         .then(job.resolve, job.reject)
         .finally(() => {
           this.running--;
+          this.runningOn.set(job.dev, this.runningOn.get(job.dev) - 1);
           this.jobs.delete(job.id);
           this.pump();
         });
@@ -152,7 +168,11 @@ export class Thumbnailer {
 }
 
 async function run(cmd, args, output) {
-  const result = await new Deno.Command(cmd, { args, stdin: "null", stdout: "null", stderr: "piped" }).output();
+  const signal = AbortSignal.timeout(JOB_TIMEOUT_MS); // killed then: see JOB_TIMEOUT_MS
+  const result = await new Deno.Command(cmd, { args, stdin: "null", stdout: "null", stderr: "piped", signal }).output().catch((err) => {
+    throw signal.aborted ? new Error(`${cmd} took longer than ${JOB_TIMEOUT_MS / 1000} s`) : err;
+  });
+  if (signal.aborted) throw new Error(`${cmd} took longer than ${JOB_TIMEOUT_MS / 1000} s`);
   if (!result.success || !(await exists(output))) {
     const msg = new TextDecoder().decode(result.stderr).split("\n").filter((l) => l && !l.includes("WARNING")).at(-1);
     throw new Error(`${cmd} failed: ${msg ?? "no output"}`);
