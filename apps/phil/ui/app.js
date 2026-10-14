@@ -66,7 +66,8 @@ function formatDate(ms) {
 }
 
 async function api(path, options) {
-  const res = await fetch(path, options);
+  const asked = performance.now(); // TEMPORARY (slow first clicks): requests over 300 ms logged
+  const res = await fetch(path, options).finally(() => performance.now() - asked > 300 && debug(`slow request: ${path.slice(0, 120)} ${Math.round(performance.now() - asked)} ms (asked at ${Math.round(asked)}ms)`));
   if (!res.ok) throw Object.assign(new Error((await res.text()) || res.statusText), { status: res.status });
   return res.json();
 }
