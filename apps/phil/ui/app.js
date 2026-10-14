@@ -3333,16 +3333,12 @@ function flashStatus(text, ms = 3500) {
 
 // `resume`: a stopped copy (its target has the record) goes on where it stopped.
 async function transfer(op, items, dest, { resume = false, target = null } = {}) {
-  const progress = $("#status-progress");
-  progress.textContent = `${resume ? "Resuming: " : ""}${op === "move" ? "Moving" : "Copying"} ${items.length} item${items.length === 1 ? "" : "s"}…`;
   let result;
   try {
     result = await api("/api/transfer", { method: "POST", body: JSON.stringify({ op, dest, paths: items.map((e) => e.path), resume, target }) });
   } catch (err) {
     result = { errors: [{ path: "", error: err.message }] };
   }
-  progress.textContent = "";
-  updateProgress();
   if (result.cancelled) {
     result.errors = result.errors.filter((e) => e.error !== "cancelled");
     flashStatus(`${op === "move" ? "Moving" : "Copying"} stopped: what was done stays ${op === "move" ? "moved" : "copied"}; ↻ on the folder goes on`);
@@ -3436,26 +3432,11 @@ async function loadTransfers() {
 // The server's progress for a copy or move ({id, op, dest, bytes, total,
 // percent, speed, eta}, then {id, finished}): a bar on the folder it goes to
 // (its tile, when it's shown) and in the sidebar's Transfers, each with ×
-// to cancel it; and the status line.
+// to cancel it.
 function onTransfer(p) {
   if (p.finished) state.transfers.delete(p.id);
   else state.transfers.set(p.id, p);
   showTransfers();
-  const all = [...state.transfers.values()];
-  if (all.length) {
-    const t = all[0];
-    if (t.op === "delete" && t.counting) {
-      $("#status-progress").textContent = `Deleting ${t.items === 1 ? t.targets[0].split("/").pop() : `${t.items} items`}: counting files… ${t.found.toLocaleString()} so far`;
-      return;
-    }
-    if (t.op === "delete") {
-      $("#status-progress").textContent = `Deleting ${t.items === 1 ? t.targets[0].split("/").pop() : `${t.items} items`}: ${t.percent}% ` +
-        `(${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} files and folders)` + (all.length > 1 ? ` and ${all.length - 1} more` : "");
-      return;
-    }
-    $("#status-progress").textContent = `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest.split("/").pop() || "/"}: ${t.percent}% ` +
-      `(${formatSize(t.bytes)} of ${formatSize(t.total)}${t.paused ? "" : copySpeed(t, ", ")})` + (all.length > 1 ? ` and ${all.length - 1} more` : "");
-  }
 }
 
 function showTransfers() {
