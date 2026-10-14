@@ -13,7 +13,7 @@ const TRACE = !!Deno.env.get("PHIL_TRACE"); // also logs every request
 
 self.onmessage = (e) => start(e.data);
 
-async function start({ profile, controlSocket, wakeFd }) {
+async function start({ profile, controlSocket, wakeFd, tls }) {
   const token = crypto.randomUUID();
   const quit = () => self.postMessage({ quit: true });
   watchThemes();
@@ -24,7 +24,7 @@ async function start({ profile, controlSocket, wakeFd }) {
     apps[name] = { uiDir: mod.UI_DIR, server: await mod.createServer({ profile, quit, controlSocket }) };
   }));
   const urls = {};
-  await Promise.all(Object.keys(apps).map(async (name) => (urls[name] = await serve(name, apps, { token, quit }))));
+  await Promise.all(Object.keys(apps).map(async (name) => (urls[name] = await serve(name, apps, { token, quit, tls }))));
 
   // Take over the instance's control socket (if any): its requests go to the
   // GTK main loop through wakeFd.
@@ -55,8 +55,9 @@ async function start({ profile, controlSocket, wakeFd }) {
 // one's window. That's on this origin, since WebKit won't let a page in a
 // frame from another origin take keyboard focus. (Apps that can be shown so
 // use relative URLs.)
-function serve(name, apps, { token, quit }) {
+function serve(name, apps, { token, quit, tls }) {
   let host, cookie;
+  const scheme = tls ? "https" : "http"; // HTTPS for HTTP/2 (tls.js)
   const { promise, resolve } = Promise.withResolvers();
   { // TEMPORARY (slow first clicks): the server's own stalls over 200 ms
     let tick = performance.now();
@@ -69,10 +70,11 @@ function serve(name, apps, { token, quit }) {
   Deno.serve({
     hostname: "127.0.0.1",
     port: apps[name].server.port ?? 0,
+    ...(tls ? { cert: tls.cert, key: tls.key } : {}),
     onListen({ port }) {
       host = `127.0.0.1:${port}`;
       cookie = `${name}-${port}`; // per port, so two engines never overwrite each other's session
-      resolve(`http://${host}/?token=${token}`);
+      resolve(`${scheme}://${host}/?token=${token}`);
     },
   }, async (req) => {
     let res;
@@ -91,7 +93,8 @@ function serve(name, apps, { token, quit }) {
   function handle(req) {
     const url = new URL(req.url);
     // Only answer requests addressed to us (blocks DNS rebinding) that carry the session cookie.
-    if (req.headers.get("host") !== host) return text(403, "Forbidden");
+    // (HTTP/2 has no Host header: its address, :authority, is the URL's.)
+    if ((req.headers.get("host") ?? url.host) !== host) return text(403, "Forbidden");
     if (url.searchParams.get("token") === token) {
       url.searchParams.delete("token"); // keep the rest of the query; the #fragment carries over by itself
       return new Response(null, {
@@ -101,7 +104,7 @@ function serve(name, apps, { token, quit }) {
     }
     const cookies = (req.headers.get("cookie") ?? "").split(/;\s*/);
     if (!cookies.includes(`${cookie}=${token}`)) return text(403, "Forbidden: open the URL printed by the app");
-    if (req.headers.get("upgrade") === "websocket" && req.headers.get("origin") !== `http://${host}`) {
+    if (req.headers.get("upgrade") === "websocket" && req.headers.get("origin") !== `${scheme}://${host}`) {
       return text(400, "Bad request");
     }
 

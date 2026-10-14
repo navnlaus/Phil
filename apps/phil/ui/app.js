@@ -129,7 +129,7 @@ const thumbs = {
   watching: null, // the folder the server watches for us
 
   connect() {
-    this.ws = new WebSocket(`ws://${location.host}/ws`);
+    this.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
     this.ws.onopen = () => {
       this.wanted.forEach((p) => (this.folders.has(p) ? this.outFolders : this.outWant).add(p));
       if (this.watching) this.watch(this.watching);
@@ -602,6 +602,7 @@ if (DEBUG_CLICKS) {
   addEventListener("blur", () => debug("window blur"));
   addEventListener("hashchange", () => debug(`hashchange → ${decodeURIComponent(location.hash.slice(1))}`), true);
   debug(`page start, hash ${decodeURIComponent(location.hash.slice(1)) || "(none)"}`);
+  setTimeout(() => debug(`protocols: ${[...new Set(performance.getEntriesByType("resource").map((r) => r.nextHopProtocol || "?"))].join(", ")} (page: ${performance.getEntriesByType("navigation")[0]?.nextHopProtocol || "?"})`), 3000);
 }
 
 function navigate(path) {

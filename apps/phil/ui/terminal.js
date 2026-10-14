@@ -159,7 +159,7 @@ export class TerminalPanel {
     this.idle = false;
     this.cwd = null;
     const params = new URLSearchParams({ cwd, cols: this.term.cols, rows: this.term.rows });
-    const ws = new WebSocket(`ws://${location.host}/term?${params}`);
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/term?${params}`);
     ws.binaryType = "arraybuffer";
     ws.onmessage = (e) => {
       if (typeof e.data === "string") { // not terminal output: {open: {app, params}}

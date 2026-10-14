@@ -16,6 +16,7 @@
 import { join } from "@std/path";
 import { APPS } from "./apps.js";
 import { ask, engineCommand, socketDir, socketPath } from "./instance.js";
+import { localCertificate } from "./tls.js";
 
 const NAME = "phil-engine";
 const ENGINE_OPTIONS = ["--browser", "--standalone", "--quit", "--retire", "--install-themes"];
@@ -164,11 +165,16 @@ async function serve({ profile = {}, request = null, browser = false, standalone
   const pipe = new Int32Array(2);
   libc.symbols.pipe2(new Uint8Array(pipe.buffer), 0x800 | 0x80000); // O_NONBLOCK | O_CLOEXEC
 
+  // HTTPS (for HTTP/2) for the engine's own windows (tls.js); a browser
+  // (--browser) wouldn't trust the certificate, so plain HTTP there, and with PHIL_PLAIN_HTTP=1.
+  const tls = browser || Deno.env.get("PHIL_PLAIN_HTTP") ? null : await localCertificate();
+  trace(tls ? "certificate made" : "plain HTTP");
+
   const server = new Worker(new URL("./server.js", import.meta.url), { type: "module" });
   const serverReady = new Promise((resolve, reject) => {
     server.onmessage = (e) => resolve(e.data);
     server.onerror = (e) => reject(e.error ?? new Error(e.message));
-    server.postMessage({ profile, controlSocket: instance, wakeFd: pipe[1] });
+    server.postMessage({ profile, controlSocket: instance, wakeFd: pipe[1], tls });
   });
 
   // Meanwhile set up GTK/WebKit on this thread.
@@ -179,6 +185,7 @@ async function serve({ profile = {}, request = null, browser = false, standalone
     name: NAME,
     ephemeral: !!profile.incognito,
     keepRunning: !!instance && !profile.incognito,
+    trustCertificate: tls?.cert,
     trace,
   });
 

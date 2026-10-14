@@ -105,7 +105,12 @@ const cairo = Deno.dlopen("libcairo.so.2", {
   cairo_surface_set_device_offset: { parameters: ["pointer", "f64", "f64"], result: "void" },
   cairo_surface_destroy: { parameters: ["pointer"], result: "void" },
 });
+const gio = Deno.dlopen("libgio-2.0.so.0", {
+  g_tls_certificate_new_from_pem: { parameters: ["buffer", "isize", "pointer"], result: "pointer" },
+});
 const webkit = Deno.dlopen("libwebkit2gtk-4.1.so.0", {
+  webkit_web_context_get_default: { parameters: [], result: "pointer" },
+  webkit_web_context_allow_tls_certificate_for_host: { parameters: ["pointer", "pointer", "buffer"], result: "void" },
   webkit_web_view_new: { parameters: [], result: "pointer" },
   webkit_web_context_new_ephemeral: { parameters: [], result: "pointer" },
   webkit_web_view_new_with_context: { parameters: ["pointer"], result: "pointer" },
@@ -131,12 +136,19 @@ const SHOW_TIMEOUT_MS = 2000;
  *   nothing to disk (no cache, cookies, storage).
  * `keepRunning`: stay in gtk_main() after the last window closes (background
  *   instance); otherwise quit then.
+ * `trustCertificate`: the engine's servers' certificate (PEM; tls.js), trusted
+ *   for 127.0.0.1 in these windows only.
  * `trace(label)`: startup milestones (PHIL_TRACE).
  */
-export function createApp({ name, ephemeral = false, keepRunning = false, trace = () => {} }) {
+export function createApp({ name, ephemeral = false, keepRunning = false, trustCertificate = null, trace = () => {} }) {
   glib.symbols.g_set_prgname(cstr(name));
   gtk.symbols.gtk_init(null, null);
   const context = ephemeral ? webkit.symbols.webkit_web_context_new_ephemeral() : null;
+  if (trustCertificate) {
+    const cert = gio.symbols.g_tls_certificate_new_from_pem(cstr(trustCertificate), -1, null);
+    if (cert) webkit.symbols.webkit_web_context_allow_tls_certificate_for_host(context ?? webkit.symbols.webkit_web_context_get_default(), cert, cstr("127.0.0.1"));
+    else console.error(`${name}: couldn't read the servers' certificate`);
+  }
 
   // Open windows by GTK window, web view and content manager pointer, so one
   // set of signal callbacks serves every window.
