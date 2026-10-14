@@ -3311,6 +3311,10 @@ addEventListener("dragleave", (e) => {
 
 addEventListener("dragover", (e) => {
   e.preventDefault();
+  if (!fileDrag && DEBUG_CLICKS && !e.dataTransfer.__logged) { // TEMPORARY: what drags from outside carry
+    debug(`outside drag over: types ${JSON.stringify([...(e.dataTransfer?.types ?? [])])}, files ${e.dataTransfer?.files?.length}`);
+    try { e.dataTransfer.__logged = true; } catch { /* frozen */ }
+  }
   if (!fileDrag) { // from outside
     setOutsideTarget(carriesFiles(e.dataTransfer) ? outsideTargetAt(e.clientX, e.clientY) : null);
     e.dataTransfer.dropEffect = outsideTarget ? "copy" : "none";
@@ -3325,6 +3329,10 @@ addEventListener("dragenter", () => staleDrag().then((stale) => stale && endFile
 addEventListener("drop", async (e) => {
   e.preventDefault();
   const carried = filePaths(e.dataTransfer), links = downloadLinks(e.dataTransfer); // the drop's data: gone once this handler awaits
+  if (DEBUG_CLICKS) { // TEMPORARY: what drops carry
+    const data = Object.fromEntries([...(e.dataTransfer?.types ?? [])].map((t) => [t, e.dataTransfer.getData(t).slice(0, 200)]));
+    debug(`drop: ${JSON.stringify(data)}; files ${e.dataTransfer?.files?.length}; paths ${JSON.stringify(carried)}; links ${JSON.stringify(links)}; target ${outsideTarget?.path ?? "none"}; phil's own drag ${!!fileDrag}`);
+  }
   if (fileDrag && (await staleDrag())) endFileDrag(), setOutsideTarget(outsideTargetAt(e.clientX, e.clientY));
   if (!fileDrag) return dropFromOutside(e, carried, links);
   const target = fileDrag?.target;
