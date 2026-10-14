@@ -91,6 +91,20 @@ export function watchDownloads(onChange) {
         close();
       };
     },
+    /**
+     * A new download of `uri` (a magnet or web link, or a .torrent file's
+     * path) into the folder `dir`; then asked again at once.
+     */
+    async add(uri, dir) {
+      if (typeof uri !== "string" || !/^(magnet:\?|https?:\/\/|\/.+\.torrent$)/i.test(uri)) throw new Error("A magnet or web link, or a .torrent file");
+      if (typeof dir !== "string" || !dir.startsWith("/")) throw new Error("Which folder to download into");
+      const answer = await request({ action: "add", uri, dir });
+      if (answer.status === "error") throw new Error(answer.message ?? "panda-dl couldn't");
+      clearTimeout(timer);
+      timer = null;
+      poll();
+      return answer;
+    },
     /** pause, resume or remove (`deleteFile`: its files too) a download; then asked again at once. */
     async act(action, id, { deleteFile = false } = {}) {
       if (!["pause", "resume", "remove"].includes(action) || typeof id !== "string") throw new Error("pause, resume or remove, and a download's id");

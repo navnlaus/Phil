@@ -306,9 +306,14 @@ export function createServer({ profile, controlSocket }) {
         const { id, pause } = await req.json();
         return json({ paused: pauseTransfer(id, !!pause) });
       }
-      case "POST /api/download": // {action: pause|resume|remove, id, deleteFile}: a download (panda-dl's)
+      case "POST /api/download": // {action: pause|resume|remove, id, deleteFile} / {action: add, uri, dir}: a download (panda-dl's)
         try {
-          const { action, id, deleteFile } = await req.json();
+          const { action, id, deleteFile, uri, dir } = await req.json();
+          if (action === "add") {
+            const folder = requirePath(dir);
+            if (!(await isDir(folder))) throw new Error(`${folder} isn't a folder`);
+            return json(await downloads.add(uri, folder));
+          }
           return json(await downloads.act(action, id, { deleteFile: !!deleteFile }));
         } catch (err) {
           throw httpError(502, err.message);
