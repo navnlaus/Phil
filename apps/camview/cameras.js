@@ -8,10 +8,17 @@
 // password, added, hidden, seen, invert, absent}]}. `invert`: mounted upside
 // down, its pan and tilt turned around (camview's toggle). `absent`: not found
 // the last time it was looked for (off, gone): not listed until it's found
-// again, with its name, login and the rest. `hidden`: forgotten, so finding it again
+// again, with its name, login and the rest.
+//
+// A camera with nothing local (a Tuya one: its maker's cloud only) is
+// {type: "rtsp", streams: [{token, name, url}], tuya: {deviceId, region,
+// clientId, clientSecret}}: its video from go2rtc (which gets it through the
+// cloud), its pan and tilt as Tuya cloud commands (tuya.js). Added by hand; the
+// network scan leaves it alone. `hidden`: forgotten, so finding it again
 // doesn't bring it back; `added`: by address, kept even when not found.
 import { dirname, join } from "@std/path";
 import * as onvif from "./onvif.js";
+import * as tuya from "./tuya.js";
 
 const RESCAN_MS = 10 * 60 * 1000; // looked for again at most this often, unless asked
 const DETAILS_MS = 5 * 60 * 1000; // a camera's services and profiles: asked again after this
@@ -87,7 +94,7 @@ export function discover({ force = false } = {}) {
       const foundIds = new Set(found.map((f) => idOf(f.host, f.port)));
       // Not found in the sweep: asked twice more, given longer (a camera on Wi-Fi
       // can be slow to answer), then left out of the list until it's back.
-      for (const c of known.filter((c) => !c.hidden && !foundIds.has(c.id))) {
+      for (const c of known.filter((c) => !c.hidden && c.type !== "rtsp" && !foundIds.has(c.id))) {
         let again = null;
         for (let i = 0; i < 2 && !again; i++) again = await onvif.probe(c.host, [c.port], loginOf(c), { wait: 2500 }).catch(() => null);
         if (again) found.push(again), foundIds.add(c.id);
@@ -166,6 +173,11 @@ export async function info(id) {
   if (cached && Date.now() - cached.at < DETAILS_MS) return cached.value;
   const value = (async () => {
     const c = await get(id);
+    if (c.type === "rtsp") { // its streams as given; PTZ if it's a Tuya camera
+      const profiles = (c.streams ?? []).map((s) => ({ token: s.token, name: s.name, width: s.width ?? 0, height: s.height ?? 0, encoding: "", ptz: !!c.tuya }));
+      if (!profiles.length) throw new Error("The camera has no streams set");
+      return { camera: shown(c), services: {}, profiles, ptz: c.tuya ? { zoom: false, presets: 0, home: false } : null };
+    }
     const login = loginOf(c);
     const svc = await onvif.services(c.url, login);
     if (!svc.media) throw new Error("The camera has no video service");
@@ -182,6 +194,7 @@ export async function info(id) {
 /** The RTSP URL of a camera's profile (`token`; default its best), with its login in it. */
 export async function rtspUrl(id, token = null) {
   const c = await get(id);
+  if (c.type === "rtsp") return ((c.streams ?? []).find((s) => s.token === token) ?? c.streams[0]).url;
   const { services, profiles } = await info(id);
   const profile = profiles.find((p) => p.token === token) ?? profiles[0];
   const uri = new URL(await onvif.streamUri(services.media, profile.token, loginOf(c)));
@@ -195,6 +208,10 @@ export async function rtspUrl(id, token = null) {
 /** The PTZ service and profile token for a camera, and its login: for onvif.move() and the rest. */
 export async function ptzOf(id) {
   const c = await get(id);
+  if (c.type === "rtsp") {
+    if (!c.tuya) throw Object.assign(new Error("This camera can't pan, tilt or zoom"), { status: 400 });
+    return { tuya: c.tuya, invert: !!c.invert };
+  }
   const { services, profiles, ptz } = await info(id);
   if (!ptz) throw Object.assign(new Error("This camera can't pan, tilt or zoom"), { status: 400 });
   return { url: services.ptz, token: (profiles.find((p) => p.ptz) ?? profiles[0]).token, login: loginOf(c), invert: !!c.invert };
