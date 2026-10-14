@@ -269,6 +269,9 @@ function describe(d) {
     state,
     error: typeof d.status === "object" && d.status ? String(Object.values(d.status)[0] ?? "") : null,
     percent: total ? Math.floor((bytes / total) * 1000) / 10 : 0,
+    // Its files being checked (a torrent starting or going on): how far that is, in percent (its
+    // progress stays what it was meanwhile); null: not checking.
+    checking: d.checked_bytes != null ? (total ? Math.floor((d.checked_bytes / total) * 100) : 0) : null,
     bytes,
     total,
     speed: d.download_speed ?? 0,

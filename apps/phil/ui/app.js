@@ -3601,7 +3601,7 @@ function showTransferCard(card, b) {
   let state, where, facts;
   if (b.d) {
     const d = b.d;
-    state = { completed: d.upSpeed > 0 ? "Seeding" : "Downloaded", paused: "Paused", error: "Failed", failed: "Failed", queued: "Queued", metadata: "Finding it", checking: "Checking" }[d.state] ?? "Downloading";
+    state = d.checking != null ? `Checking its files: ${d.checking}%` : { completed: d.upSpeed > 0 ? "Seeding" : "Downloaded", paused: "Paused", error: "Failed", failed: "Failed", queued: "Queued", metadata: "Finding it", checking: "Checking" }[d.state] ?? "Downloading";
     where = `Into ${d.dir}`;
     const ratio = d.total ? ` (ratio ${(d.uploaded / d.total).toFixed(2)})` : "";
     facts = [
@@ -3762,11 +3762,11 @@ function showDownloadBar(bar, d, part = null) {
   }
   if (part?.length != null) { // one file (or folder) of it: its own progress
     const pct = part.length ? Math.floor((part.downloaded / part.length) * 1000) / 10 : 0;
-    const paused = d.state === "paused";
-    bar.classList.toggle("paused", paused);
+    const paused = d.state === "paused", checking = d.checking != null;
+    bar.classList.toggle("paused", paused || checking);
     bar.classList.remove("failed");
     put(bar.querySelector(".fill").style, "width", `${pct}%`);
-    put(bar.querySelector(".pct"), "textContent", `${paused ? "Paused " : ""}${pct}%`);
+    put(bar.querySelector(".pct"), "textContent", `${paused ? "Paused " : checking ? "Checking… " : ""}${pct}%`);
     put(bar, "title", `${formatSize(part.downloaded)} of ${formatSize(part.length)} of this; “${d.name}”: ${d.percent}%` +
       (paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}`));
     const [toggle, stop] = bar.querySelectorAll(".cancel");
@@ -3784,7 +3784,7 @@ function showDownloadBar(bar, d, part = null) {
       (d.total ? ` (ratio ${(d.uploaded / d.total).toFixed(2)})` : "") + (d.peers ? `, ${d.peers} peer${d.peers === 1 ? "" : "s"}` : ""));
     return;
   }
-  const waiting = { queued: "Queued", initializing: "Starting…", starting: "Starting…", metadata: "Finding it…", checking: "Checking…" }[d.state];
+  const waiting = d.checking != null ? `Checking ${d.checking}%` : { queued: "Queued", initializing: "Starting…", starting: "Starting…", metadata: "Finding it…", checking: "Checking…" }[d.state];
   const failed = d.state === "error" || d.state === "failed", paused = d.state === "paused";
   bar.classList.toggle("paused", paused || !!waiting);
   bar.classList.toggle("failed", failed);
