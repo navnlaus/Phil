@@ -1,7 +1,7 @@
 /* chips: the name in a frosted chip at the bottom; the details in another at
    the top, on hover and for the selection. Change anything: every window of
-   every phil app follows each save. Pick another theme in phil's bottom
-   bar.
+   every phil app follows each save. Pick another
+   with "theme" in ~/.config/phil/settings.json.
 
    Only the theme in use is loaded, after the apps' own styles, so plain
    selectors win over theirs. It's loaded by every app (phil, the editors,
@@ -94,6 +94,11 @@ body {
 }
 :root {
   /* --mono: "JetBrains Mono", ui-monospace, monospace; */
+}
+
+/* Progress bars' corners (copies, downloads: on tiles and in the sidebar). */
+:root {
+  --bar-radius: 6px;
 }
 
 /* ---------------------------------------------------------------- phil's tiles

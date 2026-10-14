@@ -24,6 +24,7 @@
   --locked: #ff6b6b; /* can't be changed without sudo */
   --stage: #0c0d0f; /* behind pictures, dark with either */
   --mono: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  --bar-radius: 0; /* progress bars' corners */
   /* syntax colors: textedit, jsonedit, phil's text tiles */
   --s-comment: #6f7682;
   --s-string: #a8d68f;
