@@ -182,7 +182,8 @@ own file system; it's worked out again when the folder changed or after 10
 minutes, kept in `folder-totals.json` there. Network shares and the kernel's
 folders (`/proc`, `/sys`) get none. Sorted by size, folders go by their totals
 (all of them are worked out then, not just those in view), and move as the
-totals come in. Folders always come before files, whatever the order.
+totals come in: at most once a second, only when the order changed, sliding to
+their new places (the grid isn't rebuilt, so nothing flickers). Folders always come before files, whatever the order.
 
 ### Tags
 
