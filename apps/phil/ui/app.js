@@ -33,6 +33,7 @@ const state = {
   speeds: {}, // their last read speed tests: {path: {read, at}} (Properties → Run speed test)
   transfers: new Map(), // copies and moves under way: id -> their progress (the server's transfer())
   downloads: [], // downloads under way (panda-dl's; the server's downloads.js)
+  stopped: [], // copies and moves cut off, anywhere: [{path, copying}] (the server's records of them)
   clip: null, // files copied or cut, in any phil window: {op, paths, text}
   settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, theme: "overlay" },
 };
@@ -218,6 +219,7 @@ const thumbs = {
       if (this.backgroundPaths?.length) this.background(this.backgroundPaths);
       if (this.totals.size) this.send({ totals: [...this.totals] }); // asked for before the connection was up
       loadTransfers();
+      loadStoppedTransfers();
       api("/api/clipboard").then((c) => ((state.clip = c), markClipboard()), () => {});
       this.totals.clear();
       this.flush();
@@ -233,6 +235,7 @@ const thumbs = {
       if (msg.made) return onMadeInBackground(msg.made, msg.url);
       if (msg.hook) return onHookRan(msg.hook);
       if (msg.transfer) return onTransfer(msg.transfer);
+      if (msg.stoppedTransfers) return loadStoppedTransfers();
       if (msg.places) return refreshPlaces(); // the sidebar arranged, in some window
       if (msg.cameras) return (state.cameras = msg.cameras), renderCameras(); // found, renamed, forgotten
       if ("clipboard" in msg) return (state.clip = msg.clipboard), markClipboard();
@@ -3433,6 +3436,16 @@ async function loadTransfers() {
 // percent, speed, eta}, then {id, finished}): a bar on the folder it goes to
 // (its tile, when it's shown) and in the sidebar's Transfers, each with ×
 // to cancel it.
+// Copies and moves cut off (a crash, phil closed, ×), wherever they are: in the
+// Transfers list, with ↻ to go on and × to forget them. Asked for again when
+// one stops, finishes or is forgotten (in any window).
+async function loadStoppedTransfers() {
+  const list = await api("/api/stopped-transfers").catch(() => null);
+  if (!list) return;
+  state.stopped = list;
+  renderTransferList();
+}
+
 function onTransfer(p) {
   if (p.finished) state.transfers.delete(p.id);
   else state.transfers.set(p.id, p);
@@ -3485,8 +3498,10 @@ function showTransfers() {
 // or finished and still seeding, too), one row each: its name over its bar.
 // Clicking one opens the folder it goes to, with what it's making selected.
 function renderTransferList() {
+  const live = new Set([...state.transfers.values()].flatMap((t) => t.targets ?? [])); // one gone on with (↻) is under way
   const list = [
     ...[...state.transfers.values()].map((t) => ({ key: `transfer ${t.id}`, t })),
+    ...state.stopped.filter((e) => !live.has(e.path)).map((e) => ({ key: `stopped ${e.path}`, stopped: e })),
     ...state.downloads.map((d) => ({ key: `download ${d.id}`, d })),
   ];
   keyed($("#transfers"), list, { key: (b) => b.key, kind: barKind, make: makeTransferRow, show: showTransferRow });
@@ -3504,6 +3519,13 @@ function makeTransferRow(b) {
 function showTransferRow(row, b) {
   const [name, bar] = row.children;
   bar.item = b;
+  if (b.stopped) {
+    const c = b.stopped.copying;
+    showStoppedBar(bar, b.stopped);
+    put(name, "textContent", `${c.op === "move" ? "Moving" : "Copying"} ${b.stopped.path.split("/").pop()}`);
+    put(row, "title", `From ${c.from}\nTo ${parentOf(b.stopped.path)}\nClick: show it there`);
+    return;
+  }
   if (b.d) showDownloadBar(bar, b.d);
   else showTransferBar(bar, b.t);
   const what = b.d ? b.d.name : b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop();
@@ -3514,6 +3536,10 @@ function showTransferRow(row, b) {
 // The folder a transfer goes to (a delete's: the one it's deleting in), with what it's making selected.
 function goToTransfer(b) {
   closeTransfersView();
+  if (b.stopped) {
+    initialSelect = [b.stopped.path];
+    return navigate(parentOf(b.stopped.path));
+  }
   const dir = b.d ? b.d.dir : b.t.dest;
   const made = b.d ? (b.d.files?.length ? b.d.files.map((f) => f.path) : [b.d.path]).filter((p) => p?.startsWith(dir + "/")).map((p) => topIn(dir, p))
     : b.t.op === "delete" ? [] : b.t.targets ?? [];
@@ -3575,12 +3601,18 @@ function makeTransferCard(b) {
 function showTransferCard(card, b) {
   const bar = card.querySelector(".transfer-bar");
   bar.item = b;
-  if (b.d) showDownloadBar(bar, b.d);
+  if (b.stopped) showStoppedBar(bar, b.stopped);
+  else if (b.d) showDownloadBar(bar, b.d);
   else showTransferBar(bar, b.t);
-  const what = b.d ? b.d.name : b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop();
+  const what = b.stopped ? b.stopped.path.split("/").pop() : b.d ? b.d.name : b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop();
   put(card.querySelector(".tv-name"), "textContent", what);
   let state, where, facts;
-  if (b.d) {
+  if (b.stopped) {
+    const c = b.stopped.copying;
+    state = `${c.op === "move" ? "Moving" : "Copying"} stopped at ${c.percent}%`;
+    where = `To ${parentOf(b.stopped.path)}`;
+    facts = [`from ${c.from}`, c.total ? `${formatSize(c.bytes)} of ${formatSize(c.total)}` : "", c.updated ? `stopped ${formatDate(c.updated)}` : "", "↻ goes on where it stopped"];
+  } else if (b.d) {
     const d = b.d;
     state = d.checking != null ? `Checking its files: ${d.checking}%` : { completed: d.upSpeed > 0 ? "Seeding" : "Downloaded", paused: "Paused", error: "Failed", failed: "Failed", queued: "Queued", metadata: "Finding it", checking: "Checking" }[d.state] ?? "Downloading";
     where = `Into ${d.dir}`;
