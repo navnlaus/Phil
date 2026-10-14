@@ -3191,7 +3191,8 @@ $("#places").addEventListener("dragstart", (e) => {
 // empty space (the folder shown), then "Move to" / "Copy to", as a drag here.
 let outsideTarget = null;
 
-const carriesFiles = (dt) => [...(dt?.types ?? [])].some((t) => t === "text/uri-list" || t === "Files");
+// Files, or links (a magnet, a web link: downloaded there, see downloadLinks); plain text may be a link too.
+const carriesFiles = (dt) => [...(dt?.types ?? [])].some((t) => t === "text/uri-list" || t === "Files" || t === "text/plain" || t === "text/x-moz-url");
 
 function outsideTargetAt(x, y) {
   const gap = placeGapAt(x, y);
@@ -3231,6 +3232,29 @@ function filePaths(dt) {
   return [...new Set(paths)];
 }
 
+// The links a drop carries that can be downloaded (panda-dl: magnet links and web links).
+function downloadLinks(dt) {
+  const html = dt.getData("text/html");
+  const links = html ? [...new DOMParser().parseFromString(html, "text/html").querySelectorAll("a[href]")].map((a) => a.getAttribute("href")) : [];
+  const lines = [dt.getData("text/uri-list"), dt.getData("text/x-moz-url"), dt.getData("text/plain"), ...links].join("\n").split(/\r?\n/).map((l) => l.trim());
+  return [...new Set(lines.filter((l) => /^(magnet:\?|https?:\/\/)\S+$/i.test(l)))];
+}
+
+// Downloads of links or .torrent files into `dir` (panda-dl's; their bars show as they go).
+async function download(uris, dir) {
+  const name = dir.split("/").pop() || "/";
+  let added = 0;
+  for (const uri of uris) {
+    try {
+      await api("/api/download", { method: "POST", body: JSON.stringify({ action: "add", uri, dir }) });
+      added++;
+    } catch (err) {
+      alert(`Couldn't download ${uri.length > 80 ? uri.slice(0, 77) + "…" : uri}\n${err.message}`);
+    }
+  }
+  if (added) flashStatus(`Downloading ${added === 1 ? "it" : `${added} things`} into “${name}”`);
+}
+
 // A drag out of a phil window: its files (and button) for the window it's dropped
 // on. Its id tells this window whether a drag it remembers is still the one
 // going on (a right- or middle-drag out of it ends without telling it).
@@ -3247,10 +3271,12 @@ async function staleDrag() {
   return current?.id !== fileDrag.id;
 }
 
-async function dropFromOutside(e, carried) {
+async function dropFromOutside(e, carried, links = []) {
   const target = outsideTarget;
   setOutsideTarget(null);
   if (!target) return;
+  // Links (no files): downloaded into the folder they're dropped on.
+  if (!carried.length && links.length) return target.gap ? flashStatus("Drop links on a folder to download them there") : download(links, target.path);
   let paths = carried;
   // From another phil window: what it said it's dragging (its files, when the drop lost them; its button).
   const phil = await api("/api/drag").catch(() => null);
@@ -3261,9 +3287,17 @@ async function dropFromOutside(e, carried) {
   }
   if (target.gap) return addToSidebar(paths, target.before);
   paths = paths.filter((p) => p !== target.path && !target.path.startsWith(p + "/")); // not into itself
-  if (!paths.length) return flashStatus("Only files and folders can be dropped here");
+  if (!paths.length) return flashStatus("Only files, folders and links can be dropped here");
   const items = paths.map((path) => ({ path }));
   const name = target.path.split("/").pop() || "/";
+  // .torrent files: downloaded there, first of the choices.
+  if (!fromPhil && paths.every((p) => /\.torrent$/i.test(p))) {
+    return showMenu(e.clientX, e.clientY, [
+      [`Download into “${name}”`, () => download(paths, target.path)],
+      [`Move to “${name}”`, () => transfer("move", items, target.path)],
+      [`Copy to “${name}”`, () => transfer("copy", items, target.path)],
+    ]);
+  }
   if (fromPhil && phil.button === 1 && !paths.every((p) => parentOf(p) === target.path)) return transfer("move", items, target.path); // middle: moves
   // All of it from that very folder (another window showing it): copies of them there.
   if (paths.every((p) => parentOf(p) === target.path)) return showMenu(e.clientX, e.clientY, [["Copy here", () => transfer("copy", items, target.path)]]);
@@ -3291,9 +3325,9 @@ addEventListener("dragover", (e) => {
 addEventListener("dragenter", () => staleDrag().then((stale) => stale && endFileDrag()));
 addEventListener("drop", async (e) => {
   e.preventDefault();
-  const carried = filePaths(e.dataTransfer); // the drop's data: gone once this handler awaits
+  const carried = filePaths(e.dataTransfer), links = downloadLinks(e.dataTransfer); // the drop's data: gone once this handler awaits
   if (fileDrag && (await staleDrag())) endFileDrag(), setOutsideTarget(outsideTargetAt(e.clientX, e.clientY));
-  if (!fileDrag) return dropFromOutside(e, carried);
+  if (!fileDrag) return dropFromOutside(e, carried, links);
   const target = fileDrag?.target;
   const { items, button, dirs } = fileDrag ?? {};
   endFileDrag();
