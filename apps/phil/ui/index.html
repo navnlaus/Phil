@@ -74,9 +74,9 @@
     <!-- Beside the sidebar button, under the top bar: it shows while the bar is faded out. -->
     <div class="brand" aria-hidden="true">PHIL</div>
     <nav id="places" aria-label="Folders and drives"></nav>
-    <!-- Copies, moves, deletes and downloads under way (or paused): a click shows where it goes. -->
-    <section id="transfers-panel" hidden>
-      <h3 class="heading">Transfers</h3>
+    <!-- Copies, moves, deletes and downloads under way (or paused): a click shows where it goes. Its heading opens the Transfers view. -->
+    <section id="transfers-panel">
+      <h3 class="heading"><button id="btn-transfers" type="button" title="All transfers, and the settings for downloads">Transfers</button></h3>
       <div id="transfers"></div>
     </section>
     <section id="tags-panel">
@@ -95,6 +95,46 @@
     <div id="files">
 
       <section id="grid" tabindex="0" aria-label="Files"></section>
+
+      <!-- Every transfer in full, and panda-dl's settings (the sidebar's Transfers heading). -->
+      <div id="transfers-view" hidden>
+        <div class="tv-page">
+          <header class="tv-head">
+            <h2>Transfers</h2>
+            <button class="icon close" type="button" title="Close (Esc)"><svg><use href="#i-close"/></svg></button>
+          </header>
+          <div id="tv-items"></div>
+          <p class="tv-empty hint">Nothing is being copied, moved, deleted or downloaded.</p>
+          <section class="tv-settings">
+            <h3 class="heading">Downloads</h3>
+            <p class="hint tv-daemon"></p>
+            <div class="tv-fields">
+              <label for="tv-dir">Download folder</label>
+              <div class="tv-field">
+                <div class="tv-row">
+                  <input id="tv-dir" type="text" spellcheck="false" autocomplete="off" data-setting="download_dir">
+                  <button type="button" id="tv-dir-here">The folder shown</button>
+                </div>
+                <p class="hint">Where links copied to the clipboard are downloaded (and the panda-dl command's). A link or .torrent dropped in phil goes where it's dropped.</p>
+              </div>
+              <label for="tv-parts">Connections</label>
+              <div class="tv-field">
+                <input id="tv-parts" type="number" min="1" max="64" data-setting="default_parts">
+                <p class="hint">How many at once a web download uses (not torrents).</p>
+              </div>
+              <span>Clipboard</span>
+              <div class="tv-field">
+                <label class="check"><input type="checkbox" data-setting="auto_capture_clipboard"> Download links copied to the clipboard</label>
+                <div class="tv-sub">
+                  <label class="check"><input type="checkbox" data-setting="auto_start_magnets"> magnet links</label>
+                  <label class="check"><input type="checkbox" data-setting="auto_start_torrents"> .torrent links</label>
+                </div>
+              </div>
+            </div>
+            <p class="tv-error" hidden></p>
+          </section>
+        </div>
+      </div>
 
       <footer id="status">
         <span id="status-count"></span>

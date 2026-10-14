@@ -319,6 +319,14 @@ export function createServer({ profile, controlSocket }) {
         } catch (err) {
           throw httpError(502, err.message);
         }
+      case "GET /api/download-settings": // panda-dl's: {running, config}
+        return json(await downloads.settings());
+      case "PUT /api/download-settings": // {name: value, ...}: some of them changed; answers as GET
+        try {
+          return json(await downloads.setSettings(await req.json()));
+        } catch (err) {
+          throw httpError(400, err.message);
+        }
       case "POST /api/transfer-forget": // {path}: drops a stopped copy's record (what was copied stays)
         await hooks.set(requirePath(path), { copying: "" });
         return json({ ok: true });
