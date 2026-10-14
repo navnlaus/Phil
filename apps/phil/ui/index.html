@@ -74,6 +74,11 @@
     <!-- Beside the sidebar button, under the top bar: it shows while the bar is faded out. -->
     <div class="brand" aria-hidden="true">PHIL</div>
     <nav id="places" aria-label="Folders and drives"></nav>
+    <!-- Copies, moves, deletes and downloads under way (or paused): a click shows where it goes. -->
+    <section id="transfers-panel" hidden>
+      <h3 class="heading">Transfers</h3>
+      <div id="transfers"></div>
+    </section>
     <section id="tags-panel">
       <h3 class="heading">Tags</h3>
       <p id="tags-status" class="hint" hidden></p>
@@ -91,11 +96,9 @@
 
       <section id="grid" tabindex="0" aria-label="Files"></section>
 
-      <footer id="status" class="overlay-bar">
+      <footer id="status">
         <span id="status-count"></span>
         <span id="status-progress"></span>
-        <span id="status-thumbdir"></span>
-        <select id="theme-pick" title="Theme: how names sit on the tiles (files in ~/.config/phil/themes)" aria-label="Theme"></select>
       </footer>
     </div>
     <div id="term-panel" hidden>

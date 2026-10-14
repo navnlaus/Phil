@@ -202,6 +202,7 @@ const thumbs = {
   ws: null,
   wanted: new Set(), // files and folders waiting for an answer
   folders: new Set(), // the folders among them
+  quiet: new Set(), // those asked for again, not counted in the status bar
   outWant: new Set(),
   outFolders: new Set(),
   outCancel: new Set(),
@@ -238,6 +239,7 @@ const thumbs = {
       const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
       this.folders.delete(path);
+      this.quiet.delete(path);
       if (msg.folder) onFolderSummary(path, msg.summary);
       else if ("text" in msg) onTextReady(path, msg.text);
       else onThumbReady(path, msg.url, msg.busy);
@@ -245,10 +247,13 @@ const thumbs = {
     };
     this.ws.onclose = () => setTimeout(() => this.connect(), 1000);
   },
-  want(path, { folder = false } = {}) {
+  // `quiet`: asked again (it changed, or was being written), not counted in the
+  // status bar (a download changes it every few seconds: "Reading 1 folder" blinked).
+  want(path, { folder = false, quiet = false } = {}) {
     if (this.wanted.has(path)) return;
     this.wanted.add(path);
     if (folder) this.folders.add(path);
+    if (quiet) this.quiet.add(path);
     this.outCancel.delete(path);
     (folder ? this.outFolders : this.outWant).add(path);
     this.schedule();
@@ -256,6 +261,7 @@ const thumbs = {
   cancel(path) {
     if (!this.wanted.delete(path)) return;
     this.folders.delete(path);
+    this.quiet.delete(path);
     if (!this.outWant.delete(path) && !this.outFolders.delete(path)) this.outCancel.add(path);
     this.schedule();
   },
@@ -337,7 +343,7 @@ function wantSummary(tile, entry) {
   const upToDate = s && s.mtime === entry.mtime && s.sort === state.settings.sort && s.complete && !changedFolders.has(entry.path);
   if (entry.summaryFailed || upToDate) return;
   if (!s) tile.firstElementChild.classList.add("loading");
-  thumbs.want(entry.path, { folder: true });
+  thumbs.want(entry.path, { folder: true, quiet: !!s });
 }
 
 function onFolderSummary(path, summary) {
@@ -485,7 +491,7 @@ function onThumbReady(path, url, busy = false) {
   if (!tile) return;
   if (busy) {
     tile.firstElementChild.classList.remove("loading");
-    return wantLater(path, busy, (t, e) => e?.path === path && thumbs.want(path));
+    return wantLater(path, busy, (t, e) => e?.path === path && thumbs.want(path, { quiet: true }));
   }
   state.view[tile.dataset.index].thumb = url;
   const box = tile.firstElementChild;
@@ -979,7 +985,7 @@ function refreshPreview(tile, entry) {
   } else if (typeof entry.thumb === "string") {
     if (box.querySelector("img") || near) setThumbImage(box, entry.thumb);
   } else if (entry.thumb === null && near && !askAgain.has(entry.path)) {
-    thumbs.want(entry.path); // (no "loading" look: a file being written changes all the time, and that blinked)
+    thumbs.want(entry.path, { quiet: true }); // (no "loading" look: a file being written changes all the time, and that blinked)
   }
 }
 
@@ -1571,7 +1577,8 @@ function updateStatus() {
 }
 
 function updateProgress() {
-  const folders = thumbs.folders.size, files = thumbs.wanted.size - folders;
+  let folders = 0, files = 0;
+  for (const path of thumbs.wanted) if (!thumbs.quiet.has(path)) thumbs.folders.has(path) ? folders++ : files++;
   const parts = [];
   if (files) parts.push(`Generating ${files} thumbnail${files === 1 ? "" : "s"}`);
   if (folders) parts.push(`${parts.length ? "reading" : "Reading"} ${folders} folder${folders === 1 ? "" : "s"}`);
@@ -1589,7 +1596,6 @@ function applySettings() {
   document.body.classList.toggle("sidebar", s.sidebar);
   const theme = /^[\w-]+$/.test(s.theme ?? "") ? s.theme : "overlay";
   document.body.dataset.theme = theme;
-  if (themePick.value !== theme) themePick.value = theme;
   const link = $("#theme");
   if (new URL(link.href).pathname !== `/themes/${theme}.css`) link.href = `/themes/${theme}.css`;
   redrawTexts();
@@ -2018,50 +2024,6 @@ const newItemsIn = (dir, where = "") => [
   [`New folder${where}`, () => createIn(dir, "dir")],
   [`New file${where}`, () => createIn(dir, "file")],
 ];
-
-// ---------------------------------------------------------------- themes
-
-// The bottom bar's theme picker: the themes (stylesheets in
-// ~/.config/phil/themes, listed again whenever one is added or removed there),
-// then a new one, and the folder. Picking one saves it in the settings, so
-// every phil window follows.
-const themePick = $("#theme-pick");
-const NEW_THEME = "\u0000new", THEME_FOLDER = "\u0000folder";
-let themesFolder = null;
-
-async function listThemes() {
-  const r = await api("/api/themes").catch(() => null);
-  if (!r) return;
-  themesFolder = r.dir;
-  if (r.theme !== state.settings.theme) setTheme(r.theme); // the one in use was deleted: the default
-  const names = r.themes.includes(state.settings.theme) ? r.themes : [...r.themes, state.settings.theme];
-  themePick.replaceChildren(
-    ...names.map((t) => new Option(t, t)),
-    new Option("New theme…", NEW_THEME),
-    new Option("Open the themes folder", THEME_FOLDER),
-  );
-  themePick.value = state.settings.theme;
-}
-
-themePick.onchange = async () => {
-  const picked = themePick.value;
-  themePick.value = state.settings.theme; // until the settings say otherwise
-  grid.focus({ preventScroll: true });
-  if (picked === THEME_FOLDER) return themesFolder && navigate(themesFolder);
-  if (picked !== NEW_THEME) {
-    return api("/api/theme", { method: "PUT", body: JSON.stringify({ theme: picked }) }).catch((err) => alert(err.message));
-  }
-  const name = prompt(`A name for the new theme (a stylesheet in ${themesFolder}; it starts from a template with notes on what to change):`);
-  if (!name?.trim()) return;
-  try {
-    const { theme, file } = await api("/api/themes", { method: "POST", body: JSON.stringify({ name }) });
-    openExternal(file); // in its own window, next to this one: every save shows here
-    flashStatus(`New theme ${theme}: ${file}`, 8000);
-  } catch (err) {
-    alert(`Couldn't make the theme: ${err.message}`);
-  }
-};
-document.addEventListener("themes-changed", listThemes);
 
 // ---------------------------------------------------------------- tags
 
@@ -3358,15 +3320,13 @@ async function addToConfig(entry) {
   }
 }
 
-// A message in the status bar, shown for a few seconds even if the bar is hidden.
+// A message in the status bar, for a few seconds.
 function flashStatus(text, ms = 3500) {
-  const bar = $("#status"), el = $("#status-progress");
+  const el = $("#status-progress");
   el.textContent = text;
-  bar.classList.add("show");
   clearTimeout(flashStatus.timer);
   flashStatus.until = Date.now() + ms;
   flashStatus.timer = setTimeout(() => {
-    bar.classList.remove("show");
     if (el.textContent === text) updateProgress();
   }, ms);
 }
@@ -3475,7 +3435,7 @@ async function loadTransfers() {
 
 // The server's progress for a copy or move ({id, op, dest, bytes, total,
 // percent, speed, eta}, then {id, finished}): a bar on the folder it goes to
-// (its tile, when it's shown) and under the drive in the sidebar, each with ×
+// (its tile, when it's shown) and in the sidebar's Transfers, each with ×
 // to cancel it; and the status line.
 function onTransfer(p) {
   if (p.finished) state.transfers.delete(p.id);
@@ -3514,9 +3474,8 @@ function showTransfers() {
       live.add(t.file);
       add(tiles.get(t.file), { key: `${t.id} file`, t: { ...t, percent: t.filePercent ?? 0 }, ofFile: true });
     }
-    add(driveBarHost(t.dest), { key: `${t.id} drive`, t }); // the drive it goes to
   }
-  // Downloads (panda-dl's): on what's being downloaded (once it's there), the folder it goes to, and its drive.
+  // Downloads (panda-dl's): on what's being downloaded (once it's there), and the folder it goes to.
   // Finished ones still in its list (seeding, say): a quiet mark on what was downloaded, with × to take it off.
   for (const d of state.downloads) {
     // What it's writing, each with its own progress (a torrent finishes its files at different
@@ -3524,7 +3483,6 @@ function showTransfers() {
     for (const [path, part] of downloadParts(d)) add(tiles.get(path), { key: `download ${d.id}`, d, part: { ...part, path } });
     if (d.state === "completed") continue;
     add(tiles.get(d.dir), { key: `download ${d.id} folder`, d });
-    add(driveBarHost(d.dir), { key: `download ${d.id} drive`, d });
   }
   // Copies cut off (a crash, ×): their record says how far they got; ↻ goes on, × forgets it.
   for (const e of state.view) if (e.copying?.state === "stopped" && !live.has(e.path)) add(tiles.get(e.path), { key: "stopped", stopped: e });
@@ -3536,8 +3494,53 @@ function showTransfers() {
       make: (b) => makeTransferBar(barKind(b)),
       show: (bar, b) => (b.d ? showDownloadBar(bar, b.d, b.part) : b.stopped ? showStoppedBar(bar, b.stopped) : showTransferBar(bar, b.t, b)),
     });
+    // More than one on a tile (a copy into a folder a download goes to): one under the other.
+    [...host.querySelectorAll(":scope > .transfer-bar")].forEach((bar, i) => put(bar.style, "top", i ? `${8 + i * 24}px` : ""));
   }
+  renderTransferList();
 }
+
+// The sidebar's Transfers: every copy, move, delete and download (paused,
+// or finished and still seeding, too), one row each: its name over its bar.
+// Clicking one opens the folder it goes to, with what it's making selected.
+function renderTransferList() {
+  const list = [
+    ...[...state.transfers.values()].map((t) => ({ key: `transfer ${t.id}`, t })),
+    ...state.downloads.map((d) => ({ key: `download ${d.id}`, d })),
+  ];
+  $("#transfers-panel").hidden = !list.length;
+  keyed($("#transfers"), list, { key: (b) => b.key, kind: barKind, make: makeTransferRow, show: showTransferRow });
+}
+
+function makeTransferRow(b) {
+  const row = document.createElement("div");
+  row.className = "transfer-row";
+  row.append(Object.assign(document.createElement("span"), { className: "transfer-name" }), makeTransferBar(barKind(b)));
+  row.addEventListener("click", () => goToTransfer(row.item));
+  return row;
+}
+
+function showTransferRow(row, b) {
+  const [name, bar] = row.children;
+  bar.item = b;
+  if (b.d) showDownloadBar(bar, b.d);
+  else showTransferBar(bar, b.t);
+  const what = b.d ? b.d.name : b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop();
+  put(name, "textContent", b.d ? what : `${{ move: "Moving", delete: "Deleting" }[b.t.op] ?? "Copying"} ${what}`);
+  put(row, "title", b.d ? `${b.d.path ?? b.d.dir}\nClick: show it in ${b.d.dir}` : `${b.t.op === "delete" ? "Deleting in" : "To"} ${b.t.dest}\nClick: show it there`);
+}
+
+// The folder a transfer goes to (a delete's: the one it's deleting in), with what it's making selected.
+function goToTransfer(b) {
+  const dir = b.d ? b.d.dir : b.t.dest;
+  const made = b.d ? (b.d.files?.length ? b.d.files.map((f) => f.path) : [b.d.path]).filter((p) => p?.startsWith(dir + "/")).map((p) => topIn(dir, p))
+    : b.t.op === "delete" ? [] : b.t.targets ?? [];
+  initialSelect = made.length ? [...new Set(made)] : null;
+  navigate(dir);
+}
+
+// The entry right in `dir` that `path` is in (or is).
+const topIn = (dir, path) => dir + "/" + path.slice(dir.length + 1).split("/")[0];
 
 const partDone = (b) => b.d.state === "completed" || (b.part?.length != null && b.part.downloaded >= b.part.length);
 const barKind = (b) => (b.d ? (partDone(b) ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
@@ -3571,17 +3574,10 @@ function onDownloads(list) {
     const tile = tiles.get(path), entry = tile && state.view[tile.dataset.index];
     if (!entry || !isNear(tile)) continue;
     if (entry.kind === "dir") wantSummary(tile, entry);
-    else if (entry.kind !== "file" && entry.thumb == null) thumbs.want(path); // a picture or video without one (not one that failed)
+    else if (entry.kind !== "file" && entry.thumb == null) thumbs.want(path, { quiet: true }); // a picture or video without one (not one that failed)
   }
   state.downloads = list;
   showTransfers();
-}
-
-// Where a drive's bars go: the sidebar's mount with the longest path that holds `path`.
-function driveBarHost(path) {
-  const mount = state.init?.places.filter((p) => isMount(p) && !p.unmounted && (path === p.path || path.startsWith(p.path === "/" ? "/" : p.path + "/")))
-    .sort((a, b) => b.path.length - a.path.length)[0];
-  return mount && $(`#places a[data-path="${CSS.escape(mount.path)}"] .place-text`);
 }
 
 // × on a download's bar: on one of its files (or a folder in it), that's no
@@ -3613,7 +3609,7 @@ function showDownloadBar(bar, d, part = null) {
     put(bar, "title", `${formatSize(part.downloaded)} of ${formatSize(part.length)} of this; “${d.name}”: ${d.percent}%` +
       (paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}`));
     const [toggle, stop] = bar.querySelectorAll(".cancel");
-    put(toggle, "textContent", paused ? "▶" : "⏸");
+    putIcon(toggle, paused ? "l:play" : "l:pause");
     put(toggle, "title", paused ? `Go on with “${d.name}”` : `Pause “${d.name}”`);
     put(stop, "title", d.files?.length > 1 ? "Stop downloading this (the rest goes on; what's downloaded stays)" : `Stop and forget “${d.name}” (what's downloaded stays)`);
     return;
@@ -3637,7 +3633,7 @@ function showDownloadBar(bar, d, part = null) {
   put(bar, "title", `Downloading ${d.name}: ${formatSize(d.bytes)} of ${formatSize(d.total)}` +
     (failed ? `\n${d.error || "it failed"}` : paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}${peers}`));
   const [toggle, stop] = bar.querySelectorAll(".cancel");
-  put(toggle, "textContent", paused || failed ? "▶" : "⏸");
+  putIcon(toggle, paused || failed ? "l:play" : "l:pause");
   put(toggle, "title", paused || failed ? "Go on" : "Pause");
   put(stop, "title", "Stop and forget this download (what's downloaded stays)");
 }
@@ -3711,7 +3707,7 @@ function showTransferBar(bar, t, { ofFile = false } = {}) {
   put(label, "textContent", `${t.paused ? "Paused " : ""}${t.percent}%`);
   bar.classList.toggle("paused", !!t.paused);
   const [pause, cancel] = bar.querySelectorAll(".cancel");
-  put(pause, "textContent", t.paused ? "▶" : "⏸");
+  putIcon(pause, t.paused ? "l:play" : "l:pause");
   put(pause, "title", t.paused ? "Go on" : "Pause");
   put(cancel, "title", `Stop ${t.op === "move" ? "moving" : "copying"} (what's done stays; ↻ on the folder goes on)`);
 }
@@ -4045,12 +4041,8 @@ state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
 applySettings();
 renderPlaces(); // once: after this, only when the places change (their space and speeds update in place)
-listThemes();
 refreshSpeeds(); // the drives' last speed tests, for their tooltips
 loadCameras(); // the network cameras found so far (looked for again with the sidebar's refresh button)
-const thumbDirEl = $("#status-thumbdir");
-thumbDirEl.textContent = (state.init.incognito ? "Incognito · " : "") + `Thumbnails: ${state.init.thumbDir}`;
-thumbDirEl.title = `${state.init.thumbDir} (${state.init.thumbSize})`;
 thumbs.connect();
 
 restoreTerminal = state.settings.termOpen;
