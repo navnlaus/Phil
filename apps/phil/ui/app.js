@@ -418,7 +418,7 @@ function resort() {
 function showThumb(tile, entry) {
   const box = tile.firstElementChild;
   if (typeof entry.thumb === "string") return setThumbImage(box, entry.thumb);
-  if (entry.thumb === null) {
+  if (entry.thumb === null && !askAgain.has(entry.path)) { // (not one being written: asked again when it may have settled)
     box.classList.add("loading");
     thumbs.want(entry.path);
   }
@@ -978,9 +978,8 @@ function refreshPreview(tile, entry) {
     if (near) showText(tile, entry);
   } else if (typeof entry.thumb === "string") {
     if (box.querySelector("img") || near) setThumbImage(box, entry.thumb);
-  } else if (entry.thumb === null && near) {
-    if (!box.querySelector("img")) box.classList.add("loading");
-    thumbs.want(entry.path);
+  } else if (entry.thumb === null && near && !askAgain.has(entry.path)) {
+    thumbs.want(entry.path); // (no "loading" look: a file being written changes all the time, and that blinked)
   }
 }
 
@@ -3520,11 +3519,8 @@ function showTransfers() {
   // Downloads (panda-dl's): on what's being downloaded (once it's there), the folder it goes to, and its drive.
   // Finished ones still in its list (seeding, say): a quiet mark on what was downloaded, with × to take it off.
   for (const d of state.downloads) {
-    if (d.state === "completed") {
-      if (d.path) add(tiles.get(d.path), { key: `download ${d.id}`, d });
-      continue;
-    }
-    if (d.path) add(tiles.get(d.path), { key: `download ${d.id}`, d });
+    for (const path of d.paths) add(tiles.get(path), { key: `download ${d.id}`, d }); // what it's writing (a torrent: its files)
+    if (d.state === "completed") continue;
     add(tiles.get(d.dir), { key: `download ${d.id} folder`, d });
     add(driveBarHost(d.dir), { key: `download ${d.id} drive`, d });
   }
@@ -3546,15 +3542,15 @@ const barKind = (b) => (b.d ? (b.d.state === "completed" ? "downloaded" : "downl
 // Downloads under way, changed. One that's done (or stopped) gets its
 // thumbnail now: none was made while it was being written.
 function onDownloads(list) {
-  const still = new Set(list.filter((d) => d.state !== "completed").map((d) => d.path)); // finished ones are done being written
-  for (const d of state.downloads) {
-    if (!d.path || still.has(d.path)) continue;
-    clearTimeout(askAgain.get(d.path));
-    askAgain.delete(d.path);
-    const tile = tiles.get(d.path), entry = tile && state.view[tile.dataset.index];
+  const still = new Set(list.filter((d) => d.state !== "completed").flatMap((d) => d.paths)); // finished ones are done being written
+  for (const path of state.downloads.filter((d) => d.state !== "completed").flatMap((d) => d.paths)) {
+    if (still.has(path)) continue;
+    clearTimeout(askAgain.get(path));
+    askAgain.delete(path);
+    const tile = tiles.get(path), entry = tile && state.view[tile.dataset.index];
     if (!entry || !isNear(tile)) continue;
     if (entry.kind === "dir") wantSummary(tile, entry);
-    else if (entry.kind !== "file" && entry.thumb == null) thumbs.want(d.path); // a picture or video without one (not one that failed)
+    else if (entry.kind !== "file" && entry.thumb == null) thumbs.want(path); // a picture or video without one (not one that failed)
   }
   state.downloads = list;
   showTransfers();
