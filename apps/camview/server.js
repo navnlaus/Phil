@@ -23,6 +23,7 @@ import { join } from "@std/path";
 import { httpError, json } from "../../engine/http.js";
 import * as cameras from "./cameras.js";
 import * as onvif from "./onvif.js";
+import * as tuya from "./tuya.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 
@@ -35,6 +36,30 @@ export function createServer({ profile = {} } = {}) {
   async function ptz(body) {
     const { id, op } = body;
     const p = await cameras.ptzOf(String(id ?? ""));
+    // A Tuya camera's: cloud commands; one speed, no presets here (yet).
+    if (p.tuya) {
+      const t = p.tuya, flip = p.invert ? -1 : 1;
+      const cloud = (fn) => fn().catch((err) => {
+        throw httpError(502, err.message);
+      });
+      if (op === "move") {
+        const speed = { x: flip * Math.sign(Number(body.x) || 0), y: flip * Math.sign(Number(body.y) || 0), zoom: 0 };
+        const m = moving.get(id);
+        clearTimeout(m?.timer);
+        const same = m && m.speed.x === speed.x && m.speed.y === speed.y;
+        const timer = setTimeout(() => (moving.delete(id), tuya.stop(t, t.deviceId).catch(() => {})), MOVE_HOLD_MS);
+        moving.set(id, { timer, speed });
+        if (!same) await cloud(() => tuya.move(t, t.deviceId, speed));
+        return { ok: true };
+      }
+      if (op === "stop") {
+        clearTimeout(moving.get(id)?.timer);
+        moving.delete(id);
+        await cloud(() => tuya.stop(t, t.deviceId));
+        return { ok: true };
+      }
+      throw httpError(400, "This camera's saved positions aren't supported here yet");
+    }
     const quiet = (fn) => fn().catch((err) => {
       throw httpError(err.auth ? 403 : 502, err.message);
     });
@@ -92,6 +117,7 @@ export function createServer({ profile = {} } = {}) {
           return json(await ptz(await req.json()));
         case "GET /api/presets": {
           const p = await cameras.ptzOf(id);
+          if (p.tuya) return json([]);
           return json(await onvif.presets(p.url, p.token, p.login).catch(() => []));
         }
         case "POST /api/snapshot":

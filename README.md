@@ -653,6 +653,18 @@ them at the bottom of its sidebar; double-click one to show it in that window
   frames, how far behind live it plays here (what's buffered and not shown yet;
   the camera's encoding and the network add a few hundred ms before that), the
   data coming in, how long it's been connected and how often it reconnected. While shown, a summary goes to phil's log every 10 s (`camview: ... stats`).
+- **Cameras with nothing local** (Tuya / Smart Life ones, like Hombli's: no
+  RTSP, no ONVIF, every port closed): their video comes from
+  [go2rtc](https://github.com/AlexxIT/go2rtc), which gets it through Tuya's
+  cloud (a WebRTC call the cloud sets up; the video comes straight over the
+  LAN when the firewall lets the camera reach go2rtc's UDP port 8555, through
+  Tuya's relay otherwise) and serves it as local RTSP
+  (`~/.config/go2rtc/go2rtc.yaml`, `go2rtc.service`). Such a camera is a
+  `"type": "rtsp"` entry in `cameras.json` with its `streams` (go2rtc's RTSP
+  URLs) and, for pan and tilt, `tuya` (its device ID and the Tuya cloud
+  project's region, client ID and secret: `apps/camview/tuya.js` signs the
+  commands). Added by hand; the network scan leaves it alone. H.265 (2K Tuya
+  cameras) plays in WebKit as it comes, decoded on the GPU.
 - **Cameras that get ONVIF half right** (cheap ones, like EYEPLUS / YCC365):
   answers with a wrong length are read up to their end, an empty answer to a
   move counts, and an answer to a question it doesn't support (some replay
