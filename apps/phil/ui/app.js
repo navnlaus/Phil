@@ -507,6 +507,30 @@ new ResizeObserver(redrawTexts).observe(grid);
 
 // ---------------------------------------------------------------- navigation
 
+// TEMPORARY, looking into first clicks in the sidebar that do nothing: what
+// happens to clicks there, the window's focus, and folder loads, timed from
+// the page's start, to phil's log ($XDG_RUNTIME_DIR/phil/main.log), a batch a second.
+const DEBUG_CLICKS = true;
+const debugLines = [];
+const debug = (text) => DEBUG_CLICKS && debugLines.push(`${Math.round(performance.now())}ms ${text}`);
+if (DEBUG_CLICKS) {
+  setInterval(() => debugLines.length && fetch("/api/debug-log", { method: "POST", body: JSON.stringify({ lines: debugLines.splice(0) }) }).catch(() => {}), 1000);
+  const where = (e) => {
+    const a = e.target.closest?.("#places a, #cameras a");
+    return a ? (a.dataset.path ?? a.dataset.camera ?? a.textContent.trim()) : e.target.closest?.("#sidebar") ? "sidebar (no place)" : null;
+  };
+  for (const type of ["pointerdown", "pointerup", "click", "mousedown", "mouseup"]) {
+    addEventListener(type, (e) => {
+      const w = where(e);
+      if (w) debug(`${type} on ${w} button=${e.button} focused=${document.hasFocus()} prevented=${e.defaultPrevented}`);
+    }, true);
+  }
+  addEventListener("focus", () => debug("window focus"));
+  addEventListener("blur", () => debug("window blur"));
+  addEventListener("hashchange", () => debug(`hashchange → ${decodeURIComponent(location.hash.slice(1))}`), true);
+  debug(`page start, hash ${decodeURIComponent(location.hash.slice(1)) || "(none)"}`);
+}
+
 function navigate(path) {
   const hash = "#" + encodePath(path);
   if (location.hash === hash) load(path);
@@ -519,12 +543,16 @@ async function load(path) {
   if (state.path) scrollPositions.set(state.path, grid.scrollTop);
   const previous = state.path;
   let listing;
+  const started = performance.now();
+  debug(`load ${path} (showing ${previous})`);
   try {
     listing = await api(`/api/list?path=${encodeURIComponent(path)}&sort=${state.settings.sort}`);
   } catch (err) {
+    debug(`load ${path} failed after ${Math.round(performance.now() - started)} ms: ${err.message}`);
     showGridMessage(`Can't open ${path}: ${err.message}`);
     return;
   }
+  debug(`load ${path} listed in ${Math.round(performance.now() - started)} ms (${listing.entries.length} entries)`);
   state.path = listing.path;
   terminal.follow(listing.path);
   state.entries = listing.entries;

@@ -359,6 +359,9 @@ export function createServer({ profile, controlSocket }) {
         return json(await pickTheme((await req.json()).theme));
       case "POST /api/themes": // {name}: a new one, from the template
         return json(await newTheme((await req.json()).name));
+      case "POST /api/debug-log": // {lines}: what the page recorded (ui/app.js, DEBUG_CLICKS), into phil's log
+        for (const line of ((await req.json()).lines ?? []).slice(0, 200)) console.error(`phil page: ${String(line).slice(0, 300)}`);
+        return json({ ok: true });
       case "PUT /api/settings":
         if (!config.incognito) await writeSettings(await req.json()); // incognito: this session only
         return json({ ok: true });
