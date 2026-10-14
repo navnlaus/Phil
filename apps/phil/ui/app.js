@@ -3521,7 +3521,7 @@ function showTransfers() {
   for (const d of state.downloads) {
     // What it's writing, each with its own progress (a torrent finishes its files at different
     // times), and the folders in it with theirs together.
-    for (const [path, part] of downloadParts(d)) add(tiles.get(path), { key: `download ${d.id}`, d, part });
+    for (const [path, part] of downloadParts(d)) add(tiles.get(path), { key: `download ${d.id}`, d, part: { ...part, path } });
     if (d.state === "completed") continue;
     add(tiles.get(d.dir), { key: `download ${d.id} folder`, d });
     add(driveBarHost(d.dir), { key: `download ${d.id} drive`, d });
@@ -3584,14 +3584,23 @@ function driveBarHost(path) {
   return mount && $(`#places a[data-path="${CSS.escape(mount.path)}"] .place-text`);
 }
 
+// × on a download's bar: on one of its files (or a folder in it), that's no
+// longer downloaded (the rest goes on; the last of it: the download is
+// removed); on all of it (the folder it goes to, its drive, a finished one), it's
+// removed. What's downloaded stays.
+function stopDownloadPart({ d, part }) {
+  const body = part?.path && d.state !== "completed" && d.files?.length > 1 ? { action: "skip", id: d.id, paths: [part.path] } : { action: "remove", id: d.id };
+  api("/api/download", { method: "POST", body: JSON.stringify(body) }).catch((err) => alert(err.message));
+}
+
 // A download's bar: how far, its speed and time left (the tooltip), pause or
 // go on, and × to stop it (what's downloaded stays).
 function showDownloadBar(bar, d, part = null) {
   if (d.state === "completed") part = null; // all of it done: the seeding mark, below
   if (d.state !== "completed" && part?.length != null && part.downloaded >= part.length) { // this file's done, the rest isn't
     put(bar.querySelector(".seeding"), "hidden", true);
-    put(bar.querySelector(".cancel"), "hidden", true); // (× would stop all of it: that's on its other bars)
     put(bar, "title", `Downloaded (${formatSize(part.length)}); the rest of “${d.name}” is still downloading: ${d.percent}%`);
+    put(bar.querySelector(".cancel"), "title", `Drop it from “${d.name}” (it's no longer shared from here; the file stays)`);
     return;
   }
   if (part?.length != null) { // one file (or folder) of it: its own progress
@@ -3606,11 +3615,11 @@ function showDownloadBar(bar, d, part = null) {
     const [toggle, stop] = bar.querySelectorAll(".cancel");
     put(toggle, "textContent", paused ? "▶" : "⏸");
     put(toggle, "title", paused ? `Go on with “${d.name}”` : `Pause “${d.name}”`);
-    put(stop, "title", `Stop and forget “${d.name}” (what's downloaded stays)`);
+    put(stop, "title", d.files?.length > 1 ? "Stop downloading this (the rest goes on; what's downloaded stays)" : `Stop and forget “${d.name}” (what's downloaded stays)`);
     return;
   }
   if (d.state === "completed") { // still in panda-dl's list: seeding, maybe
-    put(bar.querySelector(".cancel"), "hidden", false);
+    put(bar.querySelector(".cancel"), "title", "Take it off panda-dl's list (it stops seeding; the file stays)");
     const up = d.upSpeed > 0, seeding = bar.querySelector(".seeding");
     put(seeding, "hidden", !up);
     if (up) put(seeding.lastElementChild, "textContent", `${formatSize(d.upSpeed)}/s`);
@@ -3657,14 +3666,13 @@ function makeTransferBar(kind) {
     bar.classList.add("downloaded");
     // Downloaded (an icon), and while it's seeding, ↑ and how fast.
     label.innerHTML = `${icon("l:download")}<span class="seeding">${icon("l:arrow-up")}<span></span></span>`;
-    bar.append(barButton("×", "Take it off panda-dl's list (it stops seeding; the file stays)", () =>
-      api("/api/download", { method: "POST", body: JSON.stringify({ action: "remove", id: bar.item.d.id }) }).catch((err) => alert(err.message))));
+    bar.append(barButton("×", "", () => stopDownloadPart(bar.item)));
   } else if (kind === "download") {
     bar.classList.add("download");
     const act = (action) => api("/api/download", { method: "POST", body: JSON.stringify({ action, id: bar.item.d.id }) }).catch((err) => alert(err.message));
     bar.append(
       barButton("", "", () => act(["paused", "error", "failed"].includes(bar.item.d.state) ? "resume" : "pause")),
-      barButton("×", "", () => act("remove")),
+      barButton("×", "", () => stopDownloadPart(bar.item)),
     );
   } else if (kind === "copy") {
     const pause = barButton("", "", () => api("/api/transfer-pause", { method: "POST", body: JSON.stringify({ id: bar.item.t.id, pause: !bar.item.t.paused }) }).catch(() => {}));
