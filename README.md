@@ -339,6 +339,16 @@ Apps that can be shown that way use relative URLs. The engine handles the sessio
 (a random token in the window's URL becomes a cookie; requests without it, or
 to another host, are refused), static files and window management.
 
+- Thumbnails are JPEG files in the cache, keyed by the file's path, size and
+  time (a cheap check when listing), and also filed by the file's content
+  (`by-content/`, a hard link: no extra space): its size and three 64 KB samples
+  hashed. A file with no thumbnail under its key has its fingerprint looked up
+  before one is made, so a copy, a move or a rename (by phil or anything else)
+  finds its thumbnail for a few small reads instead of making it again; identical
+  files share one. phil's own copies, moves and renames carry theirs along with
+  no reads at all. Thumbnails from before are filed as their folders are viewed,
+  in the background, one at a time while nothing is being made. Content entries
+  no thumbnail uses any more are removed a minute after the start.
 - Thumbnails that are already cached come back as URLs in the directory listing.
   Missing ones are requested over a WebSocket as tiles scroll into view, and
   cancelled when they scroll out. The server generates the most recently requested
