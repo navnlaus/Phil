@@ -105,8 +105,8 @@ body {
 
    A tile is .tile (and .dir, .image, .video, .pdf or .file; .selected;
    .hidden-file) holding .thumb, the picture (a folder's: a tab,
-   .thumb::before, over a face, .face), .marks (the icons in the top right
-   corner: .play, .folder), and .label: .desc (a description
+   .thumb::before, over a face, .face), .marks (the icons in the bottom right
+   corner: .hook, .play, .folder), and .label: .desc (a description
    from Properties), .name, .meta (size and date, or what a folder holds),
    then .tags. --tile is a tile's width, set by the zoom. The label is laid
    over the bottom of the picture; for it to sit under the picture instead,
@@ -174,8 +174,23 @@ body {
 .tile:is(:hover, .selected) .label :is(.meta, .tags) {
   opacity: 1;
 }
-.tile.video .label .meta {
-  margin-right: 24px; /* beside the ▶ */
+
+/* The marks (⚡, ▶, a folder's icon) in the bottom right corner, level with
+   the name's chip, which keeps clear of them. */
+.tile {
+  --marks-right: 9px;
+  --marks-bottom: 6px;
+  --marks-h: 19px;
+}
+.tile.dir {
+  --marks-right: calc(4% + 7px); /* inside the face (its inset, below) */
+  --marks-bottom: calc(4% * 16 / 9 + 5px); /* (a tile is 16:9: % of its height here) */
+}
+.tile.has-marks .label :is(.meta, .tags) {
+  padding-right: 7px;
+}
+.tile.has-marks .label .name {
+  max-width: calc(100% - var(--marks-n, 1) * 17px - 4px);
 }
 
 /* Renaming: the name field as wide as the tile. */

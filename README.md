@@ -523,8 +523,8 @@ sidebar; "Usual" puts the folder icon back. Kept in metadata.json too.
 **Tile marks.** Before the name: a link icon on a link; a red lock on a file
 or folder you can't change without sudo (a file: also its folder, as saving
 replaces it there), and for a link, a red link icon when that's so of what it
-points to. Hovering says which. ⚡ (a hook) is in the bottom right corner, ▶ (a
-video) in the top right one; nothing goes in the top left. They're kept in `~/.config/phil/metadata.json`,
+points to. Hovering says which. ⚡ (a hook), ▶ (a video) and a folder's icon are in
+the bottom right corner, on the label's last line; nothing goes in the top left. They're kept in `~/.config/phil/metadata.json`,
 and follow the file when phil renames or moves it.
 
 ## jsonedit

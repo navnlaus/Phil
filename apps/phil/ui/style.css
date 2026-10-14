@@ -181,7 +181,7 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 .transfer-bar {
   position: absolute;
   left: 8px;
-  right: 36px; /* the folder badge, top right */
+  right: 8px;
   top: 8px;
   z-index: 4;
   height: 20px;
@@ -426,46 +426,32 @@ main { padding-top: var(--bar-h); }
   text-transform: uppercase;
   color: var(--text-dim);
 }
-/* A tile's marks (showMarks in app.js) */
+/* A tile's marks (showMarks in app.js): ⚡, ▶, a folder's icon. In the bottom
+   right corner, level with the label's last line (a theme moves them with
+   --marks-right, --marks-bottom and --marks-h, that line's height). */
 .marks {
   position: absolute;
   z-index: 3;
-  top: 4px;
-  right: 4px;
+  right: var(--marks-right, 8px);
+  bottom: var(--marks-bottom, 5px);
+  height: var(--marks-h, 13px);
   display: flex;
-  gap: 3px;
+  align-items: center;
+  gap: 5px;
+  color: #fff;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.7));
   pointer-events: none;
 }
-.marks .badge {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-}
+.marks .badge { display: grid; place-items: center; }
 .marks .badge svg { width: 12px; height: 12px; stroke: none; }
-.marks .badge.line svg { fill: none; stroke: currentColor; stroke-width: 2.6; }
+.marks .badge.line svg { fill: none; stroke: currentColor; stroke-width: 2.4; }
 .marks .badge.fill svg { fill: currentColor; }
 .marks .badge.folder { display: none; } /* a folder's: for themes without the tab */
 .marks .badge.folder.custom { display: grid; } /* one picked in its Properties: always */
-.marks .badge.custom svg { stroke-width: 2.4; }
-/* ⚡: the file has an on-change hook (Properties) */
-.label .hook-mark {
-  position: absolute;
-  right: 5px;
-  bottom: 5px;
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  color: #ffd24d;
-}
-.label .hook-mark svg { width: 11px; height: 11px; stroke: none; }
-body[data-theme] .tile.has-hook .label { padding-right: 28px; }
+.marks .badge.hook { color: #ffd24d; }
+.marks .badge.hook svg { width: 11px; height: 11px; }
+/* The label's last lines keep clear of them. */
+.tile.has-marks .label :is(.meta, .tags) { padding-right: calc(var(--marks-n, 1) * 17px); }
 /* Its thumbnail on the way: a plain lighter face, not an animation. An endless
    one on every waiting tile kept the page drawing frames, and WebKit (its
    DMA-BUF renderer, on NVIDIA) leaks a GPU fence handle per frame: a folder of
