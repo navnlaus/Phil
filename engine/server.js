@@ -58,6 +58,14 @@ async function start({ profile, controlSocket, wakeFd }) {
 function serve(name, apps, { token, quit }) {
   let host, cookie;
   const { promise, resolve } = Promise.withResolvers();
+  { // TEMPORARY (slow first clicks): the server's own stalls over 200 ms
+    let tick = performance.now();
+    setInterval(() => {
+      const now = performance.now();
+      if (now - tick > 300) console.error(`${name}: TEMPORARY server busy for ${Math.round(now - tick - 100)} ms (${new Date().toTimeString().slice(0, 8)})`);
+      tick = now;
+    }, 100);
+  }
   Deno.serve({
     hostname: "127.0.0.1",
     port: apps[name].server.port ?? 0,
@@ -68,11 +76,14 @@ function serve(name, apps, { token, quit }) {
     },
   }, async (req) => {
     let res;
+    const started = performance.now(); // TEMPORARY (slow first clicks): requests over 300 ms logged
     try {
       res = await handle(req);
     } catch (err) {
       res = errorResponse(err);
     }
+    const took = performance.now() - started;
+    if (took > 300) console.error(`${name}: TEMPORARY slow request: ${req.method} ${new URL(req.url).pathname}${new URL(req.url).search.replace(/token=[^&]*/, "")} ${Math.round(took)} ms (${new Date().toTimeString().slice(0, 8)})`);
     if (TRACE) console.error(`${name}: ${req.method} ${new URL(req.url).pathname} ${res.status}`);
     return res;
   });
