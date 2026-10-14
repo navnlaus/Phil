@@ -11,6 +11,9 @@
 import { join } from "@std/path";
 
 const SOCKET = Deno.env.get("PANDA_DL_SOCKET") ?? join(Deno.env.get("HOME") ?? "/", ".local/share/panda-dl/panda-dl.sock");
+// panda-dl itself, to start its daemon when a download is added and it isn't running (phil may be
+// started without ~/.local/bin on its PATH).
+const BINARY = Deno.env.get("PANDA_DL") ?? join(Deno.env.get("HOME") ?? "/", ".local/bin/panda-dl");
 const ACTIVE_MS = 1000, IDLE_MS = 5000, ABSENT_MS = 15_000; // how often it's asked: downloading, not, no daemon
 const SHOWN = new Set(["downloading", "paused", "queued", "initializing", "checking", "metadata", "starting", "error", "failed", "completed"]); // not cancelled
 const RESTING = new Set(["paused", "error", "failed", "completed"]); // asked about less often (IDLE_MS)
@@ -103,7 +106,22 @@ export function watchDownloads(onChange) {
     async add(uri, dir) {
       if (typeof uri !== "string" || !/^(magnet:\?|https?:\/\/|\/.+\.torrent$)/i.test(uri)) throw new Error("A magnet or web link, or a .torrent file");
       if (typeof dir !== "string" || !dir.startsWith("/")) throw new Error("Which folder to download into");
-      const answer = await request({ action: "add", uri, dir });
+      let answer;
+      try {
+        answer = await request({ action: "add", uri, dir });
+      } catch (err) {
+        // Its daemon isn't running (it isn't started at login): started now (`panda-dl start`, which
+        // waits till it answers; it runs on by itself, apart from phil), and asked again.
+        if (!(err instanceof Deno.errors.NotFound || err instanceof Deno.errors.ConnectionRefused)) throw err;
+        let started;
+        try {
+          started = await new Deno.Command(BINARY, { args: ["start"], stdin: "null", stdout: "null", stderr: "piped" }).output();
+        } catch {
+          started = { success: false, stderr: new TextEncoder().encode(`${BINARY} isn't there`) };
+        }
+        if (!started.success) throw new Error(`panda-dl isn't running and couldn't be started: ${new TextDecoder().decode(started.stderr).trim().split("\n").pop()}`);
+        answer = await request({ action: "add", uri, dir });
+      }
       if (answer.status === "error") throw new Error(answer.message ?? "panda-dl couldn't");
       clearTimeout(timer);
       timer = null;
