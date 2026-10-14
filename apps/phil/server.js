@@ -212,8 +212,13 @@ export function createServer({ profile, controlSocket }) {
         return json({ places: await describedPlaces(), mounts: await networkMounts() });
       case "POST /api/sidebar": // {add, before} or {remove}: the sidebar's folders arranged (see arrangeSidebar)
         return json(await arrangeSidebar(await req.json()));
-      case "GET /api/cameras": // ?look=1: and look for new ones (at most every 10 minutes; ?look=now: now), answered when that's done
-        if (url.searchParams.get("look")) return json(await cameras.discover({ force: url.searchParams.get("look") === "now" }));
+      case "GET /api/cameras": // ?look=1: and look for new ones (at most every 10 minutes), answered at once; ?look=now: now, answered when that's done
+        // ?look=1 (the window getting focus) doesn't wait for the search: a request
+        // held open for its seconds took one of the page's few connections to the
+        // server (six), and with a few of them a folder clicked meanwhile waited its
+        // turn. What it finds reaches every window as {cameras} (cameras.onChange).
+        if (url.searchParams.get("look") === "now") return json(await cameras.discover({ force: true }));
+        if (url.searchParams.get("look")) cameras.discover().catch(() => {});
         return json(await cameras.list());
       case "POST /api/cameras": // {address, user, password}: a camera added by its address
         try {
