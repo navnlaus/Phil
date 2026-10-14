@@ -5,8 +5,10 @@
 //
 // Kept in ~/.config/phil/cameras.json (readable only by you: logins are in it):
 // {"cameras": [{id, host, port, url, manufacturer, model, name, user,
-// password, added, hidden, seen, invert}]}. `invert`: mounted upside down, its
-// pan and tilt turned around (camview's toggle). `hidden`: forgotten, so finding it again
+// password, added, hidden, seen, invert, absent}]}. `invert`: mounted upside
+// down, its pan and tilt turned around (camview's toggle). `absent`: not found
+// the last time it was looked for (off, gone): not listed until it's found
+// again, with its name, login and the rest. `hidden`: forgotten, so finding it again
 // doesn't bring it back; `added`: by address, kept even when not found.
 import { dirname, join } from "@std/path";
 import * as onvif from "./onvif.js";
@@ -53,7 +55,7 @@ const shown = (c) => ({
 
 /** The cameras for the sidebar (no logins), by name. */
 export async function list() {
-  return (await load()).filter((c) => !c.hidden).map(shown).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  return (await load()).filter((c) => !c.hidden && !c.absent).map(shown).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
 /** A camera's record, with its login; throws if there's none. */
@@ -82,6 +84,15 @@ export function discover({ force = false } = {}) {
       const extra = known.filter((c) => c.added && !c.hidden).map((c) => `${c.host}:${c.port}`);
       const found = await onvif.discover({ extra });
       let changed = false;
+      const foundIds = new Set(found.map((f) => idOf(f.host, f.port)));
+      // Not found in the sweep: asked twice more, given longer (a camera on Wi-Fi
+      // can be slow to answer), then left out of the list until it's back.
+      for (const c of known.filter((c) => !c.hidden && !foundIds.has(c.id))) {
+        let again = null;
+        for (let i = 0; i < 2 && !again; i++) again = await onvif.probe(c.host, [c.port], loginOf(c), { wait: 2500 }).catch(() => null);
+        if (again) found.push(again), foundIds.add(c.id);
+        else if (!c.absent) (c.absent = true), (changed = true);
+      }
       for (const f of found) {
         const id = idOf(f.host, f.port);
         const c = known.find((c) => c.id === id);
@@ -89,7 +100,7 @@ export function discover({ force = false } = {}) {
           known.push({ id, host: f.host, port: f.port, url: f.url, manufacturer: f.manufacturer, model: f.model, name: f.name ?? "", auth: f.auth, seen: Date.now() });
           changed = true;
         } else if (!c.hidden) {
-          Object.assign(c, { url: f.url, seen: Date.now(), auth: f.auth && !c.user, ...(f.model ? { manufacturer: f.manufacturer, model: f.model } : {}) });
+          Object.assign(c, { url: f.url, seen: Date.now(), auth: f.auth && !c.user, absent: false, ...(f.model ? { manufacturer: f.manufacturer, model: f.model } : {}) });
           if (!c.name && f.name) c.name = f.name;
           changed = true;
         }
@@ -113,7 +124,7 @@ export async function add(address, login = {}) {
   const known = await load();
   const id = idOf(f.host, f.port);
   const c = known.find((c) => c.id === id);
-  const fields = { url: f.url, manufacturer: f.manufacturer, model: f.model, auth: f.auth && !login.user, added: true, hidden: false, seen: Date.now(), ...(login.user ? login : {}) };
+  const fields = { url: f.url, manufacturer: f.manufacturer, model: f.model, auth: f.auth && !login.user, added: true, hidden: false, absent: false, seen: Date.now(), ...(login.user ? login : {}) };
   if (c) Object.assign(c, fields);
   else known.push({ id, host: f.host, port: f.port, name: f.name ?? "", ...fields });
   await save(known);
