@@ -66,7 +66,10 @@ export function watchDownloads(onChange) {
     try {
       const status = await request({ action: "status" });
       list = (status.downloads ?? []).map(describe).filter((d) => SHOWN.has(d.state));
-      for (const d of list) d.paths = await filesOf(d);
+      // A torrent's files and how far each is: panda-dl lists them (since phil's
+      // change to it, ~/Projects/panda-dl); one that doesn't: guessed (filesOf),
+      // with only the whole download's progress.
+      for (const d of list) if (!d.files) d.files = (await filesOf(d)).map((path) => ({ path, length: null, downloaded: null }));
       next = list.some((d) => !RESTING.has(d.state)) ? ACTIVE_MS : IDLE_MS;
     } catch { /* no daemon (not installed, or not running): looked for again later */ }
     asking = false;
@@ -119,6 +122,9 @@ export function watchDownloads(onChange) {
     },
   };
 }
+
+// A download's files still being written (for thumbnails: not till they're done).
+export const unfinished = (d) => d.state === "completed" ? [] : d.files.filter((f) => f.length === null || f.downloaded < f.length).map((f) => f.path);
 
 // What a download is writing: its name in its folder, when that's there (a
 // file, or a torrent's folder); otherwise (a torrent whose files land in the
@@ -177,6 +183,11 @@ function describe(d) {
     eta: d.eta_seconds ?? null,
     uploaded: d.uploaded_bytes ?? 0,
     created: d.created_at ?? 0,
+    // A torrent's files, as panda-dl lists them ([]: not known yet, a magnet's metadata); null: not
+    // listed (a web download: itself; a panda-dl without phil's change: guessed, see filesOf).
+    files: d.kind === "torrent" && Array.isArray(d.files)
+      ? d.files.map((f) => ({ path: String(f.path), length: f.length ?? 0, downloaded: f.downloaded ?? 0 }))
+      : null,
     peers: d.torrent_info?.peers ?? null,
     seeds: d.torrent_info?.seeds ?? null,
   };
