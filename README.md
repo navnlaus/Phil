@@ -653,6 +653,11 @@ tilt and zoom: PTZ). phil finds the cameras on the local network and lists
 them at the bottom of its sidebar; double-click one to show it in that window
 (camview's command line takes a camera's name or address, or shows the first).
 
+- **All of them at once**: click "Cameras" (the sidebar's heading) for the
+  wall, every camera live side by side, each from its smallest stream, as big
+  as they fit the window. Click one to show it on its own, with its controls
+  (Esc comes back to the wall); Esc closes the wall. (`?wall=1`, `apps/camview/ui/wall.js`.)
+
 - **Finding them**: phil looks only when you ask: the ↻ by "Cameras", or
   "Look for cameras" in the sidebar's right-click menu (there before any is
   found). It tries every address on this computer's own local

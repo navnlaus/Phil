@@ -104,3 +104,15 @@ body:hover #ptz, body:hover #presets, #ptz:focus-within, #presets:focus-within, 
 #btn-save-preset { width: 30px; padding: 0 !important; font-size: 17px; }
 #preset-form[hidden] { display: none; }
 #preset-name { height: 30px; width: 150px; padding: 0 10px; border: 1px solid var(--accent); border-radius: 15px; background: rgba(0, 0, 0, 0.75); color: #fff; }
+
+/* The wall (wall.js): every camera, as big as they fit (--cols, --rows). */
+body.wall { background: #000; }
+#wall { position: fixed; inset: 0; display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 1), minmax(0, 1fr)); gap: 2px; outline: none; }
+#wall .cam { position: relative; min-width: 0; min-height: 0; height: auto; padding: 0; border: 0; border-radius: 0; background: #0b0b0c; overflow: hidden; cursor: pointer; }
+#wall .cam:hover::after, #wall .cam:focus-visible::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 2px var(--accent); pointer-events: none; }
+#wall video, #wall img { width: 100%; height: 100%; object-fit: contain; display: block; }
+#wall video[hidden], #wall img[hidden] { display: none; }
+#wall .cam-name { position: absolute; left: 8px; bottom: 6px; color: #fff; font-size: 12px; font-weight: 600; text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, 0.7); }
+#wall .cam-msg { position: absolute; inset: 45% 10px auto; color: #ccc; font-size: 12px; text-align: center; text-shadow: 0 1px 2px #000; pointer-events: none; }
+#wall-message { position: fixed; inset: 45% 20px auto; margin: 0; color: #ddd; text-align: center; }
+#wall-message[hidden] { display: none; }
