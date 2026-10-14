@@ -99,6 +99,10 @@ const fileUrl = (path) => `/file?path=${encodeURIComponent(path)}`;
  * failed), so a file that hangs its decoder can't hold a job forever.
  */
 const SLOW_DRIVE_JOBS = 3;
+// Pictures go to vipsthumbnail several at a time: starting it takes ~55 ms (it
+// loads its modules), more than half of a 12 MP picture's ~90 ms, so one run for
+// 6 makes them about twice as fast. A batch is one job slot.
+const BATCH = 6;
 const MBPS_PER_JOB = 30;
 const JOB_TIMEOUT_MS = 60_000;
 export class Thumbnailer {
@@ -269,31 +273,80 @@ export class Thumbnailer {
       while (i >= 0 && !room(this.stack[i].dev)) i--;
       if (i < 0) break;
       const [job] = this.stack.splice(i, 1);
-      job.started = true;
+      // A picture takes the newest others on its drive along (their names apart: vips names its outputs by them).
+      const batch = [job];
+      if (job.kind === "image") {
+        const stems = new Set([stemOf(job.path)]);
+        for (let j = this.stack.length - 1; j >= 0 && batch.length < BATCH; j--) {
+          const other = this.stack[j];
+          if (other.kind !== "image" || other.dev !== job.dev || stems.has(stemOf(other.path))) continue;
+          stems.add(stemOf(other.path));
+          batch.push(...this.stack.splice(j, 1));
+        }
+      }
+      for (const b of batch) b.started = true;
       this.running++;
       this.runningOn.set(job.dev, (this.runningOn.get(job.dev) ?? 0) + 1);
-      this.generate(job)
-        .then(job.resolve, job.reject)
+      (batch.length > 1 ? this.generateBatch(batch) : this.generate(job).then(job.resolve, job.reject))
         .finally(() => {
           this.running--;
           this.runningOn.set(job.dev, this.runningOn.get(job.dev) - 1);
-          this.jobs.delete(job.id);
+          for (const b of batch) this.jobs.delete(b.id);
           this.pump();
         });
     }
   }
 
-  async generate({ key, path, kind, size }) {
-    const dir = this.dir;
+  // The same file elsewhere (a copy, before a move or a rename) has a
+  // thumbnail already: its URL; or failed already: throws. Null: none.
+  async fromContent(job) {
+    const { key, path, size } = job;
     await Deno.mkdir(this.contentDir, { recursive: true });
-    // The same file elsewhere (a copy, before a move or a rename) has one already, or failed already.
-    const fp = await fingerprint(path, size).catch(() => null);
-    const byContent = fp && join(this.contentDir, fp);
-    if (fp && await share(byContent + ".jpg", join(dir, key + ".jpg"))) return this.url(key);
-    if (fp && await exists(byContent + ".fail")) {
-      await Deno.writeFile(join(dir, key + ".fail"), new Uint8Array()).catch(() => {});
+    job.fp ??= await fingerprint(path, size).catch(() => null);
+    const byContent = job.fp && join(this.contentDir, job.fp);
+    if (job.fp && await share(byContent + ".jpg", join(this.dir, key + ".jpg"))) return this.url(key);
+    if (job.fp && await exists(byContent + ".fail")) {
+      await Deno.writeFile(join(this.dir, key + ".fail"), new Uint8Array()).catch(() => {});
       throw new Error(`thumbnailing failed earlier, as another copy (${path})`);
     }
+    return null;
+  }
+
+  // Made: kept under its key, and filed by its content.
+  async keep(job, made) {
+    await Deno.rename(made, join(this.dir, job.key + ".jpg"));
+    if (job.fp) await share(join(this.dir, job.key + ".jpg"), join(this.contentDir, job.fp + ".jpg"));
+    return this.url(job.key);
+  }
+
+  // Pictures, one vipsthumbnail run for all (each settled on its own). One it
+  // didn't make (a broken file stops the run) is tried again alone, so it
+  // fails alone.
+  async generateBatch(jobs) {
+    const todo = [];
+    for (const job of jobs) {
+      const url = await this.fromContent(job).catch((err) => (job.reject(err), undefined));
+      if (url) job.resolve(url);
+      else if (url === null) todo.push(job);
+    }
+    if (todo.length < 2) return todo[0] && this.generate(todo[0]).then(todo[0].resolve, todo[0].reject);
+    const id = crypto.randomUUID().slice(0, 8);
+    const out = (job) => join(this.dir, `${stemOf(job.path)}.${id}.tmp.jpg`);
+    await run("vipsthumbnail", [...todo.map((j) => j.path), "--size", this.name, "--smartcrop", "centre", "-o", join(this.dir, `%s.${id}.tmp.jpg[Q=82,keep=none]`)], null)
+      .catch(() => {}); // what it didn't make is made alone, below
+    await Promise.all(todo.map(async (job) => {
+      if (await exists(out(job))) return job.resolve(await this.keep(job, out(job)));
+      await this.generate(job).then(job.resolve, job.reject);
+    }));
+  }
+
+  async generate(job) {
+    const { key, path, kind } = job;
+    const dir = this.dir;
+    const known = await this.fromContent(job);
+    if (known) return known;
+    const fp = job.fp;
+    const byContent = fp && join(this.contentDir, fp);
     const tmp = (suffix) => join(dir, `${key}.${crypto.randomUUID().slice(0, 8)}.tmp${suffix}.jpg`);
     const dest = tmp("");
     const frame = kind === "video" ? tmp(".frame") : null;
@@ -307,9 +360,7 @@ export class Thumbnailer {
       await run("vipsthumbnail", [
         frame ?? path, "--size", this.name, "--smartcrop", kind === "pdf" ? "low" : "centre", "-o", `${dest}[Q=82,keep=none]`,
       ], dest);
-      await Deno.rename(dest, join(dir, key + ".jpg"));
-      if (fp) await share(join(dir, key + ".jpg"), byContent + ".jpg");
-      return this.url(key);
+      return await this.keep(job, dest);
     } catch (err) {
       await Deno.remove(dest).catch(() => {});
       await Deno.writeFile(join(dir, key + ".fail"), new Uint8Array()).catch(() => {});
@@ -321,13 +372,19 @@ export class Thumbnailer {
   }
 }
 
+// The file name without its folder or extension: what vipsthumbnail's %s is.
+const stemOf = (path) => path.slice(path.lastIndexOf("/") + 1).replace(/\.[^.]*$/, "");
+
+// Runs a thumbnailing command at a lower priority (nice): it gets the CPU the
+// windows don't need, so they don't stutter while a folder's thumbnails are
+// made. `output`: the file it must have made (null: not checked here).
 async function run(cmd, args, output) {
   const signal = AbortSignal.timeout(JOB_TIMEOUT_MS); // killed then: see JOB_TIMEOUT_MS
-  const result = await new Deno.Command(cmd, { args, stdin: "null", stdout: "null", stderr: "piped", signal }).output().catch((err) => {
+  const result = await new Deno.Command("nice", { args: ["-n", "10", cmd, ...args], stdin: "null", stdout: "null", stderr: "piped", signal }).output().catch((err) => {
     throw signal.aborted ? new Error(`${cmd} took longer than ${JOB_TIMEOUT_MS / 1000} s`) : err;
   });
   if (signal.aborted) throw new Error(`${cmd} took longer than ${JOB_TIMEOUT_MS / 1000} s`);
-  if (!result.success || !(await exists(output))) {
+  if (!result.success || (output && !(await exists(output)))) {
     const msg = new TextDecoder().decode(result.stderr).split("\n").filter((l) => l && !l.includes("WARNING")).at(-1);
     throw new Error(`${cmd} failed: ${msg ?? "no output"}`);
   }
