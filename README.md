@@ -656,9 +656,10 @@ them at the bottom of its sidebar; double-click one to show it in that window
 - **Cameras with nothing local** (Tuya / Smart Life ones, like Hombli's: no
   RTSP, no ONVIF, every port closed): their video comes from
   [go2rtc](https://github.com/AlexxIT/go2rtc), which gets it through Tuya's
-  cloud (a WebRTC call the cloud sets up; the video comes straight over the
-  LAN when the firewall lets the camera reach go2rtc's UDP port 8555, through
-  Tuya's relay otherwise) and serves it as local RTSP
+  cloud (a WebRTC call to Tuya's media servers: through Tuya's cloud API the
+  video always goes by them, never straight over the LAN, so it needs the
+  internet, and the cloud project's free trials renewed every few months) and
+  serves it as local RTSP
   (`~/.config/go2rtc/go2rtc.yaml`, `go2rtc.service`). Such a camera is a
   `"type": "rtsp"` entry in `cameras.json` with its `streams` (go2rtc's RTSP
   URLs) and, for pan and tilt, `tuya` (its device ID and the Tuya cloud
