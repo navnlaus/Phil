@@ -562,6 +562,14 @@ if (DEBUG_CLICKS) {
     }, true);
   }
   addEventListener("focus", () => debug("window focus"));
+  // The page busy (nothing else runs then: a click waits): any stretch over 300 ms.
+  let tick = performance.now();
+  setInterval(() => {
+    const now = performance.now();
+    if (now - tick > 400) debug(`page busy for ${Math.round(now - tick - 100)} ms`);
+    tick = now;
+  }, 100);
+  grid.addEventListener("dblclick", (e) => debug(`dblclick on tile ${e.target.closest?.(".tile")?.querySelector(".name")?.textContent ?? "(none)"}`), true);
   addEventListener("blur", () => debug("window blur"));
   addEventListener("hashchange", () => debug(`hashchange → ${decodeURIComponent(location.hash.slice(1))}`), true);
   debug(`page start, hash ${decodeURIComponent(location.hash.slice(1)) || "(none)"}`);
@@ -607,7 +615,9 @@ async function load(path) {
 
   // Coming up from a child folder: select it, like other file managers do.
   const selectPath = previous && parentOf(previous) === listing.path ? previous : null;
+  const drawing = performance.now();
   render(selectPath);
+  debug(`load ${listing.path}: grid drawn in ${Math.round(performance.now() - drawing)} ms (${state.view.length} tiles)`);
   grid.scrollTop = selectPath ? grid.scrollTop : scrollPositions.get(listing.path) ?? 0;
   if (selectPath) tiles.get(selectPath)?.scrollIntoView({ block: "center" });
   // Don't steal focus from the terminal when the view follows a `cd` typed there.
