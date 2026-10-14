@@ -34,16 +34,33 @@ panel.innerHTML = `
     <input name="name" type="text" placeholder="Name" maxlength="80" autocomplete="off" spellcheck="false">
     <input name="url" type="text" placeholder="rtsp://… or https://…" autocomplete="off" spellcheck="false" required>
     <button type="submit">Add</button>
-    <p class="hint">RTSP, or a web stream: MJPEG, HLS (.m3u8), MP4. A login goes in the URL (rtsp://user:password@…).</p>
+    <p class="hint">RTSP, or a web stream: MJPEG, HLS (.m3u8), MP4; an rtsp.me embed link too. A login goes in the URL (rtsp://user:password@…). A web page that isn't a stream is shown as the page.</p>
     <p class="error" hidden></p>
   </form>`;
+// A page camera, over the wall, to use (Esc, or ×, back).
+const pageView = document.createElement("div");
+pageView.id = "wall-page";
+pageView.hidden = true;
+pageView.innerHTML = `<iframe allow="autoplay; fullscreen" referrerpolicy="no-referrer"></iframe><button type="button" class="icon close" title="Back to the wall (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+pageView.querySelector(".close").onclick = () => closePage();
+function showPage(camera) {
+  pageView.querySelector("iframe").src = camera.page;
+  pageView.hidden = false;
+  pageView.querySelector(".close").focus();
+}
+function closePage() {
+  pageView.hidden = true;
+  pageView.querySelector("iframe").src = "about:blank";
+  wall.focus({ preventScroll: true });
+}
+
 const listButton = document.createElement("button");
 listButton.id = "wall-list-button";
 listButton.type = "button";
 listButton.className = "icon";
 listButton.title = "All cameras: turn them on or off, add a stream (L)";
 listButton.innerHTML = `<svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>`;
-document.body.replaceChildren(wall, note, listButton, panel);
+document.body.replaceChildren(wall, note, listButton, panel, pageView);
 document.body.classList.add("wall");
 document.title = "Cameras — camview";
 
@@ -72,6 +89,14 @@ function makeTile(camera) {
   tile.title = `${camera.name}${camera.host ? ` (${camera.host})` : ""}: click to show it on its own`;
   tile.innerHTML = `<video muted autoplay playsinline disablepictureinpicture></video><img alt="" hidden><span class="cam-name"></span><span class="cam-msg"></span>`;
   tile.querySelector(".cam-name").textContent = camera.name;
+  if (camera.page) { // a web page (a camera's that plays it its own way): the page itself; a click shows it over the wall
+    tile.title = `${camera.name}: click to use the page`;
+    const frame = Object.assign(document.createElement("iframe"), { src: camera.page, title: camera.name, allow: "autoplay; fullscreen", loading: "lazy" });
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    tile.querySelector("video").replaceWith(frame);
+    tile.onclick = () => showPage(camera);
+    return { camera, el: tile, page: true };
+  }
   tile.onclick = () => {
     for (const t of tiles) stop(t);
     location.href = pageWith({ wall: null, camera: camera.id, from: "wall" });
@@ -82,6 +107,7 @@ function makeTile(camera) {
 const say = (t, text) => (t.el.querySelector(".cam-msg").textContent = text);
 
 async function start(t) {
+  if (t.page) return;
   if (t.camera.needsLogin) return say(t, "Needs a login: right-click it in phil's sidebar");
   try {
     const { profiles } = await api(`api/camera?id=${encodeURIComponent(t.camera.id)}`);
@@ -111,6 +137,7 @@ function play(t) {
 }
 
 function stop(t) {
+  if (t.page) return;
   const p = t.player;
   if (!p) return;
   t.player = null;
@@ -276,7 +303,8 @@ function close() {
 }
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !panel.hidden) return e.preventDefault(), toggleList(false); // the list first
+  if (e.key === "Escape" && !pageView.hidden) return e.preventDefault(), closePage(); // a page shown first, then the list
+  if (e.key === "Escape" && !panel.hidden) return e.preventDefault(), toggleList(false);
   if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "w")) return e.preventDefault(), close();
   const typing = e.target.closest?.("input, textarea");
   if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l") e.preventDefault(), toggleList();
@@ -315,7 +343,7 @@ async function refresh() {
 // ---------------------------------------------------------------- the list
 
 const STATES = { on: "", offline: "offline", off: "off" };
-const KINDS = { network: "", cloud: "cloud", stream: "stream" };
+const KINDS = { network: "", cloud: "cloud", stream: "stream", page: "web page" };
 
 function renderRows(list) {
   if (!list) return;
