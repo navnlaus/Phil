@@ -2332,6 +2332,7 @@ function showCamera(a, c) {
 $("#btn-cameras").onclick = () => openInApp("camview", { wall: 1 });
 
 async function openCamera(c) {
+  if (c.page) return openInApp("camview", { wall: 1 }); // a web page: shown on the wall
   if (c.needsLogin && !(await loginCamera(c))) return;
   openInApp("camview", { camera: c.id });
 }

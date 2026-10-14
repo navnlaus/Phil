@@ -20,7 +20,11 @@
 // web one, http(s): MJPEG, HLS, MP4) is the same, with an id "stream:…".
 // Looking for cameras checks those too (ffprobe): one that doesn't answer is
 // `absent` like a camera not found. `disabled`: turned off in the wall's list,
-// not shown anywhere else, kept.
+// not shown anywhere else, kept. A page that plays a stream it's given on the
+// spot (an rtsp.me embed: signed, for an hour, for this address) is kept as
+// the page, and its stream asked for whenever it's played (RESOLVERS). Any
+// other web page that isn't a stream is {type: "page", page}: the wall shows
+// the page itself.
 import { dirname, join } from "@std/path";
 import * as onvif from "./onvif.js";
 import * as tuya from "./tuya.js";
@@ -65,11 +69,11 @@ const shown = (c) => ({
   login: !!c.user, needsLogin: !!c.auth && !c.user, seen: c.seen ?? 0, invert: !!c.invert,
 });
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
-const isStream = (c) => c.type === "rtsp" && !c.tuya; // added by its URL
+const isStream = (c) => (c.type === "rtsp" && !c.tuya) || c.type === "page"; // added by its URL
 
-/** The cameras for the sidebar and the wall (no logins), by name: not turned off, not gone. */
+/** The cameras for the sidebar and the wall (no logins), by name: not turned off, not gone. A page camera's has its `page`. */
 export async function list() {
-  return (await load()).filter((c) => !c.hidden && !c.absent && !c.disabled).map(shown).sort(byName);
+  return (await load()).filter((c) => !c.hidden && !c.absent && !c.disabled).map((c) => ({ ...shown(c), ...(c.page ? { page: c.page } : {}) })).sort(byName);
 }
 
 /**
@@ -82,8 +86,8 @@ export async function all() {
   return (await load()).filter((c) => !c.hidden).map((c) => ({
     ...shown(c),
     state: c.disabled ? "off" : c.absent ? "offline" : "on",
-    kind: c.tuya ? "cloud" : isStream(c) ? "stream" : "network",
-    ...(isStream(c) ? { url: withoutLogin(c.streams?.[0]?.url ?? "") } : {}),
+    kind: c.tuya ? "cloud" : c.type === "page" ? "page" : isStream(c) ? "stream" : "network",
+    ...(isStream(c) ? { url: withoutLogin(c.page ?? c.streams?.[0]?.url ?? "") } : {}),
   })).sort(byName);
 }
 
@@ -101,16 +105,59 @@ const withoutLogin = (url) => {
  * How ffmpeg and ffprobe open a stream: RTSP over TCP; a web one (MJPEG, HLS,
  * MP4 over http(s)) reconnecting when it drops. Either gives up after 5 s of nothing.
  */
-export const inputArgs = (url) => /^rtsps?:/i.test(url)
+export const inputArgs = (url, { probe = false } = {}) => /^rtsps?:/i.test(url)
   ? ["-rtsp_transport", "tcp", "-timeout", "5000000"]
   : ["-rw_timeout", "5000000", "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "4",
-    ...(/\.m3u8(\?|$)/i.test(url) ? ["-re"] : [])]; // HLS: read as it plays (one that isn't live would be read through at once)
+    ...(/\.m3u8(\?|$)/i.test(url) && !probe ? ["-re"] : [])]; // HLS: read as it plays (one that isn't live would be read through at once; ffmpeg's, not ffprobe's)
+
+// Pages that play a stream whose address they're given on the spot: how to get
+// it ({url, until}: good till then). rtsp.me's embed: a session (a token and the
+// server), then that server's stream for it (HLS, signed, about an hour).
+const RESOLVERS = [{
+  test: /^https?:\/\/(?:www\.)?rtsp\.me\/embed\/([\w-]+)/i,
+  async resolve([page, id]) {
+    const get = async (url) => {
+      const res = await fetch(url, { headers: { referer: page, "user-agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) throw new Error(`rtsp.me: ${res.status} ${res.statusText}`);
+      return res.json();
+    };
+    const session = await get(`https://rtsp.me/api/embed/${id}/token/`);
+    if (session.status !== "ok" || !session.token || !session.url) throw new Error(`rtsp.me: ${session.error ?? session.status ?? "no stream"}`);
+    const stream = await get(`${session.url.replace(/\/$/, "")}/token/${session.token}`);
+    if (!stream.hls) throw new Error("rtsp.me gave no stream");
+    return { url: stream.hls, until: (stream.expires ?? session.expiresAt ?? 0) * 1000 - 60_000 };
+  },
+}];
+const resolved = new Map(); // page -> {url, until}
+
+/** The stream to play for `url`: itself, or the one a page (RESOLVERS) gives now. */
+export async function playable(url) {
+  const r = RESOLVERS.find((r) => r.test.test(url));
+  if (!r) return url;
+  const known = resolved.get(url);
+  if (known && Date.now() < known.until) return known.url;
+  const fresh = await r.resolve(r.test.exec(url));
+  resolved.set(url, fresh);
+  return fresh.url;
+}
+
+// Whether a web page is there (a page camera's check).
+async function pageAnswers(url) {
+  try {
+    const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(10_000) });
+    await res.body?.cancel();
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 // Whether a stream answers with video (ffprobe; 12 s at most: a cloud camera's goes through its maker first).
 async function answers(url) {
   try {
+    url = await playable(url);
     const out = await new Deno.Command("ffprobe", {
-      args: ["-v", "error", ...inputArgs(url), "-select_streams", "v", "-show_entries", "stream=codec_type", "-of", "csv=p=0", "-i", url],
+      args: ["-v", "error", ...inputArgs(url, { probe: true }), "-select_streams", "v", "-show_entries", "stream=codec_type", "-of", "csv=p=0", "-i", url],
       stdin: "null", stdout: "piped", stderr: "null", signal: AbortSignal.timeout(12_000),
     }).output();
     return out.success && new TextDecoder().decode(out.stdout).includes("video");
@@ -129,13 +176,25 @@ export async function addStream({ name, url }) {
   if (!parsed || !/^(rtsps?|https?):$/.test(parsed.protocol)) throw Object.assign(new Error("A stream's URL: rtsp://…, or http(s):// (MJPEG, HLS, MP4)"), { status: 400 });
   const known = await load();
   const id = `stream:${crypto.randomUUID().slice(0, 8)}`;
+  const base = { id, host: parsed.hostname, port: parsed.port, name: String(name ?? "").trim().slice(0, 80) || parsed.hostname, added: true };
   const ok = await answers(url);
-  known.push({
-    id, type: "rtsp", host: parsed.hostname, port: parsed.port, name: String(name ?? "").trim().slice(0, 80) || parsed.hostname,
-    streams: [{ token: "main", name: "Main", url }], added: true, absent: !ok, seen: ok ? Date.now() : 0,
-  });
+  // Not a stream, but a web page (a camera's page that plays it some way of its own): shown as the page.
+  const page = !ok && /^https?:$/.test(parsed.protocol) && !RESOLVERS.some((r) => r.test.test(url)) ? await pageType(url) : false;
+  if (page) known.push({ ...base, type: "page", page: url, seen: Date.now() });
+  else known.push({ ...base, type: "rtsp", streams: [{ token: "main", name: "Main", url }], absent: !ok, seen: ok ? Date.now() : 0 });
   await save(known);
   return (await all()).find((c) => c.id === id);
+}
+
+// Whether `url` is a web page (HTML) that's there.
+async function pageType(url) {
+  try {
+    const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(10_000) });
+    await res.body?.cancel();
+    return res.ok && /text\/html|application\/xhtml/i.test(res.headers.get("content-type") ?? "");
+  } catch {
+    return false;
+  }
 }
 
 /** Removes a camera: a stream added by URL goes; one found or added by address is forgotten (finding it again doesn't bring it back). */
@@ -172,7 +231,7 @@ export function discover({ force = false } = {}) {
   scanning = (async () => {
     try {
       const known = await load();
-      const extra = known.filter((c) => c.added && !c.hidden).map((c) => `${c.host}:${c.port}`);
+      const extra = known.filter((c) => c.added && !c.hidden && c.type !== "rtsp" && c.type !== "page").map((c) => `${c.host}:${c.port}`); // (not streams added by URL)
       console.error(`phil: TEMPORARY looking for cameras (${new Date().toTimeString().slice(0, 8)})`);
       const found = await onvif.discover({ extra });
       console.error(`phil: TEMPORARY cameras looked for (${new Date().toTimeString().slice(0, 8)})`);
@@ -181,12 +240,12 @@ export function discover({ force = false } = {}) {
       // Not found in the sweep: asked twice more, given longer (a camera on Wi-Fi
       // can be slow to answer), then left out of the list until it's back.
       // Streams (added by URL, and cloud cameras' through go2rtc): whether they answer, all at once.
-      await Promise.all(known.filter((c) => !c.hidden && !c.disabled && c.type === "rtsp" && c.streams?.length).map(async (c) => {
-        const ok = await answers(c.streams[0].url);
+      await Promise.all(known.filter((c) => !c.hidden && !c.disabled && ((c.type === "rtsp" && c.streams?.length) || c.type === "page")).map(async (c) => {
+        const ok = c.type === "page" ? await pageAnswers(c.page) : await answers(c.streams[0].url);
         if (ok) c.seen = Date.now();
         if (c.absent !== !ok) (c.absent = !ok), (changed = true);
       }));
-      for (const c of known.filter((c) => !c.hidden && c.type !== "rtsp" && !foundIds.has(c.id))) {
+      for (const c of known.filter((c) => !c.hidden && c.type !== "rtsp" && c.type !== "page" && !foundIds.has(c.id))) {
         let again = null;
         for (let i = 0; i < 2 && !again; i++) again = await onvif.probe(c.host, [c.port], loginOf(c), { wait: 2500 }).catch(() => null);
         if (again) found.push(again), foundIds.add(c.id);
@@ -269,6 +328,7 @@ export async function info(id) {
   if (cached && Date.now() - cached.at < DETAILS_MS) return cached.value;
   const value = (async () => {
     const c = await get(id);
+    if (c.type === "page") throw Object.assign(new Error("It's a web page, shown as it is (the wall)"), { status: 400 });
     if (c.type === "rtsp") { // its streams as given; PTZ if it's a Tuya camera
       const profiles = (c.streams ?? []).map((s) => ({ token: s.token, name: s.name, width: s.width ?? 0, height: s.height ?? 0, encoding: "", ptz: !!c.tuya }));
       if (!profiles.length) throw new Error("The camera has no streams set");
@@ -290,7 +350,8 @@ export async function info(id) {
 /** The RTSP URL of a camera's profile (`token`; default its best), with its login in it. */
 export async function rtspUrl(id, token = null) {
   const c = await get(id);
-  if (c.type === "rtsp") return ((c.streams ?? []).find((s) => s.token === token) ?? c.streams[0]).url;
+  if (c.type === "page") throw Object.assign(new Error("It's a web page, shown as it is (the wall)"), { status: 400 });
+  if (c.type === "rtsp") return await playable(((c.streams ?? []).find((s) => s.token === token) ?? c.streams[0]).url);
   const { services, profiles } = await info(id);
   const profile = profiles.find((p) => p.token === token) ?? profiles[0];
   const uri = new URL(await onvif.streamUri(services.media, profile.token, loginOf(c)));

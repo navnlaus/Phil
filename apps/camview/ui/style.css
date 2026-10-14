@@ -150,3 +150,10 @@ body.wall:hover #wall-list-button, #wall-list-button:focus-visible, #wall-list-b
 #wall-list .add button { align-self: flex-start; padding: 0 14px; }
 #wall-list .error { margin: 0; color: var(--error); font-size: 12px; }
 #wall-list .error[hidden] { display: none; }
+/* A web page camera: the page in its tile (a click opens it over the wall, to use). */
+#wall .cam iframe { width: 100%; height: 100%; border: 0; display: block; pointer-events: none; background: #000; }
+#wall-page { position: fixed; z-index: 8; inset: 0; background: #000; }
+#wall-page[hidden] { display: none; }
+#wall-page iframe { width: 100%; height: 100%; border: 0; display: block; }
+#wall-page .close { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; }
+#wall-page .close svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; }
