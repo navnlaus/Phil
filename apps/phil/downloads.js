@@ -15,6 +15,7 @@ const SOCKET = Deno.env.get("PANDA_DL_SOCKET") ?? join(Deno.env.get("HOME") ?? "
 // started without ~/.local/bin on its PATH).
 const BINARY = Deno.env.get("PANDA_DL") ?? join(Deno.env.get("HOME") ?? "/", ".local/bin/panda-dl");
 const ACTIVE_MS = 1000, IDLE_MS = 5000, ABSENT_MS = 15_000; // how often it's asked: downloading, not, no daemon
+const TIMEOUT_MS = 5000; // an answer, at most (a magnet's skip or add can take a moment)
 const SHOWN = new Set(["downloading", "paused", "queued", "initializing", "checking", "metadata", "starting", "error", "failed", "completed"]); // not cancelled
 const RESTING = new Set(["paused", "error", "failed", "completed"]); // asked about less often (IDLE_MS)
 
@@ -39,8 +40,13 @@ export function watchDownloads(onChange) {
     }
     try {
       await conn.write(encoder.encode(JSON.stringify(message) + "\n"));
+      const deadline = Date.now() + TIMEOUT_MS; // a daemon that doesn't answer doesn't hold phil up (a delete waits on it)
       while (!pending.includes("\n")) {
-        const { value, done } = await reader.read();
+        let timer;
+        const { value, done } = await Promise.race([
+          reader.read(),
+          new Promise((_, fail) => (timer = setTimeout(() => fail(new Error("panda-dl didn't answer")), Math.max(0, deadline - Date.now())))),
+        ]).finally(() => clearTimeout(timer));
         if (done) throw new Error("panda-dl closed the connection");
         pending += decoder.decode(value, { stream: true });
         if (pending.length > 4 << 20) throw new Error("panda-dl's answer is too long");
@@ -85,6 +91,17 @@ export function watchDownloads(onChange) {
   }
 
   return {
+    /**
+     * Files and folders about to be deleted: the downloads under way writing
+     * them skip them (so they aren't written again), and stop when nothing's left.
+     */
+    async deleting(paths) {
+      for (const d of JSON.parse(last)) {
+        if (d.state === "completed" || !d.files?.length) continue;
+        const theirs = paths.filter((p) => d.files.some((f) => f.path === p || f.path.startsWith(p + "/")));
+        if (theirs.length) await this.act("skip", d.id, { paths: theirs }).catch(() => {});
+      }
+    },
     /** The downloads shown now. */
     get list() {
       return JSON.parse(last);
@@ -128,10 +145,15 @@ export function watchDownloads(onChange) {
       poll();
       return answer;
     },
-    /** pause, resume or remove (`deleteFile`: its files too) a download; then asked again at once. */
-    async act(action, id, { deleteFile = false } = {}) {
-      if (!["pause", "resume", "remove"].includes(action) || typeof id !== "string") throw new Error("pause, resume or remove, and a download's id");
-      const answer = await request({ action, id, ...(action === "remove" && deleteFile ? { delete_file: true } : {}) });
+    /**
+     * pause, resume or remove (`deleteFile`: its files too) a download, or skip
+     * some of a torrent's files (`paths`: theirs, or folders of them; the last
+     * of them skipped, it's removed); then asked again at once.
+     */
+    async act(action, id, { deleteFile = false, paths = [] } = {}) {
+      if (!["pause", "resume", "remove", "skip"].includes(action) || typeof id !== "string") throw new Error("pause, resume, remove or skip, and a download's id");
+      if (action === "skip" && (!Array.isArray(paths) || !paths.length || !paths.every((p) => typeof p === "string" && p.startsWith("/")))) throw new Error("Which of its files to skip");
+      const answer = await request({ action, id, ...(action === "remove" && deleteFile ? { delete_file: true } : {}), ...(action === "skip" ? { paths } : {}) });
       if (answer.status === "error") throw new Error(answer.message ?? "panda-dl couldn't");
       clearTimeout(timer);
       timer = null;
@@ -204,7 +226,7 @@ function describe(d) {
     // A torrent's files, as panda-dl lists them ([]: not known yet, a magnet's metadata); null: not
     // listed (a web download: itself; a panda-dl without phil's change: guessed, see filesOf).
     files: d.kind === "torrent" && Array.isArray(d.files)
-      ? d.files.map((f) => ({ path: String(f.path), length: f.length ?? 0, downloaded: f.downloaded ?? 0 }))
+      ? d.files.filter((f) => f.selected !== false).map((f) => ({ path: String(f.path), length: f.length ?? 0, downloaded: f.downloaded ?? 0 })) // (not those skipped)
       : null,
     peers: d.torrent_info?.peers ?? null,
     seeds: d.torrent_info?.seeds ?? null,

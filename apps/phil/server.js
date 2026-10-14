@@ -266,6 +266,7 @@ export function createServer({ profile, controlSocket }) {
         return openExternal(await req.json());
       case "POST /api/delete": {
         const paths = (await req.json()).paths ?? [];
+        await downloads.deleting(paths); // a download writing them stops (with nothing left of it: it's removed)
         const result = await deletePaths(paths, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress)), forget: forgetDeleted });
         await movedHooks(paths, result, () => null);
         return json(result);
@@ -306,15 +307,15 @@ export function createServer({ profile, controlSocket }) {
         const { id, pause } = await req.json();
         return json({ paused: pauseTransfer(id, !!pause) });
       }
-      case "POST /api/download": // {action: pause|resume|remove, id, deleteFile} / {action: add, uri, dir}: a download (panda-dl's)
+      case "POST /api/download": // {action: pause|resume|remove, id, deleteFile} / {action: skip, id, paths} / {action: add, uri, dir}: a download (panda-dl's)
         try {
-          const { action, id, deleteFile, uri, dir } = await req.json();
+          const { action, id, deleteFile, uri, dir, paths } = await req.json();
           if (action === "add") {
             const folder = requirePath(dir);
             if (!(await isDir(folder))) throw new Error(`${folder} isn't a folder`);
             return json(await downloads.add(uri, folder));
           }
-          return json(await downloads.act(action, id, { deleteFile: !!deleteFile }));
+          return json(await downloads.act(action, id, { deleteFile: !!deleteFile, paths }));
         } catch (err) {
           throw httpError(502, err.message);
         }
