@@ -718,13 +718,14 @@ if (DEBUG_CLICKS) {
 }
 
 function navigate(path) {
+  closeTransfersView(); // a folder opened: shown
   if (path === loading) return; // clicked again while it opens (a drive waking up)
   const hash = "#" + encodePath(path);
   if (location.hash === hash) load(path);
   else location.hash = hash;
 }
 
-addEventListener("hashchange", () => load(decodeURIComponent(location.hash.slice(1))));
+addEventListener("hashchange", () => (closeTransfersView(), load(decodeURIComponent(location.hash.slice(1)))));
 
 // The folder being opened, while it's listed (a drive waking up can take seconds),
 // and which load is the newest (an older one finishing later is dropped).
@@ -3507,8 +3508,8 @@ function renderTransferList() {
     ...[...state.transfers.values()].map((t) => ({ key: `transfer ${t.id}`, t })),
     ...state.downloads.map((d) => ({ key: `download ${d.id}`, d })),
   ];
-  $("#transfers-panel").hidden = !list.length;
   keyed($("#transfers"), list, { key: (b) => b.key, kind: barKind, make: makeTransferRow, show: showTransferRow });
+  if (!transfersView.hidden) renderTransfersView(list);
 }
 
 function makeTransferRow(b) {
@@ -3531,6 +3532,7 @@ function showTransferRow(row, b) {
 
 // The folder a transfer goes to (a delete's: the one it's deleting in), with what it's making selected.
 function goToTransfer(b) {
+  closeTransfersView();
   const dir = b.d ? b.d.dir : b.t.dest;
   const made = b.d ? (b.d.files?.length ? b.d.files.map((f) => f.path) : [b.d.path]).filter((p) => p?.startsWith(dir + "/")).map((p) => topIn(dir, p))
     : b.t.op === "delete" ? [] : b.t.targets ?? [];
@@ -3540,6 +3542,171 @@ function goToTransfer(b) {
 
 // The entry right in `dir` that `path` is in (or is).
 const topIn = (dir, path) => dir + "/" + path.slice(dir.length + 1).split("/")[0];
+
+// ---------------------------------------------------------------- the Transfers view
+
+// The sidebar's Transfers heading: every transfer in full (what, where, how
+// far, how fast; a torrent's files, each with its own progress and ×), and
+// panda-dl's settings. Over the folder; Esc or × closes it, as does opening a folder.
+const transfersView = $("#transfers-view");
+let transfersFocus = null;
+
+$("#btn-transfers").onclick = () => (transfersView.hidden ? openTransfersView() : closeTransfersView());
+transfersView.querySelector(".tv-head .close").onclick = () => closeTransfersView();
+transfersView.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  e.preventDefault();
+  e.stopPropagation();
+  closeTransfersView();
+});
+
+function openTransfersView() {
+  transfersFocus = document.activeElement;
+  transfersView.hidden = false;
+  $("#btn-transfers").setAttribute("aria-pressed", "true");
+  renderTransferList();
+  loadDownloadSettings();
+  transfersView.querySelector(".tv-head .close").focus({ preventScroll: true });
+}
+
+function closeTransfersView() {
+  if (transfersView.hidden) return;
+  transfersView.hidden = true;
+  $("#btn-transfers").setAttribute("aria-pressed", "false");
+  const back = transfersFocus?.isConnected && transfersFocus !== document.body && !transfersView.contains(transfersFocus) ? transfersFocus : grid;
+  back.focus({ preventScroll: true });
+}
+
+function renderTransfersView(list) {
+  transfersView.querySelector(".tv-empty").hidden = list.length > 0;
+  keyed($("#tv-items"), list, { key: (b) => b.key, kind: barKind, make: makeTransferCard, show: showTransferCard });
+}
+
+// One transfer: its name and what it is, where it goes (a click: there), its
+// bar (with its buttons), the facts, and a torrent's files.
+function makeTransferCard(b) {
+  const card = document.createElement("article");
+  card.className = "tv-card";
+  card.innerHTML = `<div class="tv-title"><span class="tv-name"></span><span class="tv-state"></span></div>
+    <button type="button" class="tv-where" title="Show it there"></button>
+    <div class="tv-facts hint"></div>
+    <details class="tv-files" hidden><summary></summary><div class="tv-file-list"></div></details>`;
+  card.querySelector(".tv-where").after(makeTransferBar(barKind(b)));
+  card.querySelector(".tv-where").onclick = () => goToTransfer(card.item);
+  return card;
+}
+
+function showTransferCard(card, b) {
+  const bar = card.querySelector(".transfer-bar");
+  bar.item = b;
+  if (b.d) showDownloadBar(bar, b.d);
+  else showTransferBar(bar, b.t);
+  const what = b.d ? b.d.name : b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop();
+  put(card.querySelector(".tv-name"), "textContent", what);
+  let state, where, facts;
+  if (b.d) {
+    const d = b.d;
+    state = { completed: d.upSpeed > 0 ? "Seeding" : "Downloaded", paused: "Paused", error: "Failed", failed: "Failed", queued: "Queued", metadata: "Finding it", checking: "Checking" }[d.state] ?? "Downloading";
+    where = `Into ${d.dir}`;
+    const ratio = d.total ? ` (ratio ${(d.uploaded / d.total).toFixed(2)})` : "";
+    facts = [
+      d.state === "completed" ? formatSize(d.total) : `${formatSize(d.bytes)} of ${formatSize(d.total)}`,
+      d.state === "downloading" && d.speed ? `↓ ${formatSize(d.speed)}/s` : "",
+      d.state === "downloading" && d.eta ? `${formatDuration(d.eta)} left` : "",
+      d.upSpeed ? `↑ ${formatSize(d.upSpeed)}/s` : "",
+      d.peers !== null && d.state !== "paused" ? `${d.peers} peer${d.peers === 1 ? "" : "s"}${d.seeds !== null ? `, ${d.seeds} seed${d.seeds === 1 ? "" : "s"}` : ""}` : "",
+      d.uploaded ? `${formatSize(d.uploaded)} uploaded${ratio}` : "",
+      d.error && (d.state === "error" || d.state === "failed") ? d.error : "",
+    ];
+  } else {
+    const t = b.t;
+    state = t.op === "delete" ? (t.counting ? "Counting" : "Deleting") : `${t.paused ? "Paused" : t.op === "move" ? "Moving" : "Copying"}`;
+    where = t.op === "delete" ? `In ${t.dest}` : `To ${t.dest}`;
+    facts = t.op === "delete"
+      ? [t.counting ? `${t.found.toLocaleString()} files and folders so far` : `${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} files and folders gone`]
+      : [`${formatSize(t.bytes)} of ${formatSize(t.total)}`, t.paused ? "" : t.speed ?? "", t.paused || !t.eta ? "" : `${t.eta} left`, t.file ? `at ${t.file.split("/").pop()}` : ""];
+  }
+  put(card.querySelector(".tv-state"), "textContent", state);
+  put(card.querySelector(".tv-where"), "textContent", where);
+  put(card.querySelector(".tv-facts"), "textContent", facts.filter(Boolean).join(" · "));
+  // A torrent's files (those still in it), each with how far it is, and × to drop it.
+  const files = b.d?.files?.length > 1 && b.d.files[0].length !== null ? b.d.files : [];
+  const box = card.querySelector(".tv-files");
+  put(box, "hidden", !files.length);
+  if (!files.length) return;
+  const done = files.filter((f) => f.downloaded >= f.length).length;
+  put(box.querySelector("summary"), "textContent", `${files.length} files${done && done < files.length ? `, ${done} done` : ""}`);
+  keyed(box.querySelector(".tv-file-list"), files, { key: (f) => f.path, make: makeFileRow, show: (row, f) => showFileRow(row, f, b.d) });
+}
+
+function makeFileRow() {
+  const row = document.createElement("div");
+  row.className = "tv-file";
+  row.innerHTML = `<span class="tv-file-name"></span><span class="tv-file-size"></span><span class="tv-file-bar"><span class="fill"></span></span><span class="tv-file-pct"></span>`;
+  row.append(barButton("×", "", () => stopDownloadPart({ d: row.d, part: { path: row.item.path } })));
+  return row;
+}
+
+function showFileRow(row, f, d) {
+  row.d = d;
+  const pct = f.length ? Math.floor((f.downloaded / f.length) * 1000) / 10 : 100;
+  put(row.querySelector(".tv-file-name"), "textContent", f.path.slice(d.dir.length + 1));
+  put(row.querySelector(".tv-file-name"), "title", f.path);
+  put(row.querySelector(".tv-file-size"), "textContent", formatSize(f.length));
+  put(row.querySelector(".fill").style, "width", `${pct}%`);
+  put(row.querySelector(".tv-file-pct"), "textContent", pct >= 100 ? "Done" : `${pct}%`);
+  row.classList.toggle("done", pct >= 100);
+  put(row.querySelector(".cancel"), "title", d.state === "completed" || d.files.length === 1
+    ? "Drop it (the last of it: the download is closed; the file stays)" : "Stop downloading this (the rest goes on; what's downloaded stays)");
+}
+
+// panda-dl's settings: shown as they are, each saved as it's changed.
+const settingInputs = [...transfersView.querySelectorAll("[data-setting]")];
+
+async function loadDownloadSettings() {
+  const r = await api("/api/download-settings").catch((err) => ({ error: err.message }));
+  showDownloadSettings(r);
+}
+
+function showDownloadSettings({ running, config, error }) {
+  put(transfersView.querySelector(".tv-daemon"), "textContent", error ? `Couldn't read panda-dl's settings: ${error}`
+    : !config ? "panda-dl isn't set up yet: these are its defaults, saved when changed."
+    : running ? "panda-dl downloads web links and torrents; it's running."
+    : "panda-dl downloads web links and torrents. It isn't running now (it starts when something is downloaded); changes are saved for when it does.");
+  for (const input of settingInputs) {
+    if (document.activeElement === input && input.type !== "checkbox") continue; // being typed in
+    const value = config?.[input.dataset.setting];
+    if (input.type === "checkbox") input.checked = value ?? true;
+    else input.value = value ?? "";
+  }
+  showClipboardOptions();
+}
+
+const showClipboardOptions = () => transfersView.querySelector(".tv-sub").classList.toggle("off", !transfersView.querySelector('[data-setting="auto_capture_clipboard"]').checked);
+
+async function saveDownloadSetting(input) {
+  const value = input.type === "checkbox" ? input.checked : input.type === "number" ? Number(input.value) : input.value.trim();
+  const error = transfersView.querySelector(".tv-error");
+  try {
+    showDownloadSettings(await api("/api/download-settings", { method: "PUT", body: JSON.stringify({ [input.dataset.setting]: value }) }));
+    error.hidden = true;
+  } catch (err) {
+    error.textContent = err.message;
+    error.hidden = false;
+    loadDownloadSettings(); // back to what it is
+  }
+}
+
+for (const input of settingInputs) {
+  input.addEventListener("change", () => saveDownloadSetting(input));
+  if (input.type === "checkbox") input.addEventListener("change", showClipboardOptions);
+  else input.addEventListener("keydown", (e) => e.key === "Enter" && input.blur());
+}
+$("#tv-dir-here").onclick = () => {
+  const input = $("#tv-dir");
+  input.value = state.path;
+  saveDownloadSetting(input);
+};
 
 const partDone = (b) => b.d.state === "completed" || (b.part?.length != null && b.part.downloaded >= b.part.length);
 const barKind = (b) => (b.d ? (partDone(b) ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");

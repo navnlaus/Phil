@@ -8,12 +8,27 @@
 // open. (The daemon has no way to tell of changes by itself.) Windows hear only
 // what changed.
 
-import { join } from "@std/path";
+import { dirname, join } from "@std/path";
 
 const SOCKET = Deno.env.get("PANDA_DL_SOCKET") ?? join(Deno.env.get("HOME") ?? "/", ".local/share/panda-dl/panda-dl.sock");
 // panda-dl itself, to start its daemon when a download is added and it isn't running (phil may be
 // started without ~/.local/bin on its PATH).
 const BINARY = Deno.env.get("PANDA_DL") ?? join(Deno.env.get("HOME") ?? "/", ".local/bin/panda-dl");
+// Its settings (its daemon reads them when it starts; set_config changes them while it runs).
+const CONFIG = join(Deno.env.get("XDG_CONFIG_HOME") || join(Deno.env.get("HOME") ?? "/", ".config"), "panda-dl/config.json");
+// Those phil shows, and what each is. (Its max_concurrent_downloads and
+// show_desktop_notifications aren't used by panda-dl: left out.)
+const SETTINGS = { download_dir: "folder", default_parts: "count", auto_capture_clipboard: "flag", auto_start_magnets: "flag", auto_start_torrents: "flag" };
+const DEFAULTS = {
+  download_dir: join(Deno.env.get("HOME") ?? "/", "Downloads"),
+  default_parts: 16,
+  max_concurrent_downloads: 5,
+  auto_capture_clipboard: true,
+  auto_start_magnets: true,
+  auto_start_torrents: true,
+  show_desktop_notifications: true,
+};
+const configOf = (c) => Object.fromEntries(Object.entries({ ...DEFAULTS, ...c }).filter(([name]) => name in DEFAULTS));
 const ACTIVE_MS = 1000, IDLE_MS = 5000, ABSENT_MS = 15_000; // how often it's asked: downloading, not, no daemon
 const TIMEOUT_MS = 5000; // an answer, at most (a magnet's skip or add can take a moment)
 const SHOWN = new Set(["downloading", "paused", "queued", "initializing", "checking", "metadata", "starting", "error", "failed", "completed"]); // not cancelled
@@ -101,6 +116,44 @@ export function watchDownloads(onChange) {
         const theirs = paths.filter((p) => d.files.some((f) => f.path === p || f.path.startsWith(p + "/")));
         if (theirs.length) await this.act("skip", d.id, { paths: theirs }).catch(() => {});
       }
+    },
+    /**
+     * panda-dl's settings: {running, config} (config: its config.json's,
+     * read from the file when its daemon isn't running; null: neither).
+     */
+    async settings() {
+      try {
+        const answer = await request({ action: "get_config" });
+        if (answer.status === "config") return { running: true, config: configOf(answer) };
+      } catch { /* not running */ }
+      const config = await Deno.readTextFile(CONFIG).then(JSON.parse, () => null);
+      return { running: false, config: config && configOf(config) };
+    },
+    /**
+     * Changes some of panda-dl's settings (SETTINGS' names): its daemon takes
+     * them at once (and saves them); not running, they're written to its config file.
+     */
+    async setSettings(changes) {
+      const { running, config } = await this.settings();
+      const next = { ...(config ?? DEFAULTS) };
+      for (const [name, value] of Object.entries(changes ?? {})) {
+        const kind = SETTINGS[name];
+        if (!kind) throw new Error(`No setting ${name}`);
+        if (kind === "folder" && !(typeof value === "string" && value.startsWith("/"))) throw new Error("The download folder: a full path");
+        if (kind === "count" && !(Number.isInteger(value) && value >= 1 && value <= 64)) throw new Error(`${name}: 1 to 64`);
+        if (kind === "flag" && typeof value !== "boolean") throw new Error(`${name}: on or off`);
+        next[name] = value;
+      }
+      if (running) {
+        const answer = await request({ action: "set_config", config: next });
+        if (answer.status === "error") throw new Error(answer.message ?? "panda-dl couldn't");
+      } else {
+        // All its fields (it reads none of the file if one is missing), as it writes them.
+        const all = { ...DEFAULTS, ...(await Deno.readTextFile(CONFIG).then(JSON.parse, () => ({}))), ...next };
+        await Deno.mkdir(dirname(CONFIG), { recursive: true });
+        await Deno.writeTextFile(CONFIG, JSON.stringify(all, null, 2));
+      }
+      return this.settings();
     },
     /** The downloads shown now. */
     get list() {
