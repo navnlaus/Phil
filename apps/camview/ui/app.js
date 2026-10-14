@@ -156,6 +156,9 @@ async function run(player) {
     if (done) throw new Error("The camera's stream ended");
     head = concat(head, value);
     codec = codecOf(head);
+    // A fragment of video, and no H.264 or H.265 description before it: something else (a web
+    // camera's MJPEG, say), which the page can't play as it is: re-encoded, next.
+    if (!codec && hasBox(head, "moof")) return nextMode(player, "isn't H.264 or H.265");
     if (head.length > 4_000_000) throw new Error("Can't tell what the camera's video is");
   }
   const type = `video/mp4; codecs="${codec}"`;
@@ -208,6 +211,11 @@ async function run(player) {
     pump();
   }
 }
+
+const hasBox = (bytes, name) => {
+  const [a, b, c, d] = [...name].map((ch) => ch.charCodeAt(0));
+  return bytes.some((x, i) => x === a && bytes[i + 1] === b && bytes[i + 2] === c && bytes[i + 3] === d);
+};
 
 function concat(...parts) {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));

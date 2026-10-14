@@ -2,7 +2,9 @@
 // live, side by side. Each plays its smallest stream, the camera's own H.264 if
 // this machine's player shows it right, otherwise re-encoded, otherwise JPEG
 // pictures (as app.js does for one). A click shows that camera on its own (with
-// its controls; Esc comes back here); Esc closes the wall.
+// its controls; Esc comes back here); Esc closes the wall. Its list (the
+// button in the top right corner, or L): every camera, offline and turned off
+// ones too, each turned on or off, removed, and streams added by their URL.
 import { closeWindow, onCloseRequest, ready, tooltips } from "../engine/ui/kit.js";
 
 tooltips();
@@ -16,11 +18,36 @@ wall.id = "wall";
 wall.tabIndex = 0;
 wall.setAttribute("aria-label", "Cameras");
 const note = Object.assign(document.createElement("p"), { id: "wall-message", textContent: "Looking for cameras…" });
-document.body.replaceChildren(wall, note);
+const panel = document.createElement("aside");
+panel.id = "wall-list";
+panel.hidden = true;
+panel.innerHTML = `
+  <header>
+    <h2>Cameras</h2>
+    <button type="button" class="icon look" title="Look for cameras again, and check the streams"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4"/></svg></button>
+    <button type="button" class="icon close" title="Close the list (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </header>
+  <p class="hint list-state"></p>
+  <div class="rows"></div>
+  <form class="add">
+    <h3>Add a stream</h3>
+    <input name="name" type="text" placeholder="Name" maxlength="80" autocomplete="off" spellcheck="false">
+    <input name="url" type="text" placeholder="rtsp://… or https://…" autocomplete="off" spellcheck="false" required>
+    <button type="submit">Add</button>
+    <p class="hint">RTSP, or a web stream: MJPEG, HLS (.m3u8), MP4. A login goes in the URL (rtsp://user:password@…).</p>
+    <p class="error" hidden></p>
+  </form>`;
+const listButton = document.createElement("button");
+listButton.id = "wall-list-button";
+listButton.type = "button";
+listButton.className = "icon";
+listButton.title = "All cameras: turn them on or off, add a stream (L)";
+listButton.innerHTML = `<svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>`;
+document.body.replaceChildren(wall, note, listButton, panel);
 document.body.classList.add("wall");
 document.title = "Cameras — camview";
 
-const tiles = [];
+const tiles = []; // in the wall's order
 
 async function api(path) {
   const res = await fetch(path);
@@ -49,9 +76,7 @@ function makeTile(camera) {
     for (const t of tiles) stop(t);
     location.href = pageWith({ wall: null, camera: camera.id, from: "wall" });
   };
-  const t = { camera, el: tile, video: tile.querySelector("video"), img: tile.querySelector("img"), mode: "copy", player: null, profile: null };
-  tiles.push(t);
-  return t;
+  return { camera, el: tile, video: tile.querySelector("video"), img: tile.querySelector("img"), mode: "copy", player: null, profile: null };
 }
 
 const say = (t, text) => (t.el.querySelector(".cam-msg").textContent = text);
@@ -152,6 +177,9 @@ async function run(t, player) {
     if (done) throw new Error("The stream ended");
     head = concat(head, value);
     codec = codecOf(head);
+    // A fragment of video, and no H.264 or H.265 description before it: something else (a web
+    // camera's MJPEG, say), which the page can't play as it is: re-encoded, next.
+    if (!codec && hasBox(head, "moof")) return nextMode(t, player, "isn't H.264 or H.265");
     if (head.length > 4_000_000) throw new Error("Can't tell what the video is");
   }
   const type = `video/mp4; codecs="${codec}"`;
@@ -201,6 +229,11 @@ async function run(t, player) {
   }
 }
 
+const hasBox = (bytes, name) => {
+  const [a, b, c, d] = [...name].map((ch) => ch.charCodeAt(0));
+  return bytes.some((x, i) => x === a && bytes[i + 1] === b && bytes[i + 2] === c && bytes[i + 3] === d);
+};
+
 function concat(...parts) {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let at = 0;
@@ -243,21 +276,137 @@ function close() {
 }
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "w")) e.preventDefault(), close();
+  if (e.key === "Escape" && !panel.hidden) return e.preventDefault(), toggleList(false); // the list first
+  if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "w")) return e.preventDefault(), close();
+  const typing = e.target.closest?.("input, textarea");
+  if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l") e.preventDefault(), toggleList();
 });
 onCloseRequest(close);
 
-try {
-  const cameras = await api("api/cameras");
-  if (!cameras.length) note.textContent = "No cameras found on the network (↻ by Cameras in phil's sidebar looks again).";
-  else {
-    note.hidden = true;
-    wall.append(...cameras.map((c) => makeTile(c).el));
-    layout();
-    for (const t of tiles) start(t);
+// The wall's tiles, as the cameras shown now are: each kept (playing on) while
+// its camera is, by id; new ones started, gone ones stopped.
+function renderTiles(cameras) {
+  const old = new Map(tiles.map((t) => [t.camera.id, t]));
+  tiles.length = 0;
+  for (const c of cameras) {
+    let t = old.get(c.id);
+    if (t) old.delete(c.id), (t.camera = c), (t.el.querySelector(".cam-name").textContent = c.name);
+    else (t = makeTile(c)), (t.fresh = true);
+    tiles.push(t);
   }
-} catch (err) {
-  note.textContent = err.message;
+  for (const t of old.values()) stop(t), t.el.remove();
+  for (const t of tiles) wall.append(t.el); // (in place already: stays)
+  for (const t of tiles.filter((t) => t.fresh)) (t.fresh = false), start(t);
+  note.hidden = tiles.length > 0;
+  if (!tiles.length) note.textContent = "No cameras to show: the list (top right) has those turned off or offline, and adds streams.";
+  layout();
 }
+
+async function refresh() {
+  try {
+    renderTiles(await api("api/cameras"));
+  } catch (err) {
+    note.hidden = false;
+    note.textContent = err.message;
+  }
+  if (!panel.hidden) renderRows(await api("api/cameras/all").catch(() => null));
+}
+
+// ---------------------------------------------------------------- the list
+
+const STATES = { on: "", offline: "offline", off: "off" };
+const KINDS = { network: "", cloud: "cloud", stream: "stream" };
+
+function renderRows(list) {
+  if (!list) return;
+  panel.querySelector(".list-state").textContent = list.length ? "" : "No cameras yet: phil's ↻ by Cameras looks for them on the network, or add a stream below.";
+  const rows = panel.querySelector(".rows");
+  const old = new Map([...rows.children].map((r) => [r.dataset.id, r]));
+  const els = list.map((c) => {
+    let row = old.get(c.id);
+    if (row) old.delete(c.id);
+    else row = makeRow(c);
+    showRow(row, c);
+    return row;
+  });
+  for (const r of old.values()) r.remove();
+  for (const r of els) rows.append(r);
+}
+
+function makeRow(c) {
+  const row = document.createElement("div");
+  row.className = "row";
+  row.dataset.id = c.id;
+  row.innerHTML = `<label class="switch"><input type="checkbox"><span></span></label><div class="what"><span class="name"></span><span class="detail"></span></div><button type="button" class="remove"></button>`;
+  row.querySelector("input").onchange = async (e) => {
+    await fetch("api/camera", { method: "PUT", body: JSON.stringify({ id: row.camera.id, disabled: !e.target.checked }) }).catch(() => {});
+    refresh();
+  };
+  row.querySelector(".remove").onclick = async () => {
+    const c = row.camera;
+    if (!confirm(c.kind === "stream" ? `Remove ${c.name}?` : `Forget ${c.name}? (Looking for cameras won't bring it back; adding it by its address will.)`)) return;
+    await fetch(`api/camera?id=${encodeURIComponent(c.id)}`, { method: "DELETE" }).catch(() => {});
+    refresh();
+  };
+  return row;
+}
+
+function showRow(row, c) {
+  row.camera = c;
+  row.classList.toggle("off", c.state !== "on");
+  row.querySelector("input").checked = c.state !== "off";
+  row.querySelector(".switch").title = c.state === "off" ? "Turned off: turn it on to show it" : "Shown: turn it off to hide it (it's kept here)";
+  row.querySelector(".name").textContent = c.name;
+  const detail = [STATES[c.state], KINDS[c.kind], c.kind === "stream" ? c.url : [c.model, c.host].filter(Boolean).join(" · ")].filter(Boolean).join(" · ");
+  row.querySelector(".detail").textContent = detail;
+  row.querySelector(".detail").title = detail;
+  const remove = row.querySelector(".remove");
+  remove.textContent = c.kind === "stream" ? "Remove" : "Forget";
+  remove.title = c.kind === "stream" ? "Remove this stream" : "Forget this camera";
+}
+
+async function toggleList(open = panel.hidden) {
+  panel.hidden = !open;
+  listButton.classList.toggle("on", open);
+  if (open) {
+    renderRows(await api("api/cameras/all").catch(() => null));
+    panel.querySelector('input[name="url"]').focus();
+  } else wall.focus({ preventScroll: true });
+}
+
+listButton.onclick = () => toggleList();
+panel.querySelector(".close").onclick = () => toggleList(false);
+panel.querySelector(".look").onclick = async (e) => {
+  const button = e.currentTarget;
+  button.classList.add("busy");
+  panel.querySelector(".list-state").textContent = "Looking for cameras, and checking the streams…";
+  const list = await fetch("api/cameras/look", { method: "POST" }).then((r) => r.json()).catch(() => null);
+  button.classList.remove("busy");
+  panel.querySelector(".list-state").textContent = "";
+  renderRows(list);
+  refresh();
+};
+panel.querySelector(".add").onsubmit = async (e) => {
+  e.preventDefault();
+  const form = e.currentTarget, error = form.querySelector(".error"), button = form.querySelector("button");
+  button.disabled = true;
+  button.textContent = "Checking…";
+  try {
+    const res = await fetch("api/cameras/stream", { method: "POST", body: JSON.stringify({ name: form.name.value, url: form.url.value }) });
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
+    const c = await res.json();
+    form.reset();
+    error.hidden = c.state === "on";
+    error.textContent = c.state === "on" ? "" : `${c.name} doesn't answer now: it's in the list, offline (↻ checks again).`;
+  } catch (err) {
+    error.hidden = false;
+    error.textContent = err.message;
+  }
+  button.disabled = false;
+  button.textContent = "Add";
+  refresh();
+};
+
+await refresh();
 wall.focus({ preventScroll: true });
 ready();
