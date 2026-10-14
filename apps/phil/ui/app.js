@@ -992,7 +992,27 @@ async function sshTo(path) {
   if (terminal.remote || !terminal.run("ssh")) alert("The terminal is busy: finish what's running there first.");
 }
 
+// A press in the sidebar is a click on its way: rebuilding it now (a refresh
+// that lands then, as the one when the window gets focus often does) would
+// swap the element under the pointer and lose the click. So it waits until
+// the button is up, and the click has gone to where it was pressed.
+let sidebarPressed = false;
+const heldRenders = new Set();
+const holdWhilePressed = (render) => (sidebarPressed ? (heldRenders.add(render), true) : false);
+$("#sidebar").addEventListener("pointerdown", () => (sidebarPressed = true), true);
+for (const type of ["pointerup", "pointercancel", "dragend", "blur"]) {
+  addEventListener(type, (e) => {
+    if (!sidebarPressed || (type === "blur" && e.target !== window)) return; // the window's blur, not focus moving inside it
+    sidebarPressed = false;
+    setTimeout(() => { // after the click
+      for (const render of heldRenders) render();
+      heldRenders.clear();
+    });
+  }, true);
+}
+
 function renderPlaces() {
+  if (holdWhilePressed(renderPlaces)) return;
   const nav = $("#places");
   nav.replaceChildren(...state.init.places.map((p) => {
     if (p.unmounted) return unmountedPlace(p);
@@ -1942,6 +1962,7 @@ async function loadCameras(look = false) {
 }
 
 function renderCameras() {
+  if (holdWhilePressed(renderCameras)) return;
   $("#cameras-panel").hidden = !state.cameras.length;
   $("#cameras").replaceChildren(...state.cameras.map((c) => {
     const a = document.createElement("a");
