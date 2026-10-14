@@ -12,7 +12,8 @@ import { join } from "@std/path";
 
 const SOCKET = Deno.env.get("PANDA_DL_SOCKET") ?? join(Deno.env.get("HOME") ?? "/", ".local/share/panda-dl/panda-dl.sock");
 const ACTIVE_MS = 1000, IDLE_MS = 5000, ABSENT_MS = 15_000; // how often it's asked: downloading, not, no daemon
-const SHOWN = new Set(["downloading", "paused", "queued", "initializing", "checking", "metadata", "starting", "error", "failed"]); // not completed or cancelled
+const SHOWN = new Set(["downloading", "paused", "queued", "initializing", "checking", "metadata", "starting", "error", "failed", "completed"]); // not cancelled
+const RESTING = new Set(["paused", "error", "failed", "completed"]); // asked about less often (IDLE_MS)
 
 /**
  * `onChange(list)`: the downloads to show changed ([] once none are left).
@@ -65,7 +66,7 @@ export function watchDownloads(onChange) {
     try {
       const status = await request({ action: "status" });
       list = (status.downloads ?? []).map(describe).filter((d) => SHOWN.has(d.state));
-      next = list.some((d) => d.state !== "paused" && d.state !== "error" && d.state !== "failed") ? ACTIVE_MS : IDLE_MS;
+      next = list.some((d) => !RESTING.has(d.state)) ? ACTIVE_MS : IDLE_MS;
     } catch { /* no daemon (not installed, or not running): looked for again later */ }
     asking = false;
     const now = JSON.stringify(list);
@@ -135,6 +136,7 @@ function describe(d) {
     speed: d.download_speed ?? 0,
     upSpeed: d.upload_speed ?? 0,
     eta: d.eta_seconds ?? null,
+    uploaded: d.uploaded_bytes ?? 0,
     peers: d.torrent_info?.peers ?? null,
     seeds: d.torrent_info?.seeds ?? null,
   };

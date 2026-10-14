@@ -3518,7 +3518,12 @@ function showTransfers() {
     add(driveBarHost(t.dest), { key: `${t.id} drive`, t }); // the drive it goes to
   }
   // Downloads (panda-dl's): on what's being downloaded (once it's there), the folder it goes to, and its drive.
+  // Finished ones still in its list (seeding, say): a quiet mark on what was downloaded, with × to take it off.
   for (const d of state.downloads) {
+    if (d.state === "completed") {
+      if (d.path) add(tiles.get(d.path), { key: `download ${d.id}`, d });
+      continue;
+    }
     if (d.path) add(tiles.get(d.path), { key: `download ${d.id}`, d });
     add(tiles.get(d.dir), { key: `download ${d.id} folder`, d });
     add(driveBarHost(d.dir), { key: `download ${d.id} drive`, d });
@@ -3536,12 +3541,12 @@ function showTransfers() {
   }
 }
 
-const barKind = (b) => (b.d ? "download" : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
+const barKind = (b) => (b.d ? (b.d.state === "completed" ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
 
 // Downloads under way, changed. One that's done (or stopped) gets its
 // thumbnail now: none was made while it was being written.
 function onDownloads(list) {
-  const still = new Set(list.map((d) => d.path));
+  const still = new Set(list.filter((d) => d.state !== "completed").map((d) => d.path)); // finished ones are done being written
   for (const d of state.downloads) {
     if (!d.path || still.has(d.path)) continue;
     clearTimeout(askAgain.get(d.path));
@@ -3565,6 +3570,14 @@ function driveBarHost(path) {
 // A download's bar: how far, its speed and time left (the tooltip), pause or
 // go on, and × to stop it (what's downloaded stays).
 function showDownloadBar(bar, d) {
+  if (d.state === "completed") { // still in panda-dl's list: seeding, maybe
+    const up = d.upSpeed > 0, seeding = bar.querySelector(".seeding");
+    put(seeding, "hidden", !up);
+    if (up) put(seeding.lastElementChild, "textContent", `${formatSize(d.upSpeed)}/s`);
+    put(bar, "title", `Downloaded by panda-dl, still in its list${up ? ", seeding" : ""}: ${formatSize(d.uploaded)} uploaded to others` +
+      (d.total ? ` (ratio ${(d.uploaded / d.total).toFixed(2)})` : "") + (d.peers ? `, ${d.peers} peer${d.peers === 1 ? "" : "s"}` : ""));
+    return;
+  }
   const waiting = { queued: "Queued", initializing: "Starting…", starting: "Starting…", metadata: "Finding it…", checking: "Checking…" }[d.state];
   const failed = d.state === "error" || d.state === "failed", paused = d.state === "paused";
   bar.classList.toggle("paused", paused || !!waiting);
@@ -3600,6 +3613,12 @@ function makeTransferBar(kind) {
   if (kind === "delete") {
     bar.classList.add("deleting");
     bar.append(barButton("×", "Stop deleting (what's gone is gone; the rest stays)", cancel));
+  } else if (kind === "downloaded") {
+    bar.classList.add("downloaded");
+    // Downloaded (an icon), and while it's seeding, ↑ and how fast.
+    label.innerHTML = `${icon("l:download")}<span class="seeding">${icon("l:arrow-up")}<span></span></span>`;
+    bar.append(barButton("×", "Take it off panda-dl's list (it stops seeding; the file stays)", () =>
+      api("/api/download", { method: "POST", body: JSON.stringify({ action: "remove", id: bar.item.d.id }) }).catch((err) => alert(err.message))));
   } else if (kind === "download") {
     bar.classList.add("download");
     const act = (action) => api("/api/download", { method: "POST", body: JSON.stringify({ action, id: bar.item.d.id }) }).catch((err) => alert(err.message));
