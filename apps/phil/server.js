@@ -15,6 +15,7 @@ import { canWrite, driveInfo, driveSpeed, folderSize, me, properties } from "./p
 import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
+import { watchDownloads } from "./downloads.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 const DEFAULT_THEME = "overlay"; // see ~/.config/phil/themes (engine/themes.js)
@@ -139,6 +140,12 @@ export function createServer({ profile, controlSocket }) {
   const broadcast = (msg) => {
     for (const socket of shown.keys()) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
   };
+  // Downloads under way (panda-dl's; downloads.js), for every window as
+  // {downloads}; what they're writing isn't thumbnailed till they're done.
+  const downloads = watchDownloads((list) => {
+    thumbs.downloading(list.map((d) => d.path).filter(Boolean));
+    for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ downloads: list }));
+  });
   // Copies, moves and deletes under way, for the bar (the phil widget for
   // Omarchy's bar, extras/omarchy-bar): $XDG_RUNTIME_DIR/phil/progress.json,
   // {pid, updated, jobs: [{id, op, name, items, dest, percent, bytes, total,
@@ -299,6 +306,13 @@ export function createServer({ profile, controlSocket }) {
         const { id, pause } = await req.json();
         return json({ paused: pauseTransfer(id, !!pause) });
       }
+      case "POST /api/download": // {action: pause|resume|remove, id, deleteFile}: a download (panda-dl's)
+        try {
+          const { action, id, deleteFile } = await req.json();
+          return json(await downloads.act(action, id, { deleteFile: !!deleteFile }));
+        } catch (err) {
+          throw httpError(502, err.message);
+        }
       case "POST /api/transfer-forget": // {path}: drops a stopped copy's record (what was copied stays)
         await hooks.set(requirePath(path), { copying: "" });
         return json({ ok: true });
@@ -587,7 +601,10 @@ export function createServer({ profile, controlSocket }) {
       }
     };
     sockets.add(socket);
+    const stopDownloads = downloads.use(); // asked about while a window is open
+    socket.addEventListener("open", () => downloads.list.length && send({ downloads: downloads.list }));
     socket.onclose = () => {
+      stopDownloads();
       sockets.delete(socket);
       shown.delete(socket);
       hookWatch?.close();

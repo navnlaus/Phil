@@ -231,6 +231,8 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 }
 @keyframes counting { to { background-position: 22.6px 0; } }
 .transfer-bar.stopped .fill { background: var(--text-dim); opacity: 0.6; }
+.transfer-bar.download .fill { transition: width 1s linear; } /* a download's: told once a second, it glides between */
+.transfer-bar.failed .fill { background: #c94b4b; }
 #places .place-text { flex: 1; }
 #places .transfer-bar { position: relative; inset: auto; margin-top: 4px; height: 16px; width: 100%; }
 #places .transfer-bar .cancel { height: 16px; width: 18px; font-size: 12px; }
