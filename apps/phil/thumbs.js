@@ -106,6 +106,14 @@ const BATCH = 6;
 // In the background (a folder's thumbnails not on screen), runs are kept
 // shorter: one on screen asked for meanwhile waits for the run to end.
 const BACKGROUND_BATCH = 3;
+// A file being written (a download, a copy, a recording) isn't thumbnailed
+// yet: every write would make another, of a half-written file (a torrent's
+// pieces come in any order), and a folder showing it would change its picture
+// every moment. Its last thumbnail shows meanwhile, if it had one. A file just
+// saved waits QUIET_MS; one seen changing between two looks waits until it's
+// been left alone WRITING_MS.
+const QUIET_MS = 1500;
+const WRITING_MS = 30_000;
 const MBPS_PER_JOB = 30;
 const JOB_TIMEOUT_MS = 60_000;
 export class Thumbnailer {
@@ -123,6 +131,9 @@ export class Thumbnailer {
     this.jobs = new Map();
     this.running = 0;
     this.runningBackground = 0; // of them, made in the background (get's `background`)
+    this.latest = new Map(); // path -> URL of the last thumbnail it had (shown while it's being written)
+    this.looks = new Map(); // path -> its size and time when last looked at, while it's recent (busyFor)
+    this.writing = new Set(); // paths seen changing between two looks
     this.runningOn = new Map(); // device -> jobs running on it
     this.systemDevice = null; // the device "/" is on: all the jobs at once
   }
@@ -150,9 +161,35 @@ export class Thumbnailer {
     if (thumb) {
       // Made before thumbnails were filed by content (only one link to it): filed now, in the background.
       if (thumb.nlink === 1) this.fileLater({ key, path, size: stat.size, dev: stat.dev });
-      return this.url(key);
+      return this.remember(path, this.url(key));
     }
-    return this.lookupKey(key);
+    const known = await this.lookupKey(key);
+    return known === null && this.busyFor(path, stat) ? this.latest.get(path) ?? null : known;
+  }
+
+  // How long until `path` counts as settled (0: it is): see QUIET_MS.
+  busyFor(path, stat) {
+    const mtime = stat.mtime?.getTime() ?? 0, since = Date.now() - mtime, look = `${stat.size} ${mtime}`;
+    if (since < QUIET_MS) {
+      if (this.looks.has(path) && this.looks.get(path) !== look) this.writing.add(path);
+      this.looks.set(path, look);
+      if (this.looks.size > 5000) this.looks.delete(this.looks.keys().next().value);
+    }
+    if (this.writing.has(path)) {
+      if (since < WRITING_MS) return WRITING_MS - since;
+      this.writing.delete(path);
+      this.looks.delete(path);
+      return 0;
+    }
+    return Math.max(0, QUIET_MS - since);
+  }
+
+  // The last thumbnail `path` had: what it shows while it's being written.
+  remember(path, url) {
+    this.latest.delete(path);
+    this.latest.set(path, url);
+    if (this.latest.size > 20_000) this.latest.delete(this.latest.keys().next().value); // the longest unseen
+    return url;
   }
 
   // Thumbnails made before they were filed by content get filed as their folders
@@ -196,9 +233,15 @@ export class Thumbnailer {
     const stat = await Deno.stat(path);
     const key = await this.key(path, stat);
     const cached = await this.lookupKey(key);
-    if (cached) return cached;
+    if (cached) return this.remember(path, cached);
     if (cached === false) throw new Error("thumbnailing failed earlier");
     signal?.throwIfAborted();
+    const wait = this.busyFor(path, stat);
+    if (wait) { // being written: its last thumbnail, or none yet (asked again in `retryIn` ms, when it may have settled)
+      const last = this.latest.get(path);
+      if (last) return last;
+      throw Object.assign(new Error(`still being written (${path})`), { busy: true, retryIn: wait + 200 });
+    }
 
     this.systemDevice ??= (await Deno.stat("/").catch(() => null))?.dev ?? -1;
     await this.learnLimit(stat.dev, path);
@@ -215,7 +258,7 @@ export class Thumbnailer {
     job.waiters++;
     this.pump();
     try {
-      return await abortable(job.promise, signal);
+      return this.remember(path, await abortable(job.promise, signal));
     } finally {
       if (--job.waiters === 0 && !job.started) {
         this.stack.splice(this.stack.indexOf(job), 1);

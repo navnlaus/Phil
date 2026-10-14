@@ -484,6 +484,7 @@ export function createServer({ profile, controlSocket }) {
     const mtime = (await Deno.stat(path)).mtime?.getTime() ?? 0;
     const entries = await readEntries(path, { lookups: false });
     signal.throwIfAborted();
+    let busy = 0; // a picture in it being written, without a thumbnail yet: asked again (in this many ms) when it may have settled
     const summary = await makeSummary({
       entries,
       mtime,
@@ -494,6 +495,7 @@ export function createServer({ profile, controlSocket }) {
           return { url: await thumbs.get(e.path, signal) };
         } catch (err) {
           if (signal.aborted) throw err;
+          if (err.busy) return (busy = busy ? Math.min(busy, err.retryIn) : err.retryIn), null; // not yet: the summary is incomplete till it is
           return false; // can't be thumbnailed: skipped, not retried
         }
       },
@@ -505,6 +507,7 @@ export function createServer({ profile, controlSocket }) {
         }
         : null,
     });
+    if (busy) summary.busy = true;
     await folders.save(path, summary);
     return summary;
   }
@@ -567,6 +570,7 @@ export function createServer({ profile, controlSocket }) {
           .then((url) => send({ path, url }))
           .catch((err) => {
             if (ctrl.signal.aborted) return;
+            if (err.busy) return send({ path, url: null, busy: err.retryIn }); // being written: asked again when it may have settled
             console.error(`phil: ${err.message}`);
             send({ path, url: false });
           })

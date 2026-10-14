@@ -238,7 +238,7 @@ const thumbs = {
       this.folders.delete(path);
       if (msg.folder) onFolderSummary(path, msg.summary);
       else if ("text" in msg) onTextReady(path, msg.text);
-      else onThumbReady(path, msg.url);
+      else onThumbReady(path, msg.url, msg.busy);
       updateProgress();
     };
     this.ws.onclose = () => setTimeout(() => this.connect(), 1000);
@@ -349,6 +349,7 @@ function onFolderSummary(path, summary) {
   changedFolders.delete(path);
   showFolderInfo(tile, entry);
   drawFolderTexts(tile);
+  if (summary.busy) wantLater(path, summary.busy, (t, e) => e?.path === path && wantSummary(t, e)); // a picture in it being written
 }
 
 // A folder's total size, with its subfolders' (foldertotals.js): asked for
@@ -429,7 +430,7 @@ function unloadThumb(tile) {
 
 function setThumbImage(box, url) {
   const shown = box.querySelector("img");
-  if (shown) return void (shown.getAttribute("src") !== url && (shown.src = url)); // its file changed: the new one in its place
+  if (shown) return swapImage(shown, url); // its file changed: the new one in its place, once loaded
   const img = new Image();
   img.decoding = "sync"; // small JPEGs: decoding while painting beats drawing an empty tile first
   img.alt = "";
@@ -460,9 +461,30 @@ function onMadeInBackground(path, url) {
   entry.thumb = url;
 }
 
-function onThumbReady(path, url) {
+// A file being written (a download) gets no thumbnail till it's settled: asked
+// again then (in `ms`, which the server says), if its tile is still near.
+const askAgain = new Map(); // path -> timer
+function wantLater(path, ms, ask) {
+  if (askAgain.has(path)) return;
+  askAgain.set(path, setTimeout(() => {
+    askAgain.delete(path);
+    const tile = tiles.get(path);
+    if (tile && isNear(tile)) ask(tile, state.view[tile.dataset.index]);
+  }, Math.min(Math.max(+ms || 2000, 500), 60_000)));
+}
+
+function isNear(tile) { // as nearObserver's zone
+  const r = tile.getBoundingClientRect(), g = grid.getBoundingClientRect();
+  return tile.isConnected && r.bottom > g.top - 800 && r.top < g.bottom + 800;
+}
+
+function onThumbReady(path, url, busy = false) {
   const tile = tiles.get(path);
   if (!tile) return;
+  if (busy) {
+    tile.firstElementChild.classList.remove("loading");
+    return wantLater(path, busy, (t, e) => e?.path === path && thumbs.want(path));
+  }
   state.view[tile.dataset.index].thumb = url;
   const box = tile.firstElementChild;
   box.classList.remove("loading");
@@ -778,9 +800,20 @@ let refreshing = null;
 let refreshAgain = false;
 let refreshLater = null;
 
+// A subfolder's summary, made again when it changes: at most every few
+// seconds (a download into it changes it all the time), and once more after.
+const summarizedAt = new Map(), summaryLater = new Map(); // path -> when; path -> timer
+const SUMMARY_EVERY_MS = 5000;
+
 function onFolderChanged({ changed, folders }) {
   for (const path of folders) {
     changedFolders.add(path);
+    const since = performance.now() - (summarizedAt.get(path) ?? -Infinity);
+    if (since < SUMMARY_EVERY_MS) {
+      if (!summaryLater.has(path)) summaryLater.set(path, setTimeout(() => (summaryLater.delete(path), onFolderChanged({ changed: null, folders: [path] })), SUMMARY_EVERY_MS - since));
+      continue;
+    }
+    summarizedAt.set(path, performance.now());
     const tile = tiles.get(path);
     if (tile) wantSummary(tile, state.view[tile.dataset.index]);
   }
@@ -937,8 +970,7 @@ function updateTile(tile, entry) {
 function refreshPreview(tile, entry) {
   if (!entry) return;
   const box = tile.firstElementChild;
-  const r = tile.getBoundingClientRect(), g = grid.getBoundingClientRect();
-  const near = r.bottom > g.top - 800 && r.top < g.bottom + 800; // as nearObserver's
+  const near = isNear(tile);
   if (entry.kind === "file") {
     box.text = undefined; // its text read again (and drawn over the old)
     if (near) showText(tile, entry);
@@ -1085,26 +1117,46 @@ function showFolderInfo(tile, entry) {
 
 // Without pictures, a folder's own icon (Properties), else one for what it holds.
 function fillFolderFace(box, summary, previews, entry) {
-  const face = document.createElement("div");
-  face.className = "face";
+  let face = box.querySelector(":scope > .face");
+  if (!face) box.replaceChildren(face = Object.assign(document.createElement("div"), { className: "face" }));
   if (previews.length) {
-    face.classList.add("previews", `n${previews.length}`);
-    for (const { url, text } of previews) {
-      if (text) { // drawn once the tile is laid out (drawFolderTexts)
-        const cell = Object.assign(document.createElement("div"), { className: "cell", text });
-        face.append(cell);
-        continue;
-      }
-      const img = Object.assign(new Image(), { src: url, alt: "", draggable: false, loading: "lazy", decoding: "async" });
-      img.onerror = () => img.remove(); // the thumbnail cache was cleared since
-      face.append(img);
-    }
-  } else if (entry.icon) {
-    face.innerHTML = icon(`l:${entry.icon}`, "kind custom");
-  } else if (summary?.files || summary?.dirs) {
-    face.innerHTML = icon(summary.files ? "file" : "folder", "kind");
+    if (face.dataset.mode !== "previews") face.replaceChildren(), delete face.dataset.icon, (face.dataset.mode = "previews");
+    put(face, "className", `face previews n${previews.length}`);
+    // Kept by place (the first picture, the second...): a picture that changed
+    // shows the new one once it's loaded, so the face doesn't blink.
+    keyed(face, previews.map((p, i) => ({ ...p, i })), {
+      key: (p) => p.i,
+      kind: (p) => (p.text ? "text" : "img"),
+      make: (p) => {
+        if (p.text) return Object.assign(document.createElement("div"), { className: "cell" }); // drawn once the tile is laid out (drawFolderTexts)
+        const img = Object.assign(new Image(), { alt: "", draggable: false, loading: "lazy", decoding: "async" });
+        img.onerror = () => img.remove(); // the thumbnail cache was cleared since
+        return img;
+      },
+      show: (el, p) => {
+        if (!p.text) return swapImage(el, p.url);
+        if (JSON.stringify(el.text) === JSON.stringify(p.text)) return;
+        el.text = p.text;
+        if (el.querySelector("canvas")) drawText(el); // over the old (drawText keeps its canvas)
+      },
+    });
+  } else {
+    const [name, cls] = entry.icon ? [`l:${entry.icon}`, "kind custom"] : summary?.files || summary?.dirs ? [summary.files ? "file" : "folder", "kind"] : [];
+    if (face.dataset.mode !== "icon") face.replaceChildren(), delete face.dataset.icon, (face.dataset.mode = "icon");
+    put(face, "className", "face");
+    if (name) putIcon(face, name, cls);
+    else face.replaceChildren(), delete face.dataset.icon;
   }
-  box.replaceChildren(face);
+}
+
+// An image showing `url`: the first time at once, after that once the new one has loaded (no blank between).
+function swapImage(img, url) {
+  if (img.dataset.url === url) return;
+  img.dataset.url = url;
+  if (!img.getAttribute("src")) return void (img.src = url);
+  const next = new Image();
+  next.src = url;
+  next.decode().then(() => img.dataset.url === url && (img.src = url), () => {});
 }
 
 function drawFolderTexts(tile) {
