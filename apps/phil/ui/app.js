@@ -279,7 +279,7 @@ function onFolderTotal(path, bytes) {
   const entry = tile && state.view[tile.dataset.index];
   if (entry?.path !== path) return;
   entry.total = bytes === null ? { failed: true } : { bytes, stale: false };
-  if (entry.summary) showFolderInfo(tile, entry);
+  showFolderInfo(tile, entry); // with no summary yet, the size alone
   if (state.settings.sort === "size") resortSoon();
 }
 
@@ -900,7 +900,8 @@ function showFolderInfo(tile, entry) {
   if (box.dataset.look !== look || !box.firstChild) fillFolderFace(box, summary, previews, entry);
   box.dataset.look = look;
   const meta = tile.querySelector(".meta");
-  meta.textContent = summary ? folderContents(summary, entry.total) : "";
+  // Before its summary (which waits for its pictures' thumbnails), its total size if that's in.
+  meta.textContent = summary ? folderContents(summary, entry.total) : entry.total?.bytes !== undefined ? formatSize(entry.total.bytes) : "";
   tile.title = entry.name + (meta.textContent ? `\n${meta.textContent}` : "") + titleNotes(entry);
   showMarks(tile, entry);
   tile.classList.toggle("empty-dir", !!summary && !summary.files && !summary.dirs);
