@@ -657,6 +657,14 @@ them at the bottom of its sidebar; double-click one to show it in that window
   wall, every camera live side by side, each from its smallest stream, as big
   as they fit the window. Click one to show it on its own, with its controls
   (Esc comes back to the wall); Esc closes the wall. (`?wall=1`, `apps/camview/ui/wall.js`.)
+- **Every camera, and streams of your own**: the wall's list (the button in
+  its top right corner, or L) has them all, those offline and turned off too,
+  each with a switch (off: not in the sidebar or the wall, kept in the list) and
+  Forget (a stream: Remove). "Add a stream" takes any stream's URL: RTSP, or a
+  web one (http(s): MJPEG, HLS .m3u8, MP4; a login goes in the URL), checked
+  at once. Looking for cameras (↻, there or by "Cameras" in the sidebar) checks
+  the streams too (ffprobe), and cloud cameras' (go2rtc's): one that doesn't
+  answer is offline, out of the sidebar and the wall until it answers again.
 
 - **Finding them**: phil looks only when you ask: the ↻ by "Cameras", or
   "Look for cameras" in the sidebar's right-click menu (there before any is

@@ -16,7 +16,12 @@
 //                                by itself 1.5 s after it last did, in case the page is gone),
 //                                {id, op: "stop"}, {id, op: "goto", preset},
 //                                {id, op: "save", name}, {id, op: "remove", preset}
-//   PUT  /api/camera             {id, invert}: its controls turned around (mounted upside down)
+//   PUT  /api/camera             {id, invert}: its controls turned around (mounted upside down);
+//                                {id, disabled}: turned off (not shown) or on; {id, name}
+//   GET  /api/cameras/all        every camera, with its state (on, offline, off): the wall's list
+//   POST /api/cameras/look       looks for them again, and checks the streams; as /all
+//   POST /api/cameras/stream     {name, url}: a stream added by its URL (rtsp, or http(s))
+//   DELETE /api/camera?id=       a stream added by URL goes; a camera is forgotten
 //   GET  /api/presets?id=        its saved positions
 //   POST /api/snapshot           {id}: a picture from its best stream, in ~/Pictures/Cameras
 import { join } from "@std/path";
@@ -109,10 +114,27 @@ export function createServer({ profile = {} } = {}) {
         case "POST /api/log":
           console.error(`camview: ${String((await req.json()).message ?? "").slice(0, 500)}`);
           return json({ ok: true });
-        case "PUT /api/camera": {
-          const { id: which, invert } = await req.json();
-          return json(await cameras.update(String(which ?? ""), { invert }));
+        case "PUT /api/camera": { // {id, invert} / {id, disabled} / {id, name}
+          const { id: which, ...rest } = await req.json();
+          const changes = Object.fromEntries(Object.entries(rest).filter(([k]) => ["invert", "disabled", "name"].includes(k)));
+          return json(await cameras.update(String(which ?? ""), changes));
         }
+        case "GET /api/cameras/all": // every camera, with whether it's on, offline or off (the wall's list)
+          return json(await cameras.all());
+        case "POST /api/cameras/look": // looks for them again (and checks the streams): every camera, as GET /api/cameras/all
+          await cameras.discover({ force: true });
+          return json(await cameras.all());
+        case "POST /api/cameras/stream": // {name, url}: a stream added by its URL
+          try {
+            return json(await cameras.addStream(await req.json()));
+          } catch (err) {
+            throw httpError(err.status ?? 400, err.message);
+          }
+        case "DELETE /api/camera": // ?id=: a stream added by URL goes; a camera is forgotten
+          await cameras.remove(String(id ?? "")).catch((err) => {
+            throw httpError(err.status ?? 400, err.message);
+          });
+          return json({ ok: true });
         case "POST /api/ptz":
           return json(await ptz(await req.json()));
         case "GET /api/presets": {
@@ -144,7 +166,7 @@ const MODES = {
   mjpeg: { type: "multipart/x-mixed-replace;boundary=ffmpeg", args: [...SCALE, "-r", "12", "-c:v", "mjpeg", "-q:v", "5", "-f", "mpjpeg"] },
 };
 
-/** The camera's live video, as long as the page reads it: ffmpeg from its RTSP stream, in `mode` (MODES). */
+/** The camera's live video, as long as the page reads it: ffmpeg from its stream (RTSP, or a web one), in `mode` (MODES). */
 async function stream(req, id, profile, mode) {
   const how = MODES[mode];
   if (!how) throw httpError(400, "mode: copy, h264 or mjpeg");
@@ -156,7 +178,7 @@ async function stream(req, id, profile, mode) {
   }
   // A fragment per frame: each sent the moment it's there (not ~200 ms of them at once).
   const mp4 = ["-f", "mp4", "-movflags", "frag_keyframe+frag_every_frame+empty_moov+default_base_moof"];
-  const [cmd, args] = await command(["ffmpeg", "-loglevel", "error", "-nostdin", "-rtsp_transport", "tcp", "-timeout", "5000000",
+  const [cmd, args] = await command(["ffmpeg", "-loglevel", "error", "-nostdin", ...cameras.inputArgs(rtsp),
     "-fflags", "nobuffer", "-i", rtsp, "-an", ...how.args, ...(how.mp4 ? mp4 : []), "pipe:1"]);
   const child = new Deno.Command(cmd, { args, stdin: "null", stdout: "piped", stderr: "null" }).spawn();
   const end = () => {
@@ -187,7 +209,7 @@ async function snapshot(id) {
   const name = (c.name || c.model || c.host).replace(/[/\0]/g, "-");
   const path = join(dir, `${name} ${stamp}.jpg`);
   const out = await new Deno.Command("ffmpeg", {
-    args: ["-loglevel", "error", "-nostdin", "-rtsp_transport", "tcp", "-timeout", "5000000", "-i", rtsp, "-frames:v", "1", "-q:v", "2", "-y", path],
+    args: ["-loglevel", "error", "-nostdin", ...cameras.inputArgs(rtsp), "-i", rtsp, "-frames:v", "1", "-q:v", "2", "-y", path],
     stdin: "null", stdout: "null", stderr: "piped", signal: AbortSignal.timeout(15000),
   }).output();
   if (!out.success) throw httpError(502, `Couldn't take a picture: ${new TextDecoder().decode(out.stderr).trim().split("\n").pop() || "ffmpeg failed"}`);

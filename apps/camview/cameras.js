@@ -16,6 +16,11 @@
 // cloud), its pan and tilt as Tuya cloud commands (tuya.js). Added by hand; the
 // network scan leaves it alone. `hidden`: forgotten, so finding it again
 // doesn't bring it back; `added`: by address, kept even when not found.
+// A stream added by its URL (camview's wall, "Add a stream": an RTSP one, or a
+// web one, http(s): MJPEG, HLS, MP4) is the same, with an id "stream:…".
+// Looking for cameras checks those too (ffprobe): one that doesn't answer is
+// `absent` like a camera not found. `disabled`: turned off in the wall's list,
+// not shown anywhere else, kept.
 import { dirname, join } from "@std/path";
 import * as onvif from "./onvif.js";
 import * as tuya from "./tuya.js";
@@ -59,10 +64,89 @@ const shown = (c) => ({
   id: c.id, host: c.host, port: c.port, name: c.name || c.model || c.host, model: [c.manufacturer, c.model].filter(Boolean).join(" "),
   login: !!c.user, needsLogin: !!c.auth && !c.user, seen: c.seen ?? 0, invert: !!c.invert,
 });
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+const isStream = (c) => c.type === "rtsp" && !c.tuya; // added by its URL
 
-/** The cameras for the sidebar (no logins), by name. */
+/** The cameras for the sidebar and the wall (no logins), by name: not turned off, not gone. */
 export async function list() {
-  return (await load()).filter((c) => !c.hidden && !c.absent).map(shown).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  return (await load()).filter((c) => !c.hidden && !c.absent && !c.disabled).map(shown).sort(byName);
+}
+
+/**
+ * Every camera (not forgotten), for the wall's list: with `state` ("on",
+ * "offline": not found or not answering the last time they were looked for,
+ * "off": turned off), `kind` ("network": found or added by address, "cloud":
+ * Tuya, "stream": added by URL) and a stream's `url` (without its login).
+ */
+export async function all() {
+  return (await load()).filter((c) => !c.hidden).map((c) => ({
+    ...shown(c),
+    state: c.disabled ? "off" : c.absent ? "offline" : "on",
+    kind: c.tuya ? "cloud" : isStream(c) ? "stream" : "network",
+    ...(isStream(c) ? { url: withoutLogin(c.streams?.[0]?.url ?? "") } : {}),
+  })).sort(byName);
+}
+
+const withoutLogin = (url) => {
+  try {
+    const u = new URL(url);
+    u.username = u.password = "";
+    return u.href;
+  } catch {
+    return url;
+  }
+};
+
+/**
+ * How ffmpeg and ffprobe open a stream: RTSP over TCP; a web one (MJPEG, HLS,
+ * MP4 over http(s)) reconnecting when it drops. Either gives up after 5 s of nothing.
+ */
+export const inputArgs = (url) => /^rtsps?:/i.test(url)
+  ? ["-rtsp_transport", "tcp", "-timeout", "5000000"]
+  : ["-rw_timeout", "5000000", "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "4",
+    ...(/\.m3u8(\?|$)/i.test(url) ? ["-re"] : [])]; // HLS: read as it plays (one that isn't live would be read through at once)
+
+// Whether a stream answers with video (ffprobe; 12 s at most: a cloud camera's goes through its maker first).
+async function answers(url) {
+  try {
+    const out = await new Deno.Command("ffprobe", {
+      args: ["-v", "error", ...inputArgs(url), "-select_streams", "v", "-show_entries", "stream=codec_type", "-of", "csv=p=0", "-i", url],
+      stdin: "null", stdout: "piped", stderr: "null", signal: AbortSignal.timeout(12_000),
+    }).output();
+    return out.success && new TextDecoder().decode(out.stdout).includes("video");
+  } catch {
+    return false;
+  }
+}
+
+/** A stream by its URL (rtsp(s), or http(s): MJPEG, HLS, MP4…), named `name`; checked at once (offline if it doesn't answer). */
+export async function addStream({ name, url }) {
+  url = String(url ?? "").trim();
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch { /* below */ }
+  if (!parsed || !/^(rtsps?|https?):$/.test(parsed.protocol)) throw Object.assign(new Error("A stream's URL: rtsp://…, or http(s):// (MJPEG, HLS, MP4)"), { status: 400 });
+  const known = await load();
+  const id = `stream:${crypto.randomUUID().slice(0, 8)}`;
+  const ok = await answers(url);
+  known.push({
+    id, type: "rtsp", host: parsed.hostname, port: parsed.port, name: String(name ?? "").trim().slice(0, 80) || parsed.hostname,
+    streams: [{ token: "main", name: "Main", url }], added: true, absent: !ok, seen: ok ? Date.now() : 0,
+  });
+  await save(known);
+  return (await all()).find((c) => c.id === id);
+}
+
+/** Removes a camera: a stream added by URL goes; one found or added by address is forgotten (finding it again doesn't bring it back). */
+export async function remove(id) {
+  const known = await load();
+  const i = known.findIndex((c) => c.id === id);
+  if (i === -1) throw Object.assign(new Error("No such camera"), { status: 404 });
+  if (isStream(known[i])) known.splice(i, 1);
+  else known[i].hidden = true;
+  details.delete(id);
+  await save(known);
 }
 
 /** A camera's record, with its login; throws if there's none. */
@@ -96,6 +180,12 @@ export function discover({ force = false } = {}) {
       const foundIds = new Set(found.map((f) => idOf(f.host, f.port)));
       // Not found in the sweep: asked twice more, given longer (a camera on Wi-Fi
       // can be slow to answer), then left out of the list until it's back.
+      // Streams (added by URL, and cloud cameras' through go2rtc): whether they answer, all at once.
+      await Promise.all(known.filter((c) => !c.hidden && !c.disabled && c.type === "rtsp" && c.streams?.length).map(async (c) => {
+        const ok = await answers(c.streams[0].url);
+        if (ok) c.seen = Date.now();
+        if (c.absent !== !ok) (c.absent = !ok), (changed = true);
+      }));
       for (const c of known.filter((c) => !c.hidden && c.type !== "rtsp" && !foundIds.has(c.id))) {
         let again = null;
         for (let i = 0; i < 2 && !again; i++) again = await onvif.probe(c.host, [c.port], loginOf(c), { wait: 2500 }).catch(() => null);
@@ -140,7 +230,7 @@ export async function add(address, login = {}) {
   return shown(known.find((c) => c.id === id));
 }
 
-/** Changes a camera: {name}, {user, password} (checked first: rejected if the camera says no), {hidden}, {invert}. */
+/** Changes a camera: {name}, {user, password} (checked first: rejected if the camera says no), {hidden}, {disabled}, {invert}. */
 export async function update(id, changes) {
   const known = await load();
   const c = known.find((c) => c.id === id);
@@ -158,6 +248,10 @@ export async function update(id, changes) {
   }
   if ("name" in changes) c.name = String(changes.name ?? "").trim().slice(0, 80);
   if ("hidden" in changes) c.hidden = !!changes.hidden;
+  if ("disabled" in changes) {
+    c.disabled = !!changes.disabled;
+    if (!c.disabled) c.absent = false; // turned on: shown (looking again says if it's there)
+  }
   if ("invert" in changes) c.invert = !!changes.invert;
   details.delete(id);
   await save(known);
