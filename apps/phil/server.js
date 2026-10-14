@@ -21,7 +21,18 @@ const DEFAULT_THEME = "overlay"; // see ~/.config/phil/themes (engine/themes.js)
 
 export function createServer({ profile, controlSocket }) {
   const config = serverConfig(profile);
-  const thumbs = new Thumbnailer(config);
+  // Thumbnails at once per drive go by its speed test (thumbs.js): the drive a
+  // file is on, by its mount point, and that drive's last test.
+  const thumbs = new Thumbnailer({
+    ...config,
+    async driveSpeed(path) {
+      const out = await new Deno.Command("findmnt", { args: ["-n", "-o", "TARGET", "-T", path], stdout: "piped", stderr: "null" }).output();
+      const mount = new TextDecoder().decode(out.stdout).trim().split("\n").at(-1);
+      const info = mount ? await driveInfo(mount, join(dirname(config.stateFile), "drive-speeds.json")) : null;
+      const read = info?.speed?.read ?? info?.speed?.buffered;
+      return read ? { read, rotational: !!info.disk?.rotational } : null;
+    },
+  });
   // Incognito leaves no traces, so its folder summaries last for the session only.
   const sockets = new Set(); // every page's WebSocket, for {theme}
   const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
@@ -320,7 +331,9 @@ export function createServer({ profile, controlSocket }) {
       }
       case "POST /api/drive-speed": // {path}: time reading from it, as root (401: sudo's password needed)
         try {
-          return json(await driveSpeed(requirePath((await req.json()).path), speedsFile));
+          const result = await driveSpeed(requirePath((await req.json()).path), speedsFile);
+          thumbs.forgetLimits(); // thumbnails at once on it go by its new speed
+          return json(result);
         } catch (err) {
           throw err.status ? err : httpError(500, err.message);
         }

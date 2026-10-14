@@ -38,14 +38,21 @@ const fileUrl = (path) => `/file?path=${encodeURIComponent(path)}`;
  * user is looking at now) are generated first, and jobs nobody waits for any
  * more are dropped before they start. Files on the system's own drive get all
  * the jobs at once; on any other (USB drives, other disks, network shares: often
- * slow) at most SLOW_DRIVE_JOBS, since more only get in each other's way there.
+ * slow) as many as its speed allows: with a speed test (Properties), one per
+ * MBPS_PER_JOB of its read speed (a spinning disk at most SLOW_DRIVE_JOBS: it
+ * seeks between files, which a straight read doesn't measure); without one,
+ * SLOW_DRIVE_JOBS, since more only get in each other's way on a slow drive.
  * A thumbnail that takes longer than JOB_TIMEOUT_MS is given up on (and marked
  * failed), so a file that hangs its decoder can't hold a job forever.
  */
 const SLOW_DRIVE_JOBS = 3;
+const MBPS_PER_JOB = 30;
 const JOB_TIMEOUT_MS = 60_000;
 export class Thumbnailer {
-  constructor({ thumbDir, thumbSize, jobs }) {
+  /** `driveSpeed(path)`: {read (MB/s), rotational} of the drive a file is on, or null. */
+  constructor({ thumbDir, thumbSize, jobs, driveSpeed = async () => null }) {
+    this.driveSpeed = driveSpeed;
+    this.limits = new Map(); // device -> jobs at once
     this.width = thumbSize;
     this.height = Math.round((thumbSize * 9) / 16);
     this.name = `${this.width}x${this.height}`;
@@ -98,6 +105,7 @@ export class Thumbnailer {
     signal?.throwIfAborted();
 
     this.systemDevice ??= (await Deno.stat("/").catch(() => null))?.dev ?? -1;
+    await this.learnLimit(stat.dev, path);
     let job = this.jobs.get(key);
     if (!job) {
       job = { id: key, key, path, kind, dev: stat.dev, waiters: 0, started: false, ...Promise.withResolvers() };
@@ -117,9 +125,26 @@ export class Thumbnailer {
     }
   }
 
+  // How many jobs at once a drive gets (see the top), worked out from its
+  // speed test once (which drive a file is on and its last test: two commands)
+  // and kept: until forgetLimits() (after a new speed test). A drive plugged in
+  // again is another device, worked out afresh.
+  async learnLimit(dev, path) {
+    if (dev === this.systemDevice || this.limits.has(dev)) return;
+    this.limits.set(dev, SLOW_DRIVE_JOBS); // meanwhile (and when asking fails)
+    const speed = await this.driveSpeed(path).catch(() => null);
+    if (speed?.read) this.limits.set(dev, Math.max(1, Math.min(this.concurrency, Math.round(speed.read / MBPS_PER_JOB), speed.rotational ? SLOW_DRIVE_JOBS : Infinity)));
+  }
+
+  /** A drive's speed was tested again: every drive's limit is worked out afresh. */
+  forgetLimits() {
+    this.limits.clear();
+  }
+
   // The newest job whose drive has room, while there's room overall.
   pump() {
-    const room = (dev) => (this.runningOn.get(dev) ?? 0) < (dev === this.systemDevice ? this.concurrency : Math.min(this.concurrency, SLOW_DRIVE_JOBS));
+    const limit = (dev) => (dev === this.systemDevice ? this.concurrency : Math.min(this.concurrency, this.limits.get(dev) ?? SLOW_DRIVE_JOBS));
+    const room = (dev) => (this.runningOn.get(dev) ?? 0) < limit(dev);
     while (this.running < this.concurrency) {
       let i = this.stack.length - 1;
       while (i >= 0 && !room(this.stack[i].dev)) i--;
