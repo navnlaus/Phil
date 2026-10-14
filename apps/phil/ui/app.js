@@ -1037,7 +1037,13 @@ function renderCrumbs() {
 
 // Drives and shares come and go (USB, mounts): the list is fetched again
 // whenever the window gets focus.
-addEventListener("focus", () => (refreshPlaces(), loadCameras(true)));
+// Once per focus: WebKit reports it a few times over as the window opens.
+let focusedAt = 0;
+addEventListener("focus", () => {
+  if (performance.now() - focusedAt < 1000) return;
+  focusedAt = performance.now();
+  refreshPlaces(), loadCameras(true);
+});
 // The sidebar's drives and shares (not home and its folders): their space is shown.
 const isMount = (p) => !p.unmounted && (p.icon === "drive" || p.icon === "network");
 
@@ -1168,7 +1174,7 @@ function renderPlaces() {
     } else {
       a.append(p.description || p.name); // its Properties' description, when it has one
     }
-    a.classList.toggle("active", p.path === state.path);
+    a.classList.toggle("active", p.path === (loading ?? state.path)); // the one being opened, already
     // A network share: double-click (or the menu) for a terminal on that machine.
     const remote = remoteOf(p.path);
     if (remote) {
