@@ -22,6 +22,55 @@ function abortable(promise, signal) {
   });
 }
 
+// A file's content, in short: its size and three samples (start, middle, end),
+// hashed. Enough to know a copy, a move or a rename of a file again (its path,
+// which the cache key has, is new) for a few small reads: 5–35 ms on a slow
+// drive, against seconds for making its thumbnail again. An edit changes the
+// size, the start (where most formats keep what tag editors change) or the end.
+const SAMPLE = 64 * 1024;
+async function fingerprint(path, size) {
+  const file = await Deno.open(path);
+  try {
+    const parts = [new TextEncoder().encode(`${size}\0`)];
+    for (const at of new Set([0, Math.max(0, Math.floor(size / 2) - SAMPLE / 2), Math.max(0, size - SAMPLE)])) {
+      await file.seek(at, Deno.SeekMode.Start);
+      const buf = new Uint8Array(Math.min(SAMPLE, size - at));
+      let n = 0;
+      while (n < buf.length) {
+        const got = await file.read(buf.subarray(n));
+        if (!got) break;
+        n += got;
+      }
+      parts.push(buf.subarray(0, n));
+    }
+    const all = new Uint8Array(parts.reduce((t, p) => t + p.length, 0));
+    let o = 0;
+    for (const p of parts) all.set(p, o), (o += p.length);
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", all));
+    return Array.from(hash.subarray(0, 16), (b) => b.toString(16).padStart(2, "0")).join("");
+  } finally {
+    file.close();
+  }
+}
+
+// `to` made the same file as `from` (a hard link: no copy, no space; a copy
+// where linking can't): false if there's no `from`.
+async function share(from, to) {
+  try {
+    await Deno.link(from, to);
+    return true;
+  } catch (err) {
+    if (err instanceof Deno.errors.AlreadyExists) return true;
+    if (err instanceof Deno.errors.NotFound) return false;
+    try {
+      await Deno.copyFile(from, to);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 // Thumbnails living in a .thumbnails folder are small JPEGs already; they are
 // shown as themselves rather than thumbnailed again.
 const insideThumbnailFolder = (path) => path.includes("/.thumbnails/");
@@ -29,7 +78,11 @@ const fileUrl = (path) => `/file?path=${encodeURIComponent(path)}`;
 
 /**
  * Thumbnail cache: <thumbDir>/<W>x<H>/<key>.jpg, where key hashes path + size
- * + mtime, so edited files get fresh thumbnails. (Incognito's thumbDir is in
+ * + mtime, so edited files get fresh thumbnails. Each is also filed by its
+ * content (<W>x<H>/by-content/<fingerprint>.jpg, the same file, hard-linked), so
+ * a copy, move or rename finds it: when a file has none under its key, its
+ * fingerprint is looked up before one is made. phil's own copies, moves and
+ * renames link theirs straight away (carry), with no reads at all. (Incognito's thumbDir is in
  * memory: see serverConfig in launch.js.) Files that fail to thumbnail get an
  * empty <key>.fail marker so they aren't retried. Thumbnails are 16:9, scaled
  * to cover and center-cropped.
@@ -57,6 +110,7 @@ export class Thumbnailer {
     this.height = Math.round((thumbSize * 9) / 16);
     this.name = `${this.width}x${this.height}`;
     this.dir = join(thumbDir, this.name);
+    this.contentDir = join(this.dir, "by-content");
     this.concurrency = jobs;
     this.stack = [];
     this.jobs = new Map();
@@ -83,7 +137,37 @@ export class Thumbnailer {
   /** Cached thumbnail URL, false if it failed before, null if not generated yet. */
   async lookup(path, stat) {
     if (insideThumbnailFolder(path)) return fileUrl(path);
-    return this.lookupKey(await this.key(path, stat));
+    const key = await this.key(path, stat);
+    const thumb = await Deno.stat(join(this.dir, key + ".jpg")).catch(() => null);
+    if (thumb) {
+      // Made before thumbnails were filed by content (only one link to it): filed now, in the background.
+      if (thumb.nlink === 1) this.fileLater({ key, path, size: stat.size, dev: stat.dev });
+      return this.url(key);
+    }
+    return this.lookupKey(key);
+  }
+
+  // Thumbnails made before they were filed by content get filed as their folders
+  // are looked at: their files' fingerprints read one at a time, only while no
+  // thumbnail is being made (a slow drive isn't asked for two things at once).
+  fileLater(item) {
+    this.toFile ??= new Map();
+    if (this.toFile.has(item.key) || this.toFile.size > 5000) return;
+    this.toFile.set(item.key, item);
+    if (this.filing) return;
+    this.filing = (async () => {
+      while (this.toFile.size) {
+        while (this.running) await new Promise((r) => setTimeout(r, 1000));
+        const [key, { path, size }] = this.toFile.entries().next().value;
+        this.toFile.delete(key);
+        const fp = await fingerprint(path, size).catch(() => null);
+        if (fp) {
+          await Deno.mkdir(this.contentDir, { recursive: true }).catch(() => {});
+          await share(join(this.dir, key + ".jpg"), join(this.contentDir, fp + ".jpg"));
+        }
+      }
+      this.filing = null;
+    })();
   }
 
   async lookupKey(key) {
@@ -108,7 +192,7 @@ export class Thumbnailer {
     await this.learnLimit(stat.dev, path);
     let job = this.jobs.get(key);
     if (!job) {
-      job = { id: key, key, path, kind, dev: stat.dev, waiters: 0, started: false, ...Promise.withResolvers() };
+      job = { id: key, key, path, kind, dev: stat.dev, size: stat.size, waiters: 0, started: false, ...Promise.withResolvers() };
       job.promise.catch(() => {});
       this.jobs.set(key, job);
       this.stack.push(job);
@@ -134,6 +218,41 @@ export class Thumbnailer {
     this.limits.set(dev, SLOW_DRIVE_JOBS); // meanwhile (and when asking fails)
     const speed = await this.driveSpeed(path).catch(() => null);
     if (speed?.read) this.limits.set(dev, Math.max(1, Math.min(this.concurrency, Math.round(speed.read / MBPS_PER_JOB), speed.rotational ? SLOW_DRIVE_JOBS : Infinity)));
+  }
+
+  /**
+   * After phil copied, moved or renamed `from` to `to` (a file, or a folder
+   * and all in it): their thumbnails go along, linked under the new paths (a
+   * copy keeps its size and time, so only the path in the key is new). In the
+   * background; nothing is read but the files' sizes and times.
+   */
+  async carry(from, to) {
+    const walk = async (path, rel, depth) => {
+      const st = await Deno.stat(path).catch(() => null);
+      if (!st) return;
+      if (st.isDirectory) {
+        if (depth > 20) return;
+        for await (const e of Deno.readDir(path)) await walk(join(path, e.name), `${rel}/${e.name}`, depth + 1);
+        return;
+      }
+      if (mediaKind(path) === "file") return;
+      const [old, now] = await Promise.all([this.key(from + rel, st), this.key(path, st)]);
+      await share(join(this.dir, old + ".jpg"), join(this.dir, now + ".jpg"));
+    };
+    await walk(to, "", 0);
+  }
+
+  /**
+   * Content entries no thumbnail shares any more (its files deleted, their
+   * thumbnails forgotten): removed, now and then.
+   */
+  async pruneContent() {
+    try {
+      for await (const e of Deno.readDir(this.contentDir)) {
+        const path = join(this.contentDir, e.name);
+        if (e.name.endsWith(".jpg") && (await Deno.stat(path).catch(() => null))?.nlink === 1) await Deno.remove(path).catch(() => {});
+      }
+    } catch { /* none yet */ }
   }
 
   /** A drive's speed was tested again: every drive's limit is worked out afresh. */
@@ -164,9 +283,17 @@ export class Thumbnailer {
     }
   }
 
-  async generate({ key, path, kind }) {
+  async generate({ key, path, kind, size }) {
     const dir = this.dir;
-    await Deno.mkdir(dir, { recursive: true });
+    await Deno.mkdir(this.contentDir, { recursive: true });
+    // The same file elsewhere (a copy, before a move or a rename) has one already, or failed already.
+    const fp = await fingerprint(path, size).catch(() => null);
+    const byContent = fp && join(this.contentDir, fp);
+    if (fp && await share(byContent + ".jpg", join(dir, key + ".jpg"))) return this.url(key);
+    if (fp && await exists(byContent + ".fail")) {
+      await Deno.writeFile(join(dir, key + ".fail"), new Uint8Array()).catch(() => {});
+      throw new Error(`thumbnailing failed earlier, as another copy (${path})`);
+    }
     const tmp = (suffix) => join(dir, `${key}.${crypto.randomUUID().slice(0, 8)}.tmp${suffix}.jpg`);
     const dest = tmp("");
     const frame = kind === "video" ? tmp(".frame") : null;
@@ -181,10 +308,12 @@ export class Thumbnailer {
         frame ?? path, "--size", this.name, "--smartcrop", kind === "pdf" ? "low" : "centre", "-o", `${dest}[Q=82,keep=none]`,
       ], dest);
       await Deno.rename(dest, join(dir, key + ".jpg"));
+      if (fp) await share(join(dir, key + ".jpg"), byContent + ".jpg");
       return this.url(key);
     } catch (err) {
       await Deno.remove(dest).catch(() => {});
       await Deno.writeFile(join(dir, key + ".fail"), new Uint8Array()).catch(() => {});
+      if (fp) await Deno.writeFile(byContent + ".fail", new Uint8Array()).catch(() => {});
       throw new Error(`${err.message} (${path})`);
     } finally {
       if (frame) await Deno.remove(frame).catch(() => {});

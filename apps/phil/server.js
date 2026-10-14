@@ -33,6 +33,7 @@ export function createServer({ profile, controlSocket }) {
       return read ? { read, rotational: !!info.disk?.rotational } : null;
     },
   });
+  setTimeout(() => thumbs.pruneContent().catch(() => {}), 60_000); // content entries left by deleted files
   // Incognito leaves no traces, so its folder summaries last for the session only.
   const sockets = new Set(); // every page's WebSocket, for {theme}
   const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
@@ -267,6 +268,8 @@ export function createServer({ profile, controlSocket }) {
         const body = await req.json();
         const result = await transfer(body, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress)), track: copyRecords });
         if (body.op === "move") await movedHooks(body.paths ?? [], result, (p) => join(body.dest, basename(p)));
+        for (const { from, to } of result.moved ?? []) thumbs.carry(from, to).catch(() => {}); // their thumbnails go along
+        delete result.moved;
         return json(result);
       }
       case "POST /api/transfer-cancel": // {id}: stops a copy or move (what's done stays done; it can be resumed)
@@ -304,6 +307,7 @@ export function createServer({ profile, controlSocket }) {
         const body = await req.json();
         const result = await rename(body);
         await hooks.moved(body.path, result.path);
+        thumbs.carry(body.path, result.path).catch(() => {});
         return json(result);
       }
       case "POST /api/mount": // {device}: a drive listed as not mounted
@@ -1408,7 +1412,7 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
   if (op !== "move" && op !== "copy") throw httpError(400, "bad op");
   requirePath(dest);
   if (!(await isDir(dest))) throw httpError(400, "destination is not a folder");
-  const errors = [], made = [];
+  const errors = [], made = [], moved = []; // moved: what was made from what ({from, to}), for its thumbnails
   const id = crypto.randomUUID().slice(0, 8);
   const job = { cancelled: false, paused: false, child: null };
   transfers.set(id, job);
@@ -1531,6 +1535,7 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
           await track.clearUnder(target);
         }
         made.push(target);
+        moved.push({ from: src, to: target });
       } catch (err) {
         if (!quick) { // cancelled or failed: it can be resumed; the file it was at is marked
           record("stopped", lastDone);
@@ -1546,7 +1551,7 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
     for (const it of items) liveTargets.delete(it.target);
     report({ id, dest, finished: true });
   }
-  return { errors, made, cancelled: job.cancelled };
+  return { errors, made, moved, cancelled: job.cancelled };
 }
 
 function cancelTransfer(id) {
