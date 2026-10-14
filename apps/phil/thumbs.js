@@ -134,6 +134,7 @@ export class Thumbnailer {
     this.latest = new Map(); // path -> URL of the last thumbnail it had (shown while it's being written)
     this.looks = new Map(); // path -> its size and time when last looked at, while it's recent (busyFor)
     this.writing = new Set(); // paths seen changing between two looks
+    this.downloads = []; // what downloads under way are writing (a file, or a folder and all in it)
     this.runningOn = new Map(); // device -> jobs running on it
     this.systemDevice = null; // the device "/" is on: all the jobs at once
   }
@@ -167,8 +168,20 @@ export class Thumbnailer {
     return known === null && this.busyFor(path, stat) ? this.latest.get(path) ?? null : known;
   }
 
+  /**
+   * What downloads under way are writing (downloads.js): not thumbnailed till
+   * they're done, and then at once (not after WRITING_MS).
+   */
+  downloading(paths) {
+    for (const done of this.downloads.filter((d) => !paths.includes(d))) {
+      for (const p of this.writing) if (p === done || p.startsWith(done + "/")) this.writing.delete(p), this.looks.delete(p);
+    }
+    this.downloads = paths;
+  }
+
   // How long until `path` counts as settled (0: it is): see QUIET_MS.
   busyFor(path, stat) {
+    if (this.downloads.some((d) => path === d || path.startsWith(d + "/"))) return 5000; // being downloaded: asked again in a while
     const mtime = stat.mtime?.getTime() ?? 0, since = Date.now() - mtime, look = `${stat.size} ${mtime}`;
     if (since < QUIET_MS) {
       if (this.looks.has(path) && this.looks.get(path) !== look) this.writing.add(path);

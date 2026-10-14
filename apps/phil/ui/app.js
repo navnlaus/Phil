@@ -32,6 +32,7 @@ const state = {
   space: {}, // the sidebar's drives: {path: {size, avail}}
   speeds: {}, // their last read speed tests: {path: {read, at}} (Properties → Run speed test)
   transfers: new Map(), // copies and moves under way: id -> their progress (the server's transfer())
+  downloads: [], // downloads under way (panda-dl's; the server's downloads.js)
   clip: null, // files copied or cut, in any phil window: {op, paths, text}
   settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, theme: "overlay" },
 };
@@ -227,6 +228,7 @@ const thumbs = {
       if ("tagged" in msg) return onTagged(msg);
       if ("searched" in msg) return onSearched(msg);
       if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes);
+      if (msg.downloads) return onDownloads(msg.downloads);
       if (msg.made) return onMadeInBackground(msg.made, msg.url);
       if (msg.hook) return onHookRan(msg.hook);
       if (msg.transfer) return onTransfer(msg.transfer);
@@ -3479,10 +3481,13 @@ function showTransfers() {
       live.add(t.file);
       add(tiles.get(t.file), { key: `${t.id} file`, t: { ...t, percent: t.filePercent ?? 0 }, ofFile: true });
     }
-    // The drive it goes to: the sidebar's mount with the longest path that holds it.
-    const mount = state.init?.places.filter((p) => isMount(p) && !p.unmounted && (t.dest === p.path || t.dest.startsWith(p.path === "/" ? "/" : p.path + "/")))
-      .sort((a, b) => b.path.length - a.path.length)[0];
-    if (mount) add($(`#places a[data-path="${CSS.escape(mount.path)}"] .place-text`), { key: `${t.id} drive`, t });
+    add(driveBarHost(t.dest), { key: `${t.id} drive`, t }); // the drive it goes to
+  }
+  // Downloads (panda-dl's): on what's being downloaded (once it's there), the folder it goes to, and its drive.
+  for (const d of state.downloads) {
+    if (d.path) add(tiles.get(d.path), { key: `download ${d.id}`, d });
+    add(tiles.get(d.dir), { key: `download ${d.id} folder`, d });
+    add(driveBarHost(d.dir), { key: `download ${d.id} drive`, d });
   }
   // Copies cut off (a crash, ×): their record says how far they got; ↻ goes on, × forgets it.
   for (const e of state.view) if (e.copying?.state === "stopped" && !live.has(e.path)) add(tiles.get(e.path), { key: "stopped", stopped: e });
@@ -3490,11 +3495,62 @@ function showTransfers() {
   for (const [host, list] of bars) {
     keyed(host, list, {
       key: (b) => b.key,
-      kind: (b) => (b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy"),
-      make: (b) => makeTransferBar(b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy"),
-      show: (bar, b) => (b.stopped ? showStoppedBar(bar, b.stopped) : showTransferBar(bar, b.t, b)),
+      kind: barKind,
+      make: (b) => makeTransferBar(barKind(b)),
+      show: (bar, b) => (b.d ? showDownloadBar(bar, b.d) : b.stopped ? showStoppedBar(bar, b.stopped) : showTransferBar(bar, b.t, b)),
     });
   }
+}
+
+const barKind = (b) => (b.d ? "download" : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
+
+// Downloads under way, changed. One that's done (or stopped) gets its
+// thumbnail now: none was made while it was being written.
+function onDownloads(list) {
+  const still = new Set(list.map((d) => d.path));
+  for (const d of state.downloads) {
+    if (!d.path || still.has(d.path)) continue;
+    clearTimeout(askAgain.get(d.path));
+    askAgain.delete(d.path);
+    const tile = tiles.get(d.path), entry = tile && state.view[tile.dataset.index];
+    if (!entry || !isNear(tile)) continue;
+    if (entry.kind === "dir") wantSummary(tile, entry);
+    else if (entry.kind !== "file" && entry.thumb == null) thumbs.want(d.path); // a picture or video without one (not one that failed)
+  }
+  state.downloads = list;
+  showTransfers();
+}
+
+// Where a drive's bars go: the sidebar's mount with the longest path that holds `path`.
+function driveBarHost(path) {
+  const mount = state.init?.places.filter((p) => isMount(p) && !p.unmounted && (path === p.path || path.startsWith(p.path === "/" ? "/" : p.path + "/")))
+    .sort((a, b) => b.path.length - a.path.length)[0];
+  return mount && $(`#places a[data-path="${CSS.escape(mount.path)}"] .place-text`);
+}
+
+// A download's bar: how far, its speed and time left (the tooltip), pause or
+// go on, and × to stop it (what's downloaded stays).
+function showDownloadBar(bar, d) {
+  const waiting = { queued: "Queued", initializing: "Starting…", starting: "Starting…", metadata: "Finding it…", checking: "Checking…" }[d.state];
+  const failed = d.state === "error" || d.state === "failed", paused = d.state === "paused";
+  bar.classList.toggle("paused", paused || !!waiting);
+  bar.classList.toggle("failed", failed);
+  put(bar.querySelector(".fill").style, "width", `${d.percent}%`);
+  put(bar.querySelector(".pct"), "textContent", failed ? "Failed" : waiting ?? `${paused ? "Paused " : ""}${d.percent}%${!paused && d.speed ? ` · ${formatSize(d.speed)}/s` : ""}`);
+  const peers = d.peers !== null && !paused ? `, ${d.peers} peer${d.peers === 1 ? "" : "s"}` : "";
+  put(bar, "title", `Downloading ${d.name}: ${formatSize(d.bytes)} of ${formatSize(d.total)}` +
+    (failed ? `\n${d.error || "it failed"}` : paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}${peers}`));
+  const [toggle, stop] = bar.querySelectorAll(".cancel");
+  put(toggle, "textContent", paused || failed ? "▶" : "⏸");
+  put(toggle, "title", paused || failed ? "Go on" : "Pause");
+  put(stop, "title", "Stop and forget this download (what's downloaded stays)");
+}
+
+function formatDuration(s) {
+  if (s < 60) return `${Math.round(s)} s`;
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return m ? `${h} h ${m} min` : `${h} h`;
 }
 
 // A progress bar: a copy's or move's (pause, stop), a delete's (stop), or
@@ -3510,6 +3566,13 @@ function makeTransferBar(kind) {
   if (kind === "delete") {
     bar.classList.add("deleting");
     bar.append(barButton("×", "Stop deleting (what's gone is gone; the rest stays)", cancel));
+  } else if (kind === "download") {
+    bar.classList.add("download");
+    const act = (action) => api("/api/download", { method: "POST", body: JSON.stringify({ action, id: bar.item.d.id }) }).catch((err) => alert(err.message));
+    bar.append(
+      barButton("", "", () => act(["paused", "error", "failed"].includes(bar.item.d.state) ? "resume" : "pause")),
+      barButton("×", "", () => act("remove")),
+    );
   } else if (kind === "copy") {
     const pause = barButton("", "", () => api("/api/transfer-pause", { method: "POST", body: JSON.stringify({ id: bar.item.t.id, pause: !bar.item.t.paused }) }).catch(() => {}));
     pause.classList.add("pause");
