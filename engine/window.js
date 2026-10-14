@@ -30,6 +30,26 @@
   }
 }
 
+// The open-files limit raised to the most allowed (the hard limit), for this
+// process and WebKit's, which inherit it: WebKitGTK's DMA-BUF renderer leaks a
+// GPU fence handle (sync_file) for many frames it draws, on NVIDIA at least, so
+// a long session drawing a lot (thumbnails coming in) can reach 65536 and crash
+// the page ("Too many open files"). Pages avoid drawing for nothing (no endless
+// animations); this is the headroom for the rest.
+{
+  const rl = Deno.dlopen("libc.so.6", {
+    getrlimit: { parameters: ["i32", "buffer"], result: "i32" },
+    setrlimit: { parameters: ["i32", "buffer"], result: "i32" },
+  });
+  const RLIMIT_NOFILE = 7;
+  const limits = new BigUint64Array(2); // rlim_cur, rlim_max
+  if (rl.symbols.getrlimit(RLIMIT_NOFILE, limits) === 0 && limits[0] < limits[1]) {
+    limits[0] = limits[1];
+    rl.symbols.setrlimit(RLIMIT_NOFILE, limits);
+  }
+  rl.close();
+}
+
 const libc = Deno.dlopen("libc.so.6", {
   read: { parameters: ["i32", "buffer", "usize"], result: "isize" },
 });

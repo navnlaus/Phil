@@ -447,15 +447,16 @@ main { padding-top: var(--bar-h); }
 }
 .label .hook-mark svg { width: 11px; height: 11px; stroke: none; }
 body[data-theme] .tile.has-hook .label { padding-right: 28px; }
+/* Its thumbnail on the way: a plain lighter face, not an animation. An endless
+   one on every waiting tile kept the page drawing frames, and WebKit (its
+   DMA-BUF renderer, on NVIDIA) leaks a GPU fence handle per frame: a folder of
+   250 waiting tiles ran the page out of open files in under a minute. */
 .thumb.loading::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.05) 50%, transparent 70%);
-  background-size: 200% 100%;
-  animation: shimmer 1.2s infinite linear;
+  background: rgba(255, 255, 255, 0.03);
 }
-@keyframes shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 
 /* Folders look like one: a tab over a face. The face holds up to four of the
    folder's thumbnails, edge to edge, or an icon for what it holds. */

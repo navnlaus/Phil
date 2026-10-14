@@ -374,6 +374,13 @@ to another host, are refused), static files and window management.
   NVDEC decoders): WebKit's player shows H.264 from the software decoders as
   solid green here. Should NVDEC freeze a video on its first frame (it once did,
   handing its frames over in CUDA memory), `PHIL_SOFTWARE_VIDEO=1` ranks it out.
+- WebKitGTK's DMA-BUF renderer leaks a GPU fence handle (`sync_file`) for many
+  frames it draws (on NVIDIA at least; not for video), so a page drawing
+  constantly runs out of open files and crashes ("Too many open files"). phil
+  draws nothing for nothing (no endless animations: a shimmer on every tile
+  waiting for its thumbnail leaked 24,000 handles in 20 s), and the engine
+  raises its open-files limit to the hard limit (524288 here, from 65536), which
+  WebKit's processes inherit.
 - WebKit's player never loads Matroska files with embedded subtitles; after six
   seconds the viewer says so. Double-click plays videos in mpv anyway.
 
