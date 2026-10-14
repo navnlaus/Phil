@@ -28,7 +28,7 @@ function abortable(promise, signal) {
 // drive, against seconds for making its thumbnail again. An edit changes the
 // size, the start (where most formats keep what tag editors change) or the end.
 const SAMPLE = 64 * 1024;
-async function fingerprint(path, size) {
+export async function fingerprint(path, size) {
   const file = await Deno.open(path);
   try {
     const parts = [new TextEncoder().encode(`${size}\0`)];
