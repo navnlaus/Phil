@@ -523,6 +523,7 @@ export function createServer({ profile, controlSocket }) {
     let watcher = null, watching = Promise.resolve(); // one watch request at a time
     let hookWatch = null; // the shown folder's hooks (hooks.js)
     let tagJob = null; // the shown folder's tagging, aborted when another is asked for
+    let backgroundJob = null; // the shown folder's other thumbnails, made in the background
     socket.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.watch) {
@@ -543,6 +544,11 @@ export function createServer({ profile, controlSocket }) {
         tagJob?.abort();
         tagJob = msg.tag ? new AbortController() : null;
         if (tagJob) tagFolder(msg.tag, tagJob.signal, send).catch(() => {});
+      }
+      if ("background" in msg) { // {background: [paths]}, top first: made while nothing on screen waits, each sent as {made: path, url}
+        backgroundJob?.abort();
+        backgroundJob = new AbortController();
+        makeInBackground(Array.isArray(msg.background) ? msg.background : [], backgroundJob.signal, send);
       }
       for (const path of msg.totals ?? []) totals.refresh(path, (bytes) => send({ totalOf: path, bytes })); // {totals: [folder]}: du, then {totalOf, bytes}
       for (const path of msg.cancel ?? []) pending.get(path)?.abort();
@@ -583,11 +589,28 @@ export function createServer({ profile, controlSocket }) {
       shown.delete(socket);
       hookWatch?.close();
       tagJob?.abort();
+      backgroundJob?.abort();
       pending.forEach((c) => c.abort());
       watching.then(() => watcher?.close());
     };
     const send = (msg) => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(msg));
     return response;
+  }
+
+  // A folder's thumbnails not on screen, made in the background (the
+  // thumbnailer runs one only when none on screen waits): a few asked for at a
+  // time, so pictures still go to vips together.
+  async function makeInBackground(paths, signal, send) {
+    let next = 0;
+    const worker = async () => {
+      while (next < paths.length && !signal.aborted) {
+        const path = paths[next++];
+        if (typeof path !== "string" || mediaKind(path) === "file") continue;
+        const url = await thumbs.get(path, signal, { background: true }).catch(() => null);
+        if (url && !signal.aborted) send({ made: path, url });
+      }
+    };
+    await Promise.all(Array.from({ length: 6 }, worker));
   }
 
   // Tags the pictures in `dir` for a page, sending what's ready as it goes:
