@@ -103,6 +103,9 @@ const SLOW_DRIVE_JOBS = 3;
 // loads its modules), more than half of a 12 MP picture's ~90 ms, so one run for
 // 6 makes them about twice as fast. A batch is one job slot.
 const BATCH = 6;
+// In the background (a folder's thumbnails not on screen), runs are kept
+// shorter: one on screen asked for meanwhile waits for the run to end.
+const BACKGROUND_BATCH = 3;
 const MBPS_PER_JOB = 30;
 const JOB_TIMEOUT_MS = 60_000;
 export class Thumbnailer {
@@ -119,6 +122,7 @@ export class Thumbnailer {
     this.stack = [];
     this.jobs = new Map();
     this.running = 0;
+    this.runningBackground = 0; // of them, made in the background (get's `background`)
     this.runningOn = new Map(); // device -> jobs running on it
     this.systemDevice = null; // the device "/" is on: all the jobs at once
   }
@@ -180,8 +184,12 @@ export class Thumbnailer {
     return null;
   }
 
-  /** Resolves to the thumbnail URL, generating it if needed. */
-  async get(path, signal) {
+  /**
+   * Resolves to the thumbnail URL, generating it if needed. `background`: for
+   * one not on screen, made only while nothing on screen waits, one run at a
+   * time, at the lowest priority.
+   */
+  async get(path, signal, { background = false } = {}) {
     const kind = mediaKind(path);
     if (kind === "file") throw new Error("not a media file");
     if (insideThumbnailFolder(path)) return fileUrl(path);
@@ -196,10 +204,13 @@ export class Thumbnailer {
     await this.learnLimit(stat.dev, path);
     let job = this.jobs.get(key);
     if (!job) {
-      job = { id: key, key, path, kind, dev: stat.dev, size: stat.size, waiters: 0, started: false, ...Promise.withResolvers() };
+      job = { id: key, key, path, kind, dev: stat.dev, size: stat.size, background, waiters: 0, started: false, ...Promise.withResolvers() };
       job.promise.catch(() => {});
       this.jobs.set(key, job);
       this.stack.push(job);
+    } else if (!background && job.background && !job.started) { // now on screen: no longer behind the others
+      job.background = false;
+      this.stack.push(...this.stack.splice(this.stack.indexOf(job), 1));
     }
     job.waiters++;
     this.pump();
@@ -264,32 +275,37 @@ export class Thumbnailer {
     this.limits.clear();
   }
 
-  // The newest job whose drive has room, while there's room overall.
+  // The newest job whose drive has room, while there's room overall. One made
+  // in the background only when no other waits, and one at a time.
   pump() {
     const limit = (dev) => (dev === this.systemDevice ? this.concurrency : Math.min(this.concurrency, this.limits.get(dev) ?? SLOW_DRIVE_JOBS));
     const room = (dev) => (this.runningOn.get(dev) ?? 0) < limit(dev);
     while (this.running < this.concurrency) {
+      const backgroundToo = !this.runningBackground && !this.stack.some((j) => !j.background);
       let i = this.stack.length - 1;
-      while (i >= 0 && !room(this.stack[i].dev)) i--;
+      while (i >= 0 && (!room(this.stack[i].dev) || (this.stack[i].background && !backgroundToo))) i--;
       if (i < 0) break;
       const [job] = this.stack.splice(i, 1);
-      // A picture takes the newest others on its drive along (their names apart: vips names its outputs by them).
+      // A picture takes the newest others on its drive along (their names apart: vips names its outputs by them),
+      // as background as it is: fewer in the background, so one on screen soon gets its turn.
       const batch = [job];
       if (job.kind === "image") {
         const stems = new Set([stemOf(job.path)]);
-        for (let j = this.stack.length - 1; j >= 0 && batch.length < BATCH; j--) {
+        for (let j = this.stack.length - 1; j >= 0 && batch.length < (job.background ? BACKGROUND_BATCH : BATCH); j--) {
           const other = this.stack[j];
-          if (other.kind !== "image" || other.dev !== job.dev || stems.has(stemOf(other.path))) continue;
+          if (other.kind !== "image" || other.dev !== job.dev || other.background !== job.background || stems.has(stemOf(other.path))) continue;
           stems.add(stemOf(other.path));
           batch.push(...this.stack.splice(j, 1));
         }
       }
       for (const b of batch) b.started = true;
       this.running++;
+      if (job.background) this.runningBackground++;
       this.runningOn.set(job.dev, (this.runningOn.get(job.dev) ?? 0) + 1);
       (batch.length > 1 ? this.generateBatch(batch) : this.generate(job).then(job.resolve, job.reject))
         .finally(() => {
           this.running--;
+          if (job.background) this.runningBackground--;
           this.runningOn.set(job.dev, this.runningOn.get(job.dev) - 1);
           for (const b of batch) this.jobs.delete(b.id);
           this.pump();
@@ -332,7 +348,7 @@ export class Thumbnailer {
     if (todo.length < 2) return todo[0] && this.generate(todo[0]).then(todo[0].resolve, todo[0].reject);
     const id = crypto.randomUUID().slice(0, 8);
     const out = (job) => join(this.dir, `${stemOf(job.path)}.${id}.tmp.jpg`);
-    await run("vipsthumbnail", [...todo.map((j) => j.path), "--size", this.name, "--smartcrop", "centre", "-o", join(this.dir, `%s.${id}.tmp.jpg[Q=82,keep=none]`)], null)
+    await run("vipsthumbnail", [...todo.map((j) => j.path), "--size", this.name, "--smartcrop", "centre", "-o", join(this.dir, `%s.${id}.tmp.jpg[Q=82,keep=none]`)], null, jobs[0].background)
       .catch(() => {}); // what it didn't make is made alone, below
     await Promise.all(todo.map(async (job) => {
       if (await exists(out(job))) return job.resolve(await this.keep(job, out(job)));
@@ -353,13 +369,13 @@ export class Thumbnailer {
     try {
       if (frame) {
         // Grab a frame large enough that even portrait video still covers the 16:9 box.
-        await run("ffmpegthumbnailer", ["-i", path, "-o", frame, "-s", String(this.width * 2), "-q", "9", "-c", "jpeg"], frame);
+        await run("ffmpegthumbnailer", ["-i", path, "-o", frame, "-s", String(this.width * 2), "-q", "9", "-c", "jpeg"], frame, job.background);
       }
       // A PDF (vips renders its first page) is cropped from the top, so its
       // title and headings show; everything else around the middle.
       await run("vipsthumbnail", [
         frame ?? path, "--size", this.name, "--smartcrop", kind === "pdf" ? "low" : "centre", "-o", `${dest}[Q=82,keep=none]`,
-      ], dest);
+      ], dest, job.background);
       return await this.keep(job, dest);
     } catch (err) {
       await Deno.remove(dest).catch(() => {});
@@ -378,9 +394,11 @@ const stemOf = (path) => path.slice(path.lastIndexOf("/") + 1).replace(/\.[^.]*$
 // Runs a thumbnailing command at a lower priority (nice): it gets the CPU the
 // windows don't need, so they don't stutter while a folder's thumbnails are
 // made. `output`: the file it must have made (null: not checked here).
-async function run(cmd, args, output) {
+// `idle`: made in the background: the lowest CPU priority, and the drive
+// only when nothing else wants it (ionice's idle class).
+async function run(cmd, args, output, idle = false) {
   const signal = AbortSignal.timeout(JOB_TIMEOUT_MS); // killed then: see JOB_TIMEOUT_MS
-  const result = await new Deno.Command("nice", { args: ["-n", "10", cmd, ...args], stdin: "null", stdout: "null", stderr: "piped", signal }).output().catch((err) => {
+  const result = await new Deno.Command("nice", { args: idle ? ["-n", "19", "ionice", "-c", "3", cmd, ...args] : ["-n", "10", cmd, ...args], stdin: "null", stdout: "null", stderr: "piped", signal }).output().catch((err) => {
     throw signal.aborted ? new Error(`${cmd} took longer than ${JOB_TIMEOUT_MS / 1000} s`) : err;
   });
   if (signal.aborted) throw new Error(`${cmd} took longer than ${JOB_TIMEOUT_MS / 1000} s`);

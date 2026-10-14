@@ -133,6 +133,7 @@ const thumbs = {
       this.wanted.forEach((p) => (this.folders.has(p) ? this.outFolders : this.outWant).add(p));
       if (this.watching) this.watch(this.watching);
       if (this.tagging) this.tag(this.tagging);
+      if (this.backgroundPaths?.length) this.background(this.backgroundPaths);
       if (this.totals.size) this.send({ totals: [...this.totals] }); // asked for before the connection was up
       loadTransfers();
       api("/api/clipboard").then((c) => ((state.clip = c), markClipboard()), () => {});
@@ -146,6 +147,7 @@ const thumbs = {
       if ("tagged" in msg) return onTagged(msg);
       if ("searched" in msg) return onSearched(msg);
       if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes);
+      if (msg.made) return onMadeInBackground(msg.made, msg.url);
       if (msg.hook) return onHookRan(msg.hook);
       if (msg.transfer) return onTransfer(msg.transfer);
       if (msg.places) return refreshPlaces(); // the sidebar arranged, in some window
@@ -187,6 +189,11 @@ const thumbs = {
   wantTotals(paths) {
     if (this.ws?.readyState === WebSocket.OPEN) this.send({ totals: paths });
     else paths.forEach((p) => this.totals.add(p));
+  },
+  // The shown folder's thumbnails not yet made, made in the background (top first).
+  background(paths) {
+    this.backgroundPaths = paths;
+    this.send({ background: paths });
   },
   // Auto-tagging: the folder whose pictures to tag (null: none).
   tag(path) {
@@ -349,6 +356,27 @@ function setThumbImage(box, url) {
   img.onload = () => box.classList.add("has-img");
   img.src = url;
   box.prepend(img);
+}
+
+// The rest of the folder's thumbnails are made in the background, once the
+// view has settled (a moment after it's drawn): those on screen are still
+// made first (the server makes these only while none of those wait).
+function makeRestSoon() {
+  clearTimeout(makeRestSoon.timer);
+  makeRestSoon.timer = setTimeout(() => {
+    const paths = state.view.filter((e) => e.kind !== "dir" && e.thumb === null).map((e) => e.path);
+    if (paths.length || thumbs.backgroundPaths?.length) thumbs.background(paths);
+  }, 1500);
+}
+
+// One made in the background: kept for when its tile comes near (drawn now if
+// it's waiting for it there).
+function onMadeInBackground(path, url) {
+  const tile = tiles.get(path);
+  const entry = tile && state.view[tile.dataset.index];
+  if (entry?.path !== path || entry.thumb) return;
+  if (thumbs.wanted.has(path)) return; // its own answer comes too
+  entry.thumb = url;
 }
 
 function onThumbReady(path, url) {
@@ -756,6 +784,7 @@ function render(selectPath = state.view[state.selected]?.path) {
     nearObserver.observe(tile);
     farObserver.observe(tile);
   }
+  makeRestSoon();
 
   state.selected = -1;
   const marked = state.marked;
