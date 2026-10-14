@@ -3312,7 +3312,7 @@ addEventListener("dragleave", (e) => {
 addEventListener("dragover", (e) => {
   e.preventDefault();
   if (!fileDrag && DEBUG_CLICKS && !e.dataTransfer.__logged) { // TEMPORARY: what drags from outside carry
-    debug(`outside drag over: types ${JSON.stringify([...(e.dataTransfer?.types ?? [])])}, files ${e.dataTransfer?.files?.length}`);
+    debug(`outside drag over: types ${JSON.stringify([...(e.dataTransfer?.types ?? [])])}, files ${e.dataTransfer?.files?.length}, allowed ${e.dataTransfer?.effectAllowed}`);
     try { e.dataTransfer.__logged = true; } catch { /* frozen */ }
   }
   if (!fileDrag) { // from outside
