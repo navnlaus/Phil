@@ -15,7 +15,7 @@ import { canWrite, driveInfo, driveSpeed, folderSize, me, properties } from "./p
 import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
-import { watchDownloads } from "./downloads.js";
+import { unfinished, watchDownloads } from "./downloads.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 const DEFAULT_THEME = "overlay"; // see ~/.config/phil/themes (engine/themes.js)
@@ -143,7 +143,7 @@ export function createServer({ profile, controlSocket }) {
   // Downloads under way (panda-dl's; downloads.js), for every window as
   // {downloads}; what they're writing isn't thumbnailed till they're done.
   const downloads = watchDownloads((list) => {
-    thumbs.downloading(list.filter((d) => d.state !== "completed").flatMap((d) => d.paths));
+    thumbs.downloading(list.flatMap(unfinished));
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ downloads: list }));
   });
   // Copies, moves and deletes under way, for the bar (the phil widget for

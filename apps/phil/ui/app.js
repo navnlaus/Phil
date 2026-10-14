@@ -3519,7 +3519,9 @@ function showTransfers() {
   // Downloads (panda-dl's): on what's being downloaded (once it's there), the folder it goes to, and its drive.
   // Finished ones still in its list (seeding, say): a quiet mark on what was downloaded, with × to take it off.
   for (const d of state.downloads) {
-    for (const path of d.paths) add(tiles.get(path), { key: `download ${d.id}`, d }); // what it's writing (a torrent: its files)
+    // What it's writing, each with its own progress (a torrent finishes its files at different
+    // times), and the folders in it with theirs together.
+    for (const [path, part] of downloadParts(d)) add(tiles.get(path), { key: `download ${d.id}`, d, part });
     if (d.state === "completed") continue;
     add(tiles.get(d.dir), { key: `download ${d.id} folder`, d });
     add(driveBarHost(d.dir), { key: `download ${d.id} drive`, d });
@@ -3532,18 +3534,37 @@ function showTransfers() {
       key: (b) => b.key,
       kind: barKind,
       make: (b) => makeTransferBar(barKind(b)),
-      show: (bar, b) => (b.d ? showDownloadBar(bar, b.d) : b.stopped ? showStoppedBar(bar, b.stopped) : showTransferBar(bar, b.t, b)),
+      show: (bar, b) => (b.d ? showDownloadBar(bar, b.d, b.part) : b.stopped ? showStoppedBar(bar, b.stopped) : showTransferBar(bar, b.t, b)),
     });
   }
 }
 
-const barKind = (b) => (b.d ? (b.d.state === "completed" ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
+const partDone = (b) => b.d.state === "completed" || (b.part?.length != null && b.part.downloaded >= b.part.length);
+const barKind = (b) => (b.d ? (partDone(b) ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
 
-// Downloads under way, changed. One that's done (or stopped) gets its
-// thumbnail now: none was made while it was being written.
+// A download's files, and the folders in it (below the folder it goes to),
+// each with how much of it there is and how much is downloaded: path ->
+// {length, downloaded} (null for both: not known, the download's own then).
+function downloadParts(d) {
+  const parts = new Map();
+  for (const f of d.files ?? []) {
+    for (let path = f.path; path.length > d.dir.length && path.startsWith(d.dir + "/"); path = parentOf(path)) {
+      const part = parts.get(path) ?? parts.set(path, { length: 0, downloaded: 0 }).get(path);
+      if (f.length === null || part.length === null) part.length = part.downloaded = null;
+      else part.length += f.length, part.downloaded += f.downloaded;
+    }
+  }
+  return parts;
+}
+
+// What downloads under way are still writing (not finished files).
+const writing = (list) => list.flatMap((d) => (d.state === "completed" ? [] : (d.files ?? []).filter((f) => f.length === null || f.downloaded < f.length).map((f) => f.path)));
+
+// Downloads under way, changed. A file that's done (or stopped) gets its
+// thumbnail now (none was made while it was being written), as do the folders it's in.
 function onDownloads(list) {
-  const still = new Set(list.filter((d) => d.state !== "completed").flatMap((d) => d.paths)); // finished ones are done being written
-  for (const path of state.downloads.filter((d) => d.state !== "completed").flatMap((d) => d.paths)) {
+  const still = new Set(writing(list));
+  for (const path of writing(state.downloads).flatMap((p) => [p, parentOf(p)])) {
     if (still.has(path)) continue;
     clearTimeout(askAgain.get(path));
     askAgain.delete(path);
@@ -3565,8 +3586,31 @@ function driveBarHost(path) {
 
 // A download's bar: how far, its speed and time left (the tooltip), pause or
 // go on, and × to stop it (what's downloaded stays).
-function showDownloadBar(bar, d) {
+function showDownloadBar(bar, d, part = null) {
+  if (d.state === "completed") part = null; // all of it done: the seeding mark, below
+  if (d.state !== "completed" && part?.length != null && part.downloaded >= part.length) { // this file's done, the rest isn't
+    put(bar.querySelector(".seeding"), "hidden", true);
+    put(bar.querySelector(".cancel"), "hidden", true); // (× would stop all of it: that's on its other bars)
+    put(bar, "title", `Downloaded (${formatSize(part.length)}); the rest of “${d.name}” is still downloading: ${d.percent}%`);
+    return;
+  }
+  if (part?.length != null) { // one file (or folder) of it: its own progress
+    const pct = part.length ? Math.floor((part.downloaded / part.length) * 1000) / 10 : 0;
+    const paused = d.state === "paused";
+    bar.classList.toggle("paused", paused);
+    bar.classList.remove("failed");
+    put(bar.querySelector(".fill").style, "width", `${pct}%`);
+    put(bar.querySelector(".pct"), "textContent", `${paused ? "Paused " : ""}${pct}%`);
+    put(bar, "title", `${formatSize(part.downloaded)} of ${formatSize(part.length)} of this; “${d.name}”: ${d.percent}%` +
+      (paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}`));
+    const [toggle, stop] = bar.querySelectorAll(".cancel");
+    put(toggle, "textContent", paused ? "▶" : "⏸");
+    put(toggle, "title", paused ? `Go on with “${d.name}”` : `Pause “${d.name}”`);
+    put(stop, "title", `Stop and forget “${d.name}” (what's downloaded stays)`);
+    return;
+  }
   if (d.state === "completed") { // still in panda-dl's list: seeding, maybe
+    put(bar.querySelector(".cancel"), "hidden", false);
     const up = d.upSpeed > 0, seeding = bar.querySelector(".seeding");
     put(seeding, "hidden", !up);
     if (up) put(seeding.lastElementChild, "textContent", `${formatSize(d.upSpeed)}/s`);
