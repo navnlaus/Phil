@@ -301,6 +301,7 @@ engine/main.js      the command line: asks the running engine for a window, or s
 engine/instance.js  finding and talking to the running engine (Unix socket per profile)
 engine/window.js    GTK3 + WebKitGTK windows via Deno FFI (blocks in gtk_main)
 engine/server.js    the apps' 127.0.0.1 HTTP servers (a worker): session, static files
+engine/tls.js       the servers' certificate, made at each start (HTTPS, for HTTP/2)
 engine/http.js      responses, files with Range
 engine/pty.js       pseudo-terminals via libc FFI (Deno has no PTY API)
 engine/apps.js      the apps, and what an app consists of
@@ -339,6 +340,16 @@ on the page's own origin, to show inside it in an `<iframe>` with `?embedded`
 Apps that can be shown that way use relative URLs. The engine handles the session
 (a random token in the window's URL becomes a cookie; requests without it, or
 to another host, are refused), static files and window management.
+
+The servers speak **HTTPS to the engine's own windows, for HTTP/2** (`engine/tls.js`):
+over plain HTTP a page gets six connections to its server at most, one request
+on each, so a few slow ones (a hung network share, videos playing) held up a
+click; HTTP/2 carries any number over one connection, and WebKit only speaks it
+over TLS. The certificate is made at each start (openssl, a few ms), for
+127.0.0.1, kept in memory only, and trusted by the engine's windows alone
+(`webkit_web_context_allow_tls_certificate_for_host`). `--browser` (a browser
+wouldn't trust it) and `PHIL_PLAIN_HTTP=1` stay on plain HTTP, as does an
+engine that can't run openssl.
 
 - Thumbnails are JPEG files in the cache, keyed by the file's path, size and
   time (a cheap check when listing), and also filed by the file's content
