@@ -104,8 +104,8 @@ body {
 
    A tile is .tile (and .dir, .image, .video, .pdf or .file; .selected;
    .hidden-file) holding .thumb, the picture (a folder's: a tab,
-   .thumb::before, over a face, .face), .marks (the icons in the top right
-   corner: .play, .folder), and .label: .desc (a description
+   .thumb::before, over a face, .face), .marks (the icons in the bottom right
+   corner: .hook, .play, .folder), and .label: .desc (a description
    from Properties), .name, .meta (size and date, or what a folder holds),
    then .tags. --tile is a tile's width, set by the zoom. The label is laid
    over the bottom of the picture; for it to sit under the picture instead,

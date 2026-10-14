@@ -1044,22 +1044,21 @@ function showMarks(tile, entry) {
   tile.classList.toggle("has-desc", !!description);
   showTileTags(tile, entry);
   showState(tile, entry);
-  const label = tile.querySelector(".label");
-  tile.classList.toggle("has-hook", !!entry.onChange);
-  if (!entry.onChange) label.querySelector(".hook-mark")?.remove();
-  else if (!label.querySelector(".hook-mark")) label.insertAdjacentHTML("beforeend", `<span class="hook-mark">${icon("bolt")}</span>`);
   const folderMark = entry.icon ? [`l:${entry.icon}`, "folder line custom"] : ["folder", "folder fill"]; // its own icon, picked in Properties
-  const marks = [entry.kind === "video" && ["play", ""], entry.kind === "dir" && folderMark].filter(Boolean);
+  // ⚡: an on-change hook (Properties); ▶: a video; a folder's icon.
+  const marks = [entry.onChange && ["bolt", "hook"], entry.kind === "video" && ["play", ""], entry.kind === "dir" && folderMark].filter(Boolean);
   const key = marks.flat().join(" ");
   let el = tile.querySelector(":scope > .marks");
   if (el?.dataset.key === key) return;
   el?.remove();
+  tile.classList.toggle("has-marks", !!marks.length);
   if (!marks.length) return;
   el = document.createElement("span");
   el.className = "marks";
   el.dataset.key = key;
   el.innerHTML = marks.map(([name, cls]) => `<span class="badge ${cls}">${icon(name)}</span>`).join("");
   tile.append(el);
+  tile.style.setProperty("--marks-n", marks.length); // the label's last line keeps clear of them
 }
 
 // A tile's tags, under its details; a folder's: its most common, as many as
