@@ -1042,7 +1042,7 @@ let focusedAt = 0;
 addEventListener("focus", () => {
   if (performance.now() - focusedAt < 1000) return;
   focusedAt = performance.now();
-  refreshPlaces(), loadCameras(true);
+  refreshPlaces();
 });
 // The sidebar's drives and shares (not home and its folders): their space is shown.
 const isMount = (p) => !p.unmounted && (p.icon === "drive" || p.icon === "network");
@@ -2083,8 +2083,8 @@ async function showProperties(entry) {
 state.cameras = [];
 
 // `look`: and have the server look for new ones (it does at most every 10 minutes).
-async function loadCameras(look = false) {
-  const list = await api(`/api/cameras${look ? "?look=1" : ""}`).catch(() => null);
+async function loadCameras() {
+  const list = await api("/api/cameras").catch(() => null);
   if (!list || JSON.stringify(list) === JSON.stringify(state.cameras)) return;
   state.cameras = list;
   renderCameras();
@@ -3621,7 +3621,7 @@ Object.assign(state.settings, state.init.settings);
 applySettings();
 listThemes();
 refreshSpeeds(); // the drives' last speed tests, for their tooltips
-loadCameras(); // the network cameras found so far (the server keeps looking)
+loadCameras(); // the network cameras found so far (looked for again with the sidebar's refresh button)
 const thumbDirEl = $("#status-thumbdir");
 thumbDirEl.textContent = (state.init.incognito ? "Incognito · " : "") + `Thumbnails: ${state.init.thumbDir}`;
 thumbDirEl.title = `${state.init.thumbDir} (${state.init.thumbSize})`;
