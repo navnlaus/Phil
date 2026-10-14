@@ -3553,15 +3553,10 @@ let transfersFocus = null;
 
 $("#btn-transfers").onclick = () => (transfersView.hidden ? openTransfersView() : closeTransfersView());
 transfersView.querySelector(".tv-head .close").onclick = () => closeTransfersView();
-transfersView.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  e.preventDefault();
-  e.stopPropagation();
-  closeTransfersView();
-});
 
 function openTransfersView() {
-  transfersFocus = document.activeElement;
+  // Where the keyboard goes back to: the folder, or the terminal (not the heading clicked to open it).
+  transfersFocus = document.activeElement?.closest?.("#sidebar") ? grid : document.activeElement;
   transfersView.hidden = false;
   $("#btn-transfers").setAttribute("aria-pressed", "true");
   renderTransferList();
@@ -4102,6 +4097,8 @@ function terminalKey(e) {
 // folder view.
 document.addEventListener("keydown", (e) => {
   if (!appView.hidden && e.key === "Escape") return askAppToClose(), e.preventDefault(), e.stopPropagation();
+  // Esc closes the Transfers view, wherever the keyboard is (not a menu or dialog over it).
+  if (!transfersView.hidden && e.key === "Escape" && contextMenu.hidden && !dialogOpen()) return closeTransfersView(), e.preventDefault(), e.stopPropagation();
   if (!viewerEl.hidden || !appView.hidden || dialogOpen()) return;
   if (isToggleKey(e)) toggleTerminal();
   else if (isFocusKey(e) && e.key === "ArrowDown") setTerminalOpen(true);
