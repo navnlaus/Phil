@@ -43,7 +43,39 @@ const scrollPositions = new Map(); // path -> scrollTop, restored on back/up
 // phil's own icons (index.html), and with "l:" in front, Lucide's (vendor/lucide-sprite.svg:
 // what a folder's icon is picked from, in its Properties).
 const LUCIDE = "/ui/vendor/lucide-sprite.svg";
-const icon = (name, cls = "") => `<svg class="${cls}"><use href="${name.startsWith("l:") ? `${LUCIDE}#${name.slice(2)}` : `#i-${name}`}"/></svg>`;
+const icon = (name, cls = "") => `<svg class="${cls}"><use href="#${name.startsWith("l:") ? lucideIcon(name.slice(2)) : `i-${name}`}"/></svg>`;
+
+// Lucide's icons are copied into the page as they're first used (#l-<name>):
+// pointing into the sprite file itself, WebKit loaded it again for every new
+// element, so icons there blinked whenever the sidebar or a folder was redrawn.
+const lucideDefs = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+lucideDefs.setAttribute("style", "position: absolute; width: 0; height: 0; overflow: hidden");
+lucideDefs.setAttribute("aria-hidden", "true");
+let lucideSprite = null; // the sprite, parsed, once fetched
+const lucideWanted = new Set(); // asked for before that
+function lucideIcon(name) {
+  const id = `l-${name}`;
+  if (!lucideDefs.isConnected) document.body.append(lucideDefs);
+  if (lucideDefs.querySelector(`[id="${CSS.escape(id)}"]`)) return id;
+  if (!lucideSprite) {
+    if (!lucideWanted.size) {
+      fetch(LUCIDE).then((r) => r.text()).then((text) => {
+        lucideSprite = new DOMParser().parseFromString(text, "image/svg+xml");
+        for (const n of lucideWanted) lucideIcon(n);
+        lucideWanted.clear();
+      }).catch(() => {});
+    }
+    lucideWanted.add(name);
+    return id; // drawn once it's in
+  }
+  const symbol = lucideSprite.getElementById(name);
+  if (symbol) {
+    const copy = document.importNode(symbol, true);
+    copy.id = id;
+    lucideDefs.append(copy);
+  }
+  return id;
+}
 const fileUrl = (path) => `/file?path=${encodeURIComponent(path)}`;
 const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 const parentOf = (path) => (path === "/" ? null : path.replace(/\/[^/]+$/, "") || "/");
@@ -627,7 +659,7 @@ async function load(path) {
   // Taken at once: its place in the sidebar lit, and, when it takes a while, a word that it's coming.
   loading = path;
   const thisLoad = ++loads;
-  for (const a of $("#places").querySelectorAll("a[data-path]")) a.classList.toggle("active", a.dataset.path === path);
+  markPlace(path);
   let slow = false;
   const slowTimer = setTimeout(() => ((slow = true), flashStatus(`Opening ${path.split("/").pop() || path}…`, 60_000)), 300);
   try {
@@ -655,7 +687,7 @@ async function load(path) {
   renderTags();
   document.title = (listing.path === "/" ? "/" : listing.path.split("/").pop()) + (state.init.incognito ? " — phil (incognito)" : " — phil");
   renderCrumbs();
-  renderPlaces();
+  markPlace(listing.path); // only the lit one changes: rebuilding the sidebar on every click made it blink
   refreshSpace(); // into a share that mounts on use: now it has its space
   $("#btn-up").disabled = !listing.parent;
   filterInput.value = "";
@@ -1060,7 +1092,7 @@ async function refreshSpace() {
   const space = Object.fromEntries(paths.filter((p) => fresh[p] || state.space[p]).map((p) => [p, fresh[p] ?? state.space[p]]));
   if (JSON.stringify(space) === JSON.stringify(state.space)) return;
   state.space = space;
-  renderPlaces();
+  showPlacesInfo();
 }
 
 // The drives' last speed tests, for their tooltips: at the start, with the places, after a test.
@@ -1070,7 +1102,7 @@ async function refreshSpeeds() {
   const speeds = await api(`/api/drive-speeds?${paths.map((p) => `path=${encodeURIComponent(p)}`).join("&")}`).catch(() => null);
   if (!speeds || JSON.stringify(speeds) === JSON.stringify(state.speeds)) return;
   state.speeds = speeds;
-  renderPlaces();
+  showPlacesInfo();
 }
 
 async function refreshPlaces() {
@@ -1141,6 +1173,41 @@ for (const type of ["pointerup", "pointercancel", "dragend", "blur"]) {
   }, true);
 }
 
+// A place's tooltip, and a drive's free space under its name: also updated
+// alone (refreshSpace, refreshSpeeds), as free space changes all the time and
+// rebuilding the sidebar for it made it blink.
+function showPlaceInfo(a, p) {
+  let title = p.path;
+  if (isMount(p)) {
+    const space = state.space[p.path], text = a.querySelector(".place-text");
+    let free = text?.querySelector(".space");
+    if (space && text) {
+      if (!free) text.append(free = Object.assign(document.createElement("span"), { className: "space" }));
+      free.textContent = `${formatSize(space.avail)} free of ${formatSize(space.size)}`;
+      title += `\n${formatSize(space.avail)} free of ${formatSize(space.size)} (${Math.round((1 - space.avail / space.size) * 100)}% used)`;
+    } else free?.remove();
+    const speed = state.speeds[p.path], mbs = speed?.read ?? speed?.buffered;
+    if (speed?.write) title += `\n${Math.round(speed.read).toLocaleString()} MB/s down, ${Math.round(speed.write).toLocaleString()} MB/s up`;
+    else if (mbs) title += `\n${Math.round(mbs).toLocaleString()} MB/s`;
+  }
+  const remote = remoteOf(p.path);
+  if (remote) title += `\nDouble-click: SSH to ${remote.host}`;
+  a.title = title;
+}
+
+// Every place's (refreshSpace, refreshSpeeds).
+function showPlacesInfo() {
+  for (const a of $("#places").querySelectorAll("a[data-path]")) {
+    const p = state.init.places.find((p) => p.path === a.dataset.path);
+    if (p) showPlaceInfo(a, p);
+  }
+}
+
+// The sidebar's place for the folder shown (or being opened) lit, the others not.
+function markPlace(path) {
+  for (const a of $("#places").querySelectorAll("a[data-path]")) a.classList.toggle("active", a.dataset.path === path);
+}
+
 function renderPlaces() {
   if (holdWhilePressed(renderPlaces)) return;
   const nav = $("#places");
@@ -1151,9 +1218,7 @@ function renderPlaces() {
     a.dataset.path = p.path; // drop target
     a.classList.toggle("folder", !!p.folder); // the user's (see placeGapAt)
     a.draggable = true; // as an element, not as a link: WebKit starts those itself, and not always
-    a.title = p.path;
     a.innerHTML = icon(p.customIcon ? `l:${p.customIcon}` : p.icon); // the icon picked in its Properties, if any
-    const space = state.space[p.path];
     if (isMount(p)) {
       // Drives and shares: their free space under the name (and copies to them, see showTransfers).
       const text = document.createElement("span");
@@ -1161,25 +1226,15 @@ function renderPlaces() {
       const name = document.createElement("span");
       name.textContent = p.description || p.name;
       text.append(name);
-      if (space) {
-        const free = document.createElement("span");
-        free.className = "space";
-        free.textContent = `${formatSize(space.avail)} free of ${formatSize(space.size)}`;
-        text.append(free);
-        a.title += `\n${formatSize(space.avail)} free of ${formatSize(space.size)} (${Math.round((1 - space.avail / space.size) * 100)}% used)`;
-      }
-      const speed = state.speeds[p.path], mbs = speed?.read ?? speed?.buffered;
-      if (speed?.write) a.title += `\n${Math.round(speed.read).toLocaleString()} MB/s down, ${Math.round(speed.write).toLocaleString()} MB/s up`;
-      else if (mbs) a.title += `\n${Math.round(mbs).toLocaleString()} MB/s`;
       a.append(text);
     } else {
       a.append(p.description || p.name); // its Properties' description, when it has one
     }
+    showPlaceInfo(a, p);
     a.classList.toggle("active", p.path === (loading ?? state.path)); // the one being opened, already
     // A network share: double-click (or the menu) for a terminal on that machine.
     const remote = remoteOf(p.path);
     if (remote) {
-      a.title += `\nDouble-click: SSH to ${remote.host}`;
       a.ondblclick = (e) => (e.preventDefault(), sshTo(p.path));
     }
     a.oncontextmenu = (e) => {
@@ -3620,6 +3675,7 @@ ready(JSON.stringify({ script: Math.round(performance.now()) }));
 state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
 applySettings();
+renderPlaces(); // once: after this, only when the places change (their space and speeds update in place)
 listThemes();
 refreshSpeeds(); // the drives' last speed tests, for their tooltips
 loadCameras(); // the network cameras found so far (looked for again with the sidebar's refresh button)
