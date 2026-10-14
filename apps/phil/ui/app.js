@@ -77,6 +77,53 @@ function lucideIcon(name) {
   return id;
 }
 const fileUrl = (path) => `/file?path=${encodeURIComponent(path)}`;
+
+// Elements are kept in step with their data rather than rebuilt: rebuilding a
+// panel or a tile made everything in it blink (and lost a click landing on it).
+// `put` writes a property only when it differs.
+const put = (el, prop, value) => el[prop] !== value && (el[prop] = value);
+
+// Keeps `container`'s children in step with `items` by key: an item's element
+// is reused while its key and kind stay (made by `make(item)` otherwise, with
+// `el.item` the item it shows now), brought up to date by `show(el, item)`
+// (writing only what differs), moved only when out of place, and removed when
+// its item is gone. Other children (not this list's) are left alone.
+function keyed(container, items, { key, kind = () => "", make, show }) {
+  const old = new Map();
+  for (const el of container.children) if (el.dataset.keyed !== undefined) old.set(el.dataset.keyed, el);
+  const els = items.map((item) => {
+    const k = String(key(item)), kd = String(kind(item));
+    let el = old.get(k);
+    if (el?.dataset.kind === kd) old.delete(k);
+    else {
+      el = make(item);
+      el.dataset.keyed = k;
+      el.dataset.kind = kd;
+    }
+    el.item = item;
+    show(el, item);
+    return el;
+  });
+  for (const el of old.values()) el.remove(); // first: so the rest needn't move around them
+  let prev = null;
+  for (const el of els) {
+    let next = prev ? prev.nextElementSibling : container.firstElementChild;
+    while (next && next.dataset.keyed === undefined) next = next.nextElementSibling;
+    if (next !== el) container.insertBefore(el, next);
+    prev = el;
+  }
+}
+
+// An element's icon (icon()), replaced only when it's another one.
+function putIcon(el, name, cls = "") {
+  if (el.dataset.icon === name + cls) return;
+  el.dataset.icon = name + cls;
+  const t = document.createElement("template");
+  t.innerHTML = icon(name, cls);
+  const svg = t.content.firstElementChild;
+  const old = el.querySelector(":scope > svg");
+  old ? old.replaceWith(svg) : el.prepend(svg);
+}
 const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 const parentOf = (path) => (path === "/" ? null : path.replace(/\/[^/]+$/, "") || "/");
 const hasThumb = (e) => e.kind === "image" || e.kind === "video" || e.kind === "pdf"; // a PDF's: its first page
@@ -381,7 +428,8 @@ function unloadThumb(tile) {
 }
 
 function setThumbImage(box, url) {
-  if (box.querySelector("img")) return;
+  const shown = box.querySelector("img");
+  if (shown) return void (shown.getAttribute("src") !== url && (shown.src = url)); // its file changed: the new one in its place
   const img = new Image();
   img.decoding = "sync"; // small JPEGs: decoding while painting beats drawing an empty tile first
   img.alt = "";
@@ -419,6 +467,7 @@ function onThumbReady(path, url) {
   const box = tile.firstElementChild;
   box.classList.remove("loading");
   if (url) setThumbImage(box, url);
+  else box.querySelector("img")?.remove(), box.classList.remove("has-img"); // its file changed, and the new one has none
 }
 
 // ---------------------------------------------------------------- text files
@@ -443,6 +492,7 @@ function onTextReady(path, text) {
   box.classList.remove("loading");
   box.text = text;
   if (text) drawText(box);
+  else box.querySelector(":scope > canvas")?.remove(), box.classList.remove("has-text"); // its file changed, and isn't text now
 }
 
 const HEADING = { h1: [2.2, 9], h2: [1.8, 7.5], h3: [1.5, 6.5], h4: [1.3, 6], h5: [1.15, 6], h6: [1.1, 6] }; // [× body size, minimum px]
@@ -799,30 +849,39 @@ function render(selectPath = state.view[state.selected]?.path) {
 
   nearObserver.disconnect();
   farObserver.disconnect();
-  // Tiles of entries that haven't changed are kept, with their loaded images.
-  // Their text is drawn again: WebKitGTK blanks a canvas taken out of the page
-  // and put back.
+  // Every entry's tile is kept while it's the same kind of thing (keyed by
+  // path), with its loaded picture or text, and brought up to date in place
+  // (updateTile); tiles are moved only when out of place, as WebKitGTK blanks
+  // a canvas taken out of the page (its text is drawn again then).
   const old = new Map(tiles);
   tiles.clear();
-  const frag = document.createDocumentFragment();
-  const redraw = [];
-  state.view.forEach((entry, i) => {
+  const ordered = state.view.map((entry, i) => {
     let tile = old.get(entry.path);
-    if (tile?.dataset.sig === tileSig(entry) && !tile.classList.contains("renaming")) {
+    if (tile?.dataset.shape === tileShape(entry) && !tile.classList.contains("renaming")) {
+      old.delete(entry.path);
       tile.dataset.index = i;
       tile.classList.remove("selected");
-      if (entry.kind === "dir") showFolderInfo(tile, entry);
-      if (tile.querySelector("canvas")) redraw.push(tile);
-      old.delete(entry.path);
+      updateTile(tile, entry);
     } else {
       tile = makeTile(entry, i);
     }
-    tile.style.order = ""; // in the page's order again (see resort)
+    put(tile.style, "order", ""); // in the page's order again (see resort)
     tiles.set(entry.path, tile);
-    frag.append(tile);
+    return tile;
   });
-  for (const path of old.keys()) thumbs.cancel(path);
-  grid.replaceChildren(frag);
+  for (const [path, tile] of old) thumbs.cancel(path), tile.remove(); // first: so the rest needn't move around them
+  grid.querySelector(":scope > .empty")?.remove(); // "This folder is empty"
+  const redraw = [];
+  let prev = null;
+  for (const tile of ordered) {
+    let next = prev ? prev.nextElementSibling : grid.firstElementChild;
+    while (next && !next.classList.contains("tile")) next = next.nextElementSibling;
+    if (next !== tile) {
+      if (tile.querySelector("canvas")) redraw.push(tile);
+      grid.insertBefore(tile, next);
+    }
+    prev = tile;
+  }
   for (const tile of redraw) {
     for (const canvas of tile.querySelectorAll("canvas")) {
       const box = canvas.parentElement;
@@ -830,6 +889,7 @@ function render(selectPath = state.view[state.selected]?.path) {
       drawText(box);
     }
   }
+  for (const tile of contentChanged.splice(0)) refreshPreview(tile, state.view[tile.dataset.index]);
   if (!state.view.length) showGridMessage(q ? "No matches" : "This folder is empty");
   for (const tile of tiles.values()) {
     nearObserver.observe(tile);
@@ -855,13 +915,49 @@ function fileType(name) {
 }
 
 // A tile is rebuilt when its file changed; a folder's tile is updated in place.
-const tileSig = (e) => (e.kind === "dir" ? "dir" : `${e.kind} ${e.size} ${e.mtime} ${e.onChange ?? ""} ${e.writable} ${e.target} ${e.description ?? ""} ${e.tags ?? ""}`);
+// A tile is made again only when it's another kind of thing (a picture where
+// a text file was, say); otherwise it's updated (updateTile).
+const tileShape = (e) => `${e.kind} ${e.name.startsWith(".")}`;
+const tileContent = (e) => `${e.size} ${e.mtime}`;
+const contentChanged = []; // tiles whose file changed: their preview is made again (render)
+
+// A kept tile, up to date: its details, marks and title; a folder's face and
+// contents; and when its file changed, its preview made again (the old one
+// shows until the new one is in).
+function updateTile(tile, entry) {
+  if (entry.kind === "dir") return showFolderInfo(tile, entry);
+  put(tile.querySelector(".label .meta"), "textContent", fileMeta(entry));
+  put(tile, "title", fileTitle(entry));
+  showMarks(tile, entry);
+  if (tile.dataset.content === tileContent(entry)) return;
+  tile.dataset.content = tileContent(entry);
+  contentChanged.push(tile);
+}
+
+function refreshPreview(tile, entry) {
+  if (!entry) return;
+  const box = tile.firstElementChild;
+  const r = tile.getBoundingClientRect(), g = grid.getBoundingClientRect();
+  const near = r.bottom > g.top - 800 && r.top < g.bottom + 800; // as nearObserver's
+  if (entry.kind === "file") {
+    box.text = undefined; // its text read again (and drawn over the old)
+    if (near) showText(tile, entry);
+  } else if (typeof entry.thumb === "string") {
+    if (box.querySelector("img") || near) setThumbImage(box, entry.thumb);
+  } else if (entry.thumb === null && near) {
+    if (!box.querySelector("img")) box.classList.add("loading");
+    thumbs.want(entry.path);
+  }
+}
+
+const fileMeta = (entry) => [fileType(entry.name).toUpperCase(), formatSize(entry.size), formatShortDate(entry.mtime)].filter(Boolean).join(" · ");
 
 function makeTile(entry, index) {
   const tile = document.createElement("div");
   tile.className = `tile ${entry.kind}${entry.name.startsWith(".") ? " hidden-file" : ""}`;
   tile.dataset.index = index;
-  tile.dataset.sig = tileSig(entry);
+  tile.dataset.shape = tileShape(entry);
+  tile.dataset.content = tileContent(entry);
 
   const box = document.createElement("div");
   box.className = "thumb";
@@ -889,7 +985,7 @@ function makeTile(entry, index) {
   tile.append(box, label);
   if (entry.kind === "dir") showFolderInfo(tile, entry);
   else {
-    meta.textContent = [fileType(entry.name).toUpperCase(), formatSize(entry.size), formatShortDate(entry.mtime)].filter(Boolean).join(" · ");
+    meta.textContent = fileMeta(entry);
     tile.title = fileTitle(entry);
     showMarks(tile, entry);
   }
@@ -1044,28 +1140,35 @@ function showGridMessage(message) {
 
 function renderCrumbs() {
   const parts = state.path.split("/").filter(Boolean);
-  crumbs.replaceChildren();
-  const add = (label, path) => {
-    const b = document.createElement("button");
-    b.textContent = label;
-    b.dataset.path = path; // drop target
-    b.onclick = (e) => {
-      e.stopPropagation();
-      navigate(path);
-    };
-    // Right-click: that folder's Properties (the way to the one you're in, whose tile isn't shown).
-    b.oncontextmenu = (e) => {
-      e.preventDefault();
-      showMenu(e.clientX, e.clientY, [["Properties", () => showProperties({ path, name: label, kind: "dir" })], ...newItemsIn(path, " inside")]);
-    };
-    crumbs.append(b);
-  };
-  add("/", "/");
+  // "/", then each folder on the way, with a "/" between (keyed by the path it ends).
+  const items = [{ path: "/", label: "/" }];
   parts.forEach((part, i) => {
-    if (i > 0) crumbs.insertAdjacentHTML("beforeend", `<span class="sep">/</span>`);
-    add(part, "/" + parts.slice(0, i + 1).join("/"));
+    const path = "/" + parts.slice(0, i + 1).join("/");
+    if (i > 0) items.push({ path, sep: true });
+    items.push({ path, label: part });
+  });
+  keyed(crumbs, items, {
+    key: (c) => (c.sep ? `sep:${c.path}` : c.path),
+    kind: (c) => (c.sep ? "sep" : "crumb"),
+    make: (c) => (c.sep ? Object.assign(document.createElement("span"), { className: "sep", textContent: "/" }) : makeCrumb()),
+    show: (el, c) => c.sep || (put(el, "textContent", c.label), el.dataset.path !== c.path && (el.dataset.path = c.path)), // drop target
   });
   crumbs.scrollLeft = crumbs.scrollWidth;
+}
+
+function makeCrumb() {
+  const b = document.createElement("button");
+  b.onclick = (e) => {
+    e.stopPropagation();
+    navigate(b.item.path);
+  };
+  // Right-click: that folder's Properties (the way to the one you're in, whose tile isn't shown).
+  b.oncontextmenu = (e) => {
+    e.preventDefault();
+    const { path, label } = b.item;
+    showMenu(e.clientX, e.clientY, [["Properties", () => showProperties({ path, name: label, kind: "dir" })], ...newItemsIn(path, " inside")]);
+  };
+  return b;
 }
 
 // Drives and shares come and go (USB, mounts): the list is fetched again
@@ -1182,8 +1285,8 @@ function showPlaceInfo(a, p) {
     const space = state.space[p.path], text = a.querySelector(".place-text");
     let free = text?.querySelector(".space");
     if (space && text) {
-      if (!free) text.append(free = Object.assign(document.createElement("span"), { className: "space" }));
-      free.textContent = `${formatSize(space.avail)} free of ${formatSize(space.size)}`;
+      if (!free) text.firstElementChild.after(free = Object.assign(document.createElement("span"), { className: "space" })); // under the name
+      put(free, "textContent", `${formatSize(space.avail)} free of ${formatSize(space.size)}`);
       title += `\n${formatSize(space.avail)} free of ${formatSize(space.size)} (${Math.round((1 - space.avail / space.size) * 100)}% used)`;
     } else free?.remove();
     const speed = state.speeds[p.path], mbs = speed?.read ?? speed?.buffered;
@@ -1192,7 +1295,7 @@ function showPlaceInfo(a, p) {
   }
   const remote = remoteOf(p.path);
   if (remote) title += `\nDouble-click: SSH to ${remote.host}`;
-  a.title = title;
+  put(a, "title", title);
 }
 
 // Every place's (refreshSpace, refreshSpeeds).
@@ -1210,68 +1313,79 @@ function markPlace(path) {
 
 function renderPlaces() {
   if (holdWhilePressed(renderPlaces)) return;
-  const nav = $("#places");
-  nav.replaceChildren(...state.init.places.map((p) => {
-    if (p.unmounted) return unmountedPlace(p);
-    const a = document.createElement("a");
-    a.href = "#" + encodePath(p.path);
-    a.dataset.path = p.path; // drop target
-    a.classList.toggle("folder", !!p.folder); // the user's (see placeGapAt)
-    a.draggable = true; // as an element, not as a link: WebKit starts those itself, and not always
-    a.innerHTML = icon(p.customIcon ? `l:${p.customIcon}` : p.icon); // the icon picked in its Properties, if any
-    if (isMount(p)) {
-      // Drives and shares: their free space under the name (and copies to them, see showTransfers).
-      const text = document.createElement("span");
-      text.className = "place-text";
-      const name = document.createElement("span");
-      name.textContent = p.description || p.name;
-      text.append(name);
-      a.append(text);
-    } else {
-      a.append(p.description || p.name); // its Properties' description, when it has one
-    }
-    showPlaceInfo(a, p);
-    a.classList.toggle("active", p.path === (loading ?? state.path)); // the one being opened, already
-    // A network share: double-click (or the menu) for a terminal on that machine.
-    const remote = remoteOf(p.path);
-    if (remote) {
-      a.ondblclick = (e) => (e.preventDefault(), sshTo(p.path));
-    }
-    a.oncontextmenu = (e) => {
-      e.preventDefault();
-      e.stopPropagation(); // not the sidebar's menu
-      showMenu(e.clientX, e.clientY, [
-        ["Open", () => navigate(p.path)],
-        ["Properties", () => showProperties({ path: p.path, name: p.name, kind: "dir" })],
-        ...(remote ? [[`SSH here (${remote.host})`, () => sshTo(p.path)]] : []),
-        ["Paste into", () => pasteFiles(p.path)],
-        ...newItemsIn(p.path, " inside"),
-        ...(p.mounted ? [["Unmount", () => unmount(p)]] : []),
-        ...(p.folder ? [["Remove from sidebar", () => removeFromSidebar(p)]] : []),
-      ]);
-    };
-    return a;
-  }));
+  keyed($("#places"), state.init.places, {
+    key: (p) => (p.unmounted ? `device:${p.device}` : p.path),
+    kind: (p) => (p.unmounted ? "unmounted" : isMount(p) ? "mount" : "folder"),
+    make: (p) => (p.unmounted ? makeUnmountedPlace() : makePlace(p)),
+    show: (a, p) => (p.unmounted ? showUnmountedPlace(a, p) : showPlace(a, p)),
+  });
   showTransfers();
+}
+
+// A place's row (its data: a.item, as it is now). Drives and shares have their
+// free space under the name (and copies to them, see showTransfers).
+function makePlace(p) {
+  const a = document.createElement("a");
+  a.draggable = true; // as an element, not as a link: WebKit starts those itself, and not always
+  if (isMount(p)) {
+    const text = Object.assign(document.createElement("span"), { className: "place-text" });
+    text.append(Object.assign(document.createElement("span"), { className: "place-name" }));
+    a.append(text);
+  } else {
+    a.append(document.createTextNode(""));
+  }
+  // A network share: double-click (or the menu) for a terminal on that machine.
+  a.ondblclick = (e) => remoteOf(a.item.path) && (e.preventDefault(), sshTo(a.item.path));
+  a.oncontextmenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // not the sidebar's menu
+    const p = a.item, remote = remoteOf(p.path);
+    showMenu(e.clientX, e.clientY, [
+      ["Open", () => navigate(p.path)],
+      ["Properties", () => showProperties({ path: p.path, name: p.name, kind: "dir" })],
+      ...(remote ? [[`SSH here (${remote.host})`, () => sshTo(p.path)]] : []),
+      ["Paste into", () => pasteFiles(p.path)],
+      ...newItemsIn(p.path, " inside"),
+      ...(p.mounted ? [["Unmount", () => unmount(p)]] : []),
+      ...(p.folder ? [["Remove from sidebar", () => removeFromSidebar(p)]] : []),
+    ]);
+  };
+  return a;
+}
+
+function showPlace(a, p) {
+  put(a, "href", new URL("#" + encodePath(p.path), location.href).href);
+  if (a.dataset.path !== p.path) a.dataset.path = p.path; // drop target
+  a.classList.toggle("folder", !!p.folder); // the user's (see placeGapAt)
+  putIcon(a, p.customIcon ? `l:${p.customIcon}` : p.icon); // the icon picked in its Properties, if any
+  const name = p.description || p.name; // its Properties' description, when it has one
+  if (isMount(p)) put(a.querySelector(".place-name"), "textContent", name);
+  else put(a.lastChild, "nodeValue", name);
+  showPlaceInfo(a, p);
+  a.classList.toggle("active", p.path === (loading ?? state.path)); // the one being opened, already
 }
 
 // A drive that isn't mounted (an internal one's partition: nothing mounts
 // those by itself): dimmed; a click mounts it (udisks; a system drive asks
 // for the password) and opens it.
-function unmountedPlace(p) {
+function makeUnmountedPlace() {
   const a = document.createElement("a");
   a.href = "#";
   a.className = "unmounted";
-  a.title = `${p.device}: not mounted. Click to mount it`;
-  a.innerHTML = icon(p.icon);
-  a.append(p.name);
-  a.onclick = (e) => (e.preventDefault(), mount(p, a));
+  a.append(document.createTextNode(""));
+  a.onclick = (e) => (e.preventDefault(), mount(a.item, a));
   a.oncontextmenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    showMenu(e.clientX, e.clientY, [["Mount and open", () => mount(p, a)]]);
+    showMenu(e.clientX, e.clientY, [["Mount and open", () => mount(a.item, a)]]);
   };
   return a;
+}
+
+function showUnmountedPlace(a, p) {
+  put(a, "title", `${p.device}: not mounted. Click to mount it`);
+  putIcon(a, p.icon);
+  put(a.lastChild, "nodeValue", p.name);
 }
 
 // A drive that wasn't closed properly (NTFS) can be mounted read-only: asked.
@@ -1944,18 +2058,27 @@ function renderTags() {
   }
   for (const t of tagFilter) if (!counts.has(t)) counts.set(t, 0);
   const list = [...counts].sort((a, b) => b[1] - a[1] || collator.compare(a[0], b[0]));
-  $("#tags").replaceChildren(...list.map(([tag, n]) => {
-    const b = document.createElement("button");
-    b.className = (tagFilter.has(tag) ? "active " : "") + (mine.has(tag) ? "mine" : "");
-    b.title = `${n} here${mine.has(tag) ? ", some given by hand" : ""}. Click: only what has it (with any other tags picked)`;
-    b.append(tag, Object.assign(document.createElement("span"), { className: "n", textContent: n }));
-    b.onclick = () => {
-      tagFilter.has(tag) ? tagFilter.delete(tag) : tagFilter.add(tag);
-      render();
-      renderTags();
-    };
-    return b;
-  }));
+  keyed($("#tags"), list, {
+    key: ([tag]) => tag,
+    make: () => {
+      const b = document.createElement("button");
+      b.append(document.createTextNode(""), Object.assign(document.createElement("span"), { className: "n" }));
+      b.onclick = () => {
+        const [tag] = b.item;
+        tagFilter.has(tag) ? tagFilter.delete(tag) : tagFilter.add(tag);
+        render();
+        renderTags();
+      };
+      return b;
+    },
+    show: (b, [tag, n]) => {
+      b.classList.toggle("active", tagFilter.has(tag));
+      b.classList.toggle("mine", mine.has(tag));
+      put(b, "title", `${n} here${mine.has(tag) ? ", some given by hand" : ""}. Click: only what has it (with any other tags picked)`);
+      put(b.firstChild, "nodeValue", tag);
+      put(b.lastChild, "textContent", String(n));
+    },
+  });
   $("#tags-panel").hidden = !list.length && $("#tags-status").hidden;
 }
 
@@ -2149,31 +2272,42 @@ async function loadCameras() {
 function renderCameras() {
   if (holdWhilePressed(renderCameras)) return;
   $("#cameras-panel").hidden = !state.cameras.length;
-  $("#cameras").replaceChildren(...state.cameras.map((c) => {
-    const a = document.createElement("a");
-    a.dataset.camera = c.id;
-    a.tabIndex = 0;
-    a.innerHTML = icon("camera");
-    const text = Object.assign(document.createElement("span"), { className: "cam-text" });
-    text.append(Object.assign(document.createElement("span"), { textContent: c.name }));
-    if (c.needsLogin) text.append(Object.assign(document.createElement("span"), { className: "note", textContent: "needs a login" }));
-    a.append(text);
-    a.title = [c.model, `${c.host}${c.port === 80 ? "" : `:${c.port}`}`, "Double-click: show it"].filter(Boolean).join("\n");
-    a.ondblclick = () => openCamera(c);
-    a.onkeydown = (e) => e.key === "Enter" && (e.preventDefault(), openCamera(c));
-    a.oncontextmenu = (e) => {
-      e.preventDefault();
-      e.stopPropagation(); // not the sidebar's menu
-      showMenu(e.clientX, e.clientY, [
-        ["Show", () => openCamera(c)],
-        ["Rename…", () => renameCamera(c)],
-        [c.login ? "Change login…" : "Log in…", () => loginCamera(c)],
-        ["Forget", () => forgetCamera(c)],
-        ...cameraMenuItems(),
-      ]);
-    };
-    return a;
-  }));
+  keyed($("#cameras"), state.cameras, { key: (c) => c.id, make: makeCamera, show: showCamera });
+}
+
+// A camera's row (its data: a.item, as it is now).
+function makeCamera() {
+  const a = document.createElement("a");
+  a.tabIndex = 0;
+  a.innerHTML = icon("camera");
+  const text = Object.assign(document.createElement("span"), { className: "cam-text" });
+  text.append(document.createElement("span"));
+  a.append(text);
+  a.ondblclick = () => openCamera(a.item);
+  a.onkeydown = (e) => e.key === "Enter" && (e.preventDefault(), openCamera(a.item));
+  a.oncontextmenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // not the sidebar's menu
+    const c = a.item;
+    showMenu(e.clientX, e.clientY, [
+      ["Show", () => openCamera(c)],
+      ["Rename…", () => renameCamera(c)],
+      [c.login ? "Change login…" : "Log in…", () => loginCamera(c)],
+      ["Forget", () => forgetCamera(c)],
+      ...cameraMenuItems(),
+    ]);
+  };
+  return a;
+}
+
+function showCamera(a, c) {
+  if (a.dataset.camera !== c.id) a.dataset.camera = c.id;
+  const text = a.querySelector(".cam-text");
+  put(text.firstElementChild, "textContent", c.name);
+  let note = text.querySelector(".note");
+  if (c.needsLogin && !note) text.append(note = Object.assign(document.createElement("span"), { className: "note", textContent: "needs a login" }));
+  else if (!c.needsLogin) note?.remove();
+  put(a, "title", [c.model, `${c.host}${c.port === 80 ? "" : `:${c.port}`}`, "Double-click: show it"].filter(Boolean).join("\n"));
 }
 
 async function openCamera(c) {
@@ -3278,52 +3412,105 @@ function onTransfer(p) {
 }
 
 function showTransfers() {
-  document.querySelectorAll(".transfer-bar").forEach((el) => el.remove());
+  // Where each bar goes: element -> [{key, t, ofFile} or {key, stopped: entry}]. Bars are
+  // kept and updated in place (keyed), so one being clicked isn't swapped out.
+  const bars = new Map();
+  const add = (host, bar) => host && (bars.get(host) ?? bars.set(host, []).get(host)).push(bar);
   const live = new Set();
   for (const t of state.transfers.values()) {
-    if (t.op !== "delete") tiles.get(t.dest)?.append(transferBar(t)); // a delete's: on what's going
+    if (t.op !== "delete") add(tiles.get(t.dest), { key: `${t.id} dest`, t }); // a delete's: on what's going
     for (const target of t.targets ?? []) { // what it's making: the folder (or file) being copied
       live.add(target);
-      tiles.get(target)?.append(transferBar(t));
+      add(tiles.get(target), { key: `${t.id} target`, t });
     }
     if (t.file && t.file !== t.targets?.[0]) { // the file it's at: how far into it
       live.add(t.file);
-      tiles.get(t.file)?.append(transferBar({ ...t, percent: t.filePercent ?? 0 }, { ofFile: true }));
+      add(tiles.get(t.file), { key: `${t.id} file`, t: { ...t, percent: t.filePercent ?? 0 }, ofFile: true });
     }
     // The drive it goes to: the sidebar's mount with the longest path that holds it.
-    const mount = state.init?.places.filter((p) => isMount(p) && (t.dest === p.path || t.dest.startsWith(p.path === "/" ? "/" : p.path + "/")))
+    const mount = state.init?.places.filter((p) => isMount(p) && !p.unmounted && (t.dest === p.path || t.dest.startsWith(p.path === "/" ? "/" : p.path + "/")))
       .sort((a, b) => b.path.length - a.path.length)[0];
-    if (mount) $(`#places a[data-path="${CSS.escape(mount.path)}"] .place-text`)?.append(transferBar(t));
+    if (mount) add($(`#places a[data-path="${CSS.escape(mount.path)}"] .place-text`), { key: `${t.id} drive`, t });
   }
   // Copies cut off (a crash, ×): their record says how far they got; ↻ goes on, × forgets it.
-  for (const e of state.view) if (e.copying?.state === "stopped" && !live.has(e.path)) tiles.get(e.path)?.append(stoppedBar(e));
+  for (const e of state.view) if (e.copying?.state === "stopped" && !live.has(e.path)) add(tiles.get(e.path), { key: "stopped", stopped: e });
+  for (const bar of document.querySelectorAll(".transfer-bar")) if (!bars.has(bar.parentElement)) bars.set(bar.parentElement, []); // none there now
+  for (const [host, list] of bars) {
+    keyed(host, list, {
+      key: (b) => b.key,
+      kind: (b) => (b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy"),
+      make: (b) => makeTransferBar(b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy"),
+      show: (bar, b) => (b.stopped ? showStoppedBar(bar, b.stopped) : showTransferBar(bar, b.t, b)),
+    });
+  }
 }
 
-function stoppedBar(e) {
-  const c = e.copying;
-  if (c.file) { // a file cut off mid-copy (it has its name): ↻ on the folder goes on with it
-    const bar = document.createElement("div");
-    bar.className = "transfer-bar stopped";
-    bar.title = `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped ${c.percent}% of the way in, ${formatDate(c.updated)}: ↻ on the folder it's in goes on with it`;
-    const fill = Object.assign(document.createElement("div"), { className: "fill" });
-    fill.style.width = `${c.percent}%`;
-    bar.append(fill, Object.assign(document.createElement("span"), { className: "pct", textContent: `Cut off at ${c.percent}%` }));
-    return bar;
-  }
+// A progress bar: a copy's or move's (pause, stop), a delete's (stop), or
+// one cut off (↻ goes on, × forgets it; a file's only says so). Its data:
+// bar.item, as it is now ({t} or {stopped: entry}).
+function makeTransferBar(kind) {
   const bar = document.createElement("div");
-  bar.className = "transfer-bar stopped";
-  bar.title = `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped at ${c.percent}% (${formatSize(c.bytes)} of ${formatSize(c.total)}), ${formatDate(c.updated)}`;
+  bar.className = "transfer-bar";
   const fill = Object.assign(document.createElement("div"), { className: "fill" });
-  fill.style.width = `${c.percent}%`;
-  const label = Object.assign(document.createElement("span"), { className: "pct", textContent: `Stopped at ${c.percent}%` });
-  const resume = barButton("↻", `Go on ${c.op === "move" ? "moving" : "copying"} (what's there is skipped)`, () =>
-    transfer(c.op, [{ path: c.from }], parentOf(e.path), { resume: true, target: e.path }));
-  const forget = barButton("×", "Forget it (what was copied stays)", async () => {
-    await api(`/api/transfer-forget?path=${encodeURIComponent(e.path)}`, { method: "POST" }).catch(() => {});
-    refresh();
-  });
-  bar.append(fill, label, resume, forget);
+  const label = Object.assign(document.createElement("span"), { className: "pct" }); // not .label: that's the tile's name
+  bar.append(fill, label);
+  const cancel = () => api("/api/transfer-cancel", { method: "POST", body: JSON.stringify({ id: bar.item.t.id }) }).catch(() => {});
+  if (kind === "delete") {
+    bar.classList.add("deleting");
+    bar.append(barButton("×", "Stop deleting (what's gone is gone; the rest stays)", cancel));
+  } else if (kind === "copy") {
+    const pause = barButton("", "", () => api("/api/transfer-pause", { method: "POST", body: JSON.stringify({ id: bar.item.t.id, pause: !bar.item.t.paused }) }).catch(() => {}));
+    pause.classList.add("pause");
+    bar.append(pause, barButton("×", "", cancel));
+  } else {
+    bar.classList.add("stopped");
+    if (kind === "stopped") {
+      const c = () => bar.item.stopped.copying;
+      bar.append(
+        barButton("↻", "", () => transfer(c().op, [{ path: c().from }], parentOf(bar.item.stopped.path), { resume: true, target: bar.item.stopped.path })),
+        barButton("×", "Forget it (what was copied stays)", async () => {
+          await api(`/api/transfer-forget?path=${encodeURIComponent(bar.item.stopped.path)}`, { method: "POST" }).catch(() => {});
+          refresh();
+        }),
+      );
+    }
+  }
   return bar;
+}
+
+function showTransferBar(bar, t, { ofFile = false } = {}) {
+  const fill = bar.querySelector(".fill"), label = bar.querySelector(".pct");
+  if (t.op === "delete") {
+    bar.classList.toggle("counting", !!t.counting); // first, how much there is: no percentage yet
+    put(bar, "title", t.counting ? `Counting what's in it before deleting: ${t.found.toLocaleString()} files and folders so far`
+      : `Deleting: ${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} files and folders gone`);
+    put(fill.style, "width", t.counting ? "100%" : `${t.percent}%`);
+    put(label, "textContent", t.counting ? `Counting… ${t.found.toLocaleString()}` : `Deleting ${t.percent}%`);
+    return;
+  }
+  put(bar, "title", (ofFile ? `${t.percent}% of this file; ` : "") +
+    `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest}: ${formatSize(t.bytes)} of ${formatSize(t.total)}` +
+    (t.speed ? `, ${t.speed}, ${t.eta} left` : ""));
+  put(fill.style, "width", `${t.percent}%`);
+  put(label, "textContent", `${t.paused ? "Paused " : ""}${t.percent}%`);
+  bar.classList.toggle("paused", !!t.paused);
+  const [pause, cancel] = bar.querySelectorAll(".cancel");
+  put(pause, "textContent", t.paused ? "▶" : "⏸");
+  put(pause, "title", t.paused ? "Go on" : "Pause");
+  put(cancel, "title", `Stop ${t.op === "move" ? "moving" : "copying"} (what's done stays; ↻ on the folder goes on)`);
+}
+
+function showStoppedBar(bar, e) {
+  const c = e.copying;
+  put(bar.querySelector(".fill").style, "width", `${c.percent}%`);
+  if (c.file) { // a file cut off mid-copy (it has its name): ↻ on the folder goes on with it
+    put(bar, "title", `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped ${c.percent}% of the way in, ${formatDate(c.updated)}: ↻ on the folder it's in goes on with it`);
+    put(bar.querySelector(".pct"), "textContent", `Cut off at ${c.percent}%`);
+    return;
+  }
+  put(bar, "title", `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped at ${c.percent}% (${formatSize(c.bytes)} of ${formatSize(c.total)}), ${formatDate(c.updated)}`);
+  put(bar.querySelector(".pct"), "textContent", `Stopped at ${c.percent}%`);
+  put(bar.querySelector(".cancel"), "title", `Go on ${c.op === "move" ? "moving" : "copying"} (what's there is skipped)`);
 }
 
 function barButton(text, title, action) {
@@ -3341,40 +3528,6 @@ function barButton(text, title, action) {
 }
 
 // `ofFile`: the bar on the file it's at: its percentage is that file's.
-function transferBar(t, { ofFile = false } = {}) {
-  const bar = document.createElement("div");
-  bar.className = "transfer-bar";
-  if (t.op === "delete") {
-    bar.classList.add("deleting");
-    bar.classList.toggle("counting", !!t.counting); // first, how much there is: no percentage yet
-    bar.title = t.counting ? `Counting what's in it before deleting: ${t.found.toLocaleString()} files and folders so far`
-      : `Deleting: ${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} files and folders gone`;
-    const fill = Object.assign(document.createElement("div"), { className: "fill" });
-    fill.style.width = t.counting ? "100%" : `${t.percent}%`;
-    const label = Object.assign(document.createElement("span"), { className: "pct", textContent: t.counting ? `Counting… ${t.found.toLocaleString()}` : `Deleting ${t.percent}%` });
-    const stop = barButton("×", "Stop deleting (what's gone is gone; the rest stays)", () =>
-      api("/api/transfer-cancel", { method: "POST", body: JSON.stringify({ id: t.id }) }).catch(() => {}));
-    bar.append(fill, label, stop);
-    return bar;
-  }
-  bar.title = (ofFile ? `${t.percent}% of this file; ` : "") +
-    `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest}: ${formatSize(t.bytes)} of ${formatSize(t.total)}` +
-    (t.speed ? `, ${t.speed}, ${t.eta} left` : "");
-  const fill = document.createElement("div");
-  fill.className = "fill";
-  fill.style.width = `${t.percent}%`;
-  const label = document.createElement("span");
-  label.className = "pct"; // not .label: that's the tile's name
-  label.textContent = `${t.paused ? "Paused " : ""}${t.percent}%`;
-  bar.classList.toggle("paused", !!t.paused);
-  const pause = barButton(t.paused ? "▶" : "⏸", t.paused ? "Go on" : "Pause", () =>
-    api("/api/transfer-pause", { method: "POST", body: JSON.stringify({ id: t.id, pause: !t.paused }) }).catch(() => {}));
-  const cancel = barButton("×", `Stop ${t.op === "move" ? "moving" : "copying"} (what's done stays; ↻ on the folder goes on)`, () =>
-    api("/api/transfer-cancel", { method: "POST", body: JSON.stringify({ id: t.id }) }).catch(() => {}));
-  bar.append(fill, label, pause, cancel);
-  return bar;
-}
-
 function updateBand() {
   const end = contentPoint(...band.client);
   const left = Math.min(band.start.x, end.x), top = Math.min(band.start.y, end.y);
