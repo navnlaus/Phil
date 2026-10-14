@@ -175,11 +175,10 @@ export function createServer({ profile, controlSocket }) {
   if (barFile) writeBar(); // none: a phil that was stopped mid-copy left its own
 
   // The network cameras, at the bottom of the sidebar (camview shows them): looked
-  // for a few seconds after the start, then at most every 10 minutes when a
-  // window asks (cameras.js); every window hears of changes.
+  // for only when asked (the sidebar's ↻, or its menu's "Look for cameras"), as
+  // looking is seconds of probing the network; every window hears of changes.
   if (config.incognito) cameras.keepInMemory();
   cameras.onChange(async () => broadcast({ cameras: await cameras.list() }));
-  setTimeout(() => cameras.discover().catch(() => {}), 3000);
   const cameraError = (err) => httpError(err.status ?? 502, err.message);
 
   // A hook ran: the windows showing its folder say so.
@@ -212,13 +211,8 @@ export function createServer({ profile, controlSocket }) {
         return json({ places: await describedPlaces(), mounts: await networkMounts() });
       case "POST /api/sidebar": // {add, before} or {remove}: the sidebar's folders arranged (see arrangeSidebar)
         return json(await arrangeSidebar(await req.json()));
-      case "GET /api/cameras": // ?look=1: and look for new ones (at most every 10 minutes), answered at once; ?look=now: now, answered when that's done
-        // ?look=1 (the window getting focus) doesn't wait for the search: a request
-        // held open for its seconds took one of the page's few connections to the
-        // server (six), and with a few of them a folder clicked meanwhile waited its
-        // turn. What it finds reaches every window as {cameras} (cameras.onChange).
+      case "GET /api/cameras": // the cameras found so far; ?look=now: looked for first (the sidebar's refresh button: only then), answered when that's done
         if (url.searchParams.get("look") === "now") return json(await cameras.discover({ force: true }));
-        if (url.searchParams.get("look")) cameras.discover().catch(() => {});
         return json(await cameras.list());
       case "POST /api/cameras": // {address, user, password}: a camera added by its address
         try {

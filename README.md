@@ -639,8 +639,9 @@ tilt and zoom: PTZ). phil finds the cameras on the local network and lists
 them at the bottom of its sidebar; double-click one to show it in that window
 (camview's command line takes a camera's name or address, or shows the first).
 
-- **Finding them**: phil looks a few seconds after it starts, then at most
-  every 10 minutes when a window gets focus (and on ↻, below). It tries every address on this computer's own local
+- **Finding them**: phil looks only when you ask: the ↻ by "Cameras", or
+  "Look for cameras" in the sidebar's right-click menu (there before any is
+  found). It tries every address on this computer's own local
   networks (their /24s; not containers or VPNs) for RTSP (port 554) and asks
   those for ONVIF, the standard network cameras speak, on its usual ports
   (8899, 80, 2020, 8000...), giving each 1.5 s (a camera on weak Wi-Fi can lose
