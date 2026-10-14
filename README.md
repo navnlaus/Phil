@@ -349,6 +349,11 @@ to another host, are refused), static files and window management.
   no reads at all. Thumbnails from before are filed as their folders are viewed,
   in the background, one at a time while nothing is being made. Content entries
   no thumbnail uses any more are removed a minute after the start.
+- Pictures go to `vipsthumbnail` up to 6 at a time (starting it takes ~55 ms,
+  more than half of a 12 MP picture's time; batched, they're about 1.7× faster;
+  one a batch couldn't make is tried again alone, so a broken file fails
+  alone). Every thumbnailing command runs at a lower priority (`nice`), so the
+  windows stay smooth while a folder's thumbnails are made.
 - Thumbnails that are already cached come back as URLs in the directory listing.
   Missing ones are requested over a WebSocket as tiles scroll into view, and
   cancelled when they scroll out. The server generates the most recently requested
