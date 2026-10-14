@@ -245,7 +245,8 @@ const ONVIF_PORTS = [8899, 80, 2020, 8000, 8080, 5000, 6688, 8999];
 export async function discover({ extra = [] } = {}) {
   const hosts = new Set();
   for (const net of await localNetworks()) for (let i = 1; i < 255; i++) if (`${net}.${i}` !== net.self) hosts.add(`${net}.${i}`);
-  const rtsp = (await mapLimit([...hosts], 96, async (h) => (await tcpOpen(h, 554, 500)) ? h : null)).filter(Boolean);
+  // 1.5 s each: a camera on weak Wi-Fi can lose the first try, and the next comes a second later.
+  const rtsp = (await mapLimit([...hosts], 128, async (h) => (await tcpOpen(h, 554, 1500)) ? h : null)).filter(Boolean);
   const candidates = [...rtsp.map((host) => ({ host, ports: ONVIF_PORTS })), ...extra.map(parseAddress).filter(Boolean)];
   const found = await mapLimit(candidates, 16, ({ host, ports }) => probe(host, ports));
   return found.filter(Boolean);
@@ -258,9 +259,9 @@ export function parseAddress(address) {
 }
 
 /** The ONVIF camera at `host` (the first of `ports` that answers), or null. */
-export async function probe(host, ports = ONVIF_PORTS, login = {}) {
+export async function probe(host, ports = ONVIF_PORTS, login = {}, { wait = 1500 } = {}) {
   for (const port of ports) {
-    if (!(await tcpOpen(host, port, 600))) continue;
+    if (!(await tcpOpen(host, port, wait))) continue;
     const url = `http://${host}${port === 80 ? "" : `:${port}`}/onvif/device_service`;
     try {
       const info = await deviceInfo(url, login);

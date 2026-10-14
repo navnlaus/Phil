@@ -611,11 +611,13 @@ them at the bottom of its sidebar; double-click one to show it in that window
 (camview's command line takes a camera's name or address, or shows the first).
 
 - **Finding them**: phil looks a few seconds after it starts, then at most
-  every 10 minutes when a window gets focus (right-click the sidebar → "Look
-  for cameras" for now). It tries every address on this computer's own local
+  every 10 minutes when a window gets focus (and on ↻, below). It tries every address on this computer's own local
   networks (their /24s; not containers or VPNs) for RTSP (port 554) and asks
   those for ONVIF, the standard network cameras speak, on its usual ports
-  (8899, 80, 2020, 8000...). ONVIF's own discovery (WS-Discovery, multicast)
+  (8899, 80, 2020, 8000...), giving each 1.5 s (a camera on weak Wi-Fi can lose
+  the first try). The ↻ by "Cameras" looks again now: new ones are added, and
+  ones not found (asked twice more, directly) are left out of the list until
+  they're back, keeping their names, logins and settings. ONVIF's own discovery (WS-Discovery, multicast)
   isn't used: firewalls (ufw) drop its answers. One elsewhere: right-click →
   "Add camera…" with its address.
 - **Logins**: a camera that wants one says "needs a login" in the sidebar;

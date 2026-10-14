@@ -21,6 +21,7 @@
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
       <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
       <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4"/></symbol>
       <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3 6.5l13 3.5-1.6 6L2 12.5z"/><path d="M16 10l4.5-1.2 1 4-5.3 1.4M6.8 13.6L5.5 19M3 19h5"/></symbol>
       <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
@@ -80,7 +81,7 @@
     </section>
     <!-- Network cameras on the local network (ONVIF): double-click shows one in camview. -->
     <section id="cameras-panel" hidden>
-      <h3 class="heading">Cameras</h3>
+      <h3 class="heading">Cameras <button id="btn-cameras-refresh" class="icon" type="button" title="Look for cameras again: new ones are added, ones not found are left out until they're back"><svg><use href="#i-refresh"/></svg></button></h3>
       <nav id="cameras" aria-label="Cameras"></nav>
     </section>
   </aside>

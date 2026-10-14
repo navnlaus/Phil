@@ -1975,14 +1975,30 @@ async function openCamera(c) {
   openInApp("camview", { camera: c.id });
 }
 
+// Looks for cameras now (the refresh button by "Cameras", or the menu): new
+// ones are added, and ones not found are left out until they're back.
+async function lookForCameras() {
+  const button = $("#btn-cameras-refresh");
+  if (button.classList.contains("busy")) return;
+  button.classList.add("busy");
+  flashStatus("Looking for cameras on the network…", 30_000);
+  const before = new Set(state.cameras.map((c) => c.id));
+  try {
+    const list = await api("/api/cameras?look=now");
+    state.cameras = list;
+    renderCameras();
+    const added = list.filter((c) => !before.has(c.id)).length, gone = [...before].filter((id) => !list.some((c) => c.id === id)).length;
+    flashStatus(`${list.length} camera${list.length === 1 ? "" : "s"}` + (added ? `, ${added} new` : "") + (gone ? `, ${gone} not found` : ""));
+  } catch {
+    flashStatus("Couldn't look for cameras");
+  } finally {
+    button.classList.remove("busy");
+  }
+}
+$("#btn-cameras-refresh").onclick = lookForCameras;
+
 const cameraMenuItems = () => [
-  ["Look for cameras", async () => {
-    flashStatus("Looking for cameras on the network…", 30_000);
-    await loadCameras().catch(() => {});
-    const list = await api("/api/cameras?look=now").catch(() => null);
-    if (list) (state.cameras = list), renderCameras();
-    flashStatus(list ? `${list.length} camera${list.length === 1 ? "" : "s"}` : "Couldn't look for cameras");
-  }],
+  ["Look for cameras", lookForCameras],
   ["Add camera…", addCamera],
 ];
 
