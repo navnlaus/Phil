@@ -362,6 +362,20 @@ export async function rtspUrl(id, token = null) {
   return uri.href;
 }
 
+/**
+ * A camera's profile's HLS stream, for the page to play itself (hls.js, as a
+ * browser does: smooth, where ffmpeg's re-packing of 4 s pieces stuttered), or
+ * null: not HLS, or with a login in its URL (which a page can't fetch).
+ */
+export async function hlsUrl(id, token = null) {
+  const c = await get(id);
+  if (c.type !== "rtsp") return null;
+  const stream = (c.streams ?? []).find((s) => s.token === token) ?? c.streams?.[0];
+  if (!stream || !/^https?:/i.test(stream.url)) return null;
+  const url = new URL(await playable(stream.url));
+  return /\.m3u8$/i.test(url.pathname) && !url.username ? url.href : null;
+}
+
 /** The PTZ service and profile token for a camera, and its login: for onvif.move() and the rest. */
 export async function ptzOf(id) {
   const c = await get(id);
