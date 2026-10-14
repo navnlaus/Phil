@@ -283,10 +283,46 @@ function onFolderTotal(path, bytes) {
   if (state.settings.sort === "size") resortSoon();
 }
 
-// Sorted by size, folders move as their totals come in: once they stop for a moment.
+// Sorted by size, folders move as their totals come in: at most once a second
+// (they can come in for a long while, a few at a time), only when the order
+// changed, and gliding to their new places (resort).
 function resortSoon() {
-  clearTimeout(resortSoon.timer);
-  resortSoon.timer = setTimeout(() => (renaming ? resortSoon() : render()), 300); // moving a tile being renamed would end that
+  if (resortSoon.timer) return;
+  resortSoon.timer = setTimeout(() => ((resortSoon.timer = null), renaming ? resortSoon() : resort()), 1000); // moving a tile being renamed would end that
+}
+
+// The tiles in a new order without rebuilding the grid: each gets its place
+// (CSS order), none is taken out of the page (WebKit blanks a text preview's
+// canvas then, which flickered), and those on screen slide there from where
+// they were. Searching (its own order) or anything else changed: render().
+function resort() {
+  if (filterInput.value.trim() || state.view.some((e) => !tiles.has(e.path))) return render();
+  const view = [...state.view];
+  sortEntries(view);
+  if (view.every((e, i) => e === state.view[i])) return; // nothing moved
+  const visible = grid.getBoundingClientRect();
+  const onScreen = (r) => r.bottom > visible.top && r.top < visible.bottom;
+  const before = new Map();
+  for (const e of state.view) {
+    const r = tiles.get(e.path).getBoundingClientRect();
+    if (onScreen(r)) before.set(e.path, r);
+  }
+  const selected = state.view[state.selected]?.path;
+  state.view = view;
+  view.forEach((e, i) => {
+    const tile = tiles.get(e.path);
+    tile.dataset.index = i;
+    tile.style.order = i;
+  });
+  if (selected) state.selected = view.findIndex((e) => e.path === selected);
+  for (const e of view) {
+    const tile = tiles.get(e.path), now = tile.getBoundingClientRect(), was = before.get(e.path);
+    if (!was && !onScreen(now)) continue;
+    // From where it was (or just below the view, coming in), to where it is.
+    const from = was ?? { left: now.left, top: visible.bottom };
+    const dx = from.left - now.left, dy = from.top - now.top;
+    if (dx || dy) tile.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 250, easing: "ease-out" });
+  }
 }
 
 function showThumb(tile, entry) {
@@ -692,6 +728,7 @@ function render(selectPath = state.view[state.selected]?.path) {
     } else {
       tile = makeTile(entry, i);
     }
+    tile.style.order = ""; // in the page's order again (see resort)
     tiles.set(entry.path, tile);
     frag.append(tile);
   });
