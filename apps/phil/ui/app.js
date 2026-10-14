@@ -604,6 +604,7 @@ if (DEBUG_CLICKS) {
 }
 
 function navigate(path) {
+  if (path === loading) return; // clicked again while it opens (a drive waking up)
   const hash = "#" + encodePath(path);
   if (location.hash === hash) load(path);
   else location.hash = hash;
@@ -611,19 +612,35 @@ function navigate(path) {
 
 addEventListener("hashchange", () => load(decodeURIComponent(location.hash.slice(1))));
 
+// The folder being opened, while it's listed (a drive waking up can take seconds),
+// and which load is the newest (an older one finishing later is dropped).
+let loading = null, loads = 0;
+
 async function load(path) {
   if (state.path) scrollPositions.set(state.path, grid.scrollTop);
   const previous = state.path;
   let listing;
   const started = performance.now();
   debug(`load ${path} (showing ${previous})`);
+  // Taken at once: its place in the sidebar lit, and, when it takes a while, a word that it's coming.
+  loading = path;
+  const thisLoad = ++loads;
+  for (const a of $("#places").querySelectorAll("a[data-path]")) a.classList.toggle("active", a.dataset.path === path);
+  let slow = false;
+  const slowTimer = setTimeout(() => ((slow = true), flashStatus(`Opening ${path.split("/").pop() || path}…`, 60_000)), 300);
   try {
     listing = await api(`/api/list?path=${encodeURIComponent(path)}&sort=${state.settings.sort}`);
   } catch (err) {
     debug(`load ${path} failed after ${Math.round(performance.now() - started)} ms: ${err.message}`);
+    if (thisLoad !== loads) return; // another is shown by now
     showGridMessage(`Can't open ${path}: ${err.message}`);
     return;
+  } finally {
+    clearTimeout(slowTimer);
+    if (slow) flashStatus("", 0);
+    if (loading === path) loading = null;
   }
+  if (thisLoad !== loads) return; // another was asked for meanwhile
   debug(`load ${path} listed in ${Math.round(performance.now() - started)} ms (${listing.entries.length} entries)`);
   state.path = listing.path;
   terminal.follow(listing.path);
@@ -2540,6 +2557,16 @@ grid.addEventListener("pointerdown", (e) => {
   addEventListener("pointermove", moveDrag);
   addEventListener("pointerup", endDrag);
   addEventListener("pointercancel", endDrag);
+});
+
+// A click on a place opens it here, not left to the link: WebKit doesn't always
+// follow one (these can be dragged too), and then a click did nothing.
+$("#places").addEventListener("click", (e) => {
+  const a = e.target.closest("a[data-path]");
+  if (!a || e.button !== 0 || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey || e.defaultPrevented) return;
+  e.preventDefault();
+  debug(`opening ${a.dataset.path} (sidebar click)`);
+  navigate(a.dataset.path);
 });
 
 // A place in the sidebar right- or middle-dragged: as a folder tile is (its
