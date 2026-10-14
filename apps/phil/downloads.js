@@ -66,6 +66,7 @@ export function watchDownloads(onChange) {
     try {
       const status = await request({ action: "status" });
       list = (status.downloads ?? []).map(describe).filter((d) => SHOWN.has(d.state));
+      for (const d of list) d.paths = await filesOf(d);
       next = list.some((d) => !RESTING.has(d.state)) ? ACTIVE_MS : IDLE_MS;
     } catch { /* no daemon (not installed, or not running): looked for again later */ }
     asking = false;
@@ -119,6 +120,44 @@ export function watchDownloads(onChange) {
   };
 }
 
+// What a download is writing: its name in its folder, when that's there (a
+// file, or a torrent's folder); otherwise (a torrent whose files land in the
+// folder itself, under their own names) the entries there that appeared since
+// it was added and share most of its name's words. Folders' entries are read
+// again only when they change.
+const listings = new Map(); // folder -> {mtime, entries: [{name, born}]}
+async function filesOf(d) {
+  if (!d.dir) return [];
+  if (d.path && await Deno.lstat(d.path).then(() => true, () => false)) return [d.path];
+  const dirStat = await Deno.stat(d.dir).catch(() => null);
+  if (!dirStat) return [];
+  let listing = listings.get(d.dir);
+  if (listing?.mtime !== dirStat.mtime?.getTime()) {
+    const entries = [];
+    try {
+      for await (const e of Deno.readDir(d.dir)) {
+        const st = await Deno.lstat(join(d.dir, e.name)).catch(() => null);
+        if (st) entries.push({ name: e.name, born: (st.birthtime ?? st.mtime)?.getTime() ?? 0 });
+      }
+    } catch { /* gone */ }
+    listings.set(d.dir, listing = { mtime: dirStat.mtime?.getTime(), entries });
+    if (listings.size > 50) listings.delete(listings.keys().next().value);
+  }
+  const words = wordsOf(d.name);
+  if (!words.size) return [];
+  return listing.entries
+    .filter((e) => e.born >= (d.created - 60) * 1000) // appeared since it was added (a minute's leeway)
+    .filter((e) => {
+      const theirs = wordsOf(e.name);
+      let shared = 0;
+      for (const w of words) if (theirs.has(w)) shared++;
+      return shared / words.size >= 0.6;
+    })
+    .map((e) => join(d.dir, e.name));
+}
+
+const wordsOf = (name) => new Set(name.toLowerCase().replace(/\.[a-z0-9]{2,4}$/, "").split(/[^a-z0-9]+/).filter((w) => w.length > 1));
+
 // panda-dl's record of a download, as phil shows it.
 function describe(d) {
   const state = typeof d.status === "object" && d.status ? Object.keys(d.status)[0] : String(d.status ?? "");
@@ -137,6 +176,7 @@ function describe(d) {
     upSpeed: d.upload_speed ?? 0,
     eta: d.eta_seconds ?? null,
     uploaded: d.uploaded_bytes ?? 0,
+    created: d.created_at ?? 0,
     peers: d.torrent_info?.peers ?? null,
     seeds: d.torrent_info?.seeds ?? null,
   };
