@@ -2328,6 +2328,9 @@ function showCamera(a, c) {
   put(a, "title", [c.model, `${c.host}${c.port === 80 ? "" : `:${c.port}`}`, "Double-click: show it"].filter(Boolean).join("\n"));
 }
 
+// The Cameras heading: every camera, live (camview's wall; Esc comes back).
+$("#btn-cameras").onclick = () => openInApp("camview", { wall: 1 });
+
 async function openCamera(c) {
   if (c.needsLogin && !(await loginCamera(c))) return;
   openInApp("camview", { camera: c.id });

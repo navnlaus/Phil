@@ -441,6 +441,14 @@ function close() {
   stopMove();
   stopPlayer();
   if (document.fullscreenElement) document.exitFullscreen();
+  // Shown from the wall of cameras (wall.js): back to it (the parameters phil gave stay).
+  const url = new URL(location.href);
+  if (url.searchParams.get("from") === "wall") {
+    url.searchParams.delete("camera");
+    url.searchParams.delete("from");
+    url.searchParams.set("wall", "1");
+    return location.replace(url.href);
+  }
   closeWindow();
 }
 

@@ -127,7 +127,7 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 /* The cameras on the network, at the bottom: double-click shows one (camview). */
 #cameras-panel { margin: 14px 4px 0; padding-top: 10px; border-top: 1px solid var(--border); }
 #cameras-panel[hidden] { display: none; }
-#cameras-panel > .heading { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 0 6px; }
+#cameras-panel > .heading { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 0 2px; }
 #btn-cameras-refresh { width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--text-dim); }
 #btn-cameras-refresh:hover { color: var(--text); background: var(--bg-hover); }
 #btn-cameras-refresh svg { width: 14px; height: 14px; margin: 0; }
@@ -244,6 +244,8 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 /* The sidebar's Transfers: a name over a bar for each; a click shows where it goes. */
 #transfers-panel { margin: 14px 4px 0; padding-top: 10px; border-top: 1px solid var(--border); }
 #transfers-panel > .heading { padding: 0 2px; }
+#btn-cameras { flex: 1; height: auto; padding: 3px 4px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
+#btn-cameras:hover { background: var(--bg-hover); color: var(--text); }
 #btn-transfers { width: 100%; height: auto; padding: 3px 4px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
 #btn-transfers:hover, #btn-transfers[aria-pressed="true"] { background: var(--bg-hover); color: var(--text); }
 #transfers { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
