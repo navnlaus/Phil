@@ -327,6 +327,31 @@ better than text about nothing does. Names of people and such won't be
 recognized (that's another kind of model). Properties shows what
 auto-tagging found next to the tags given by hand.
 
+### Media
+
+Mark a folder as a media folder (its Properties: "A media folder"), on any
+drive, and the sidebar's Media shows the movies and TV shows in all of them in
+one place, over the folder: posters (a frame of each video), titles, years,
+IMDb ratings and votes, runtimes, genres and quality, sorted by when they were
+added, rating, year or title, by genre, and found by name. A show's seasons
+list every episode, with its title and rating, the ones that are there and
+the ones that aren't; what videoplayer played to the end is marked watched,
+what it stopped in started. Two copies of a movie are one movie. Click one for
+its files: play it (videoplayer), or show it in its folder. A drive that isn't
+plugged in keeps its titles, greyed out, as they were when it was last there.
+
+What a video is comes from its name, the way they're usually named ("Bugonia
+(2025) [1080p] [WEBRip]", a folder or the file; "Bering.Sea.Gold.S19E10.1080p",
+an episode; a season's folder, for files that don't say their show), matched
+with [IMDb's datasets](https://developer.imdb.com/non-commercial-datasets/)
+(for personal, non-commercial use) on this computer: downloaded when you ask
+(the Media view's "Download them"; about 290 MB, then a 900 MB database in
+`~/.cache/phil/imdb`, the downloads deleted; "Update" fetches them again when
+IMDb has newer ones), so what's in your library never leaves it. Matches it
+isn't sure of are marked ?, those it couldn't find !; any can be put right in
+its details (find the title, pick it; or "Not a movie or show"), and that's kept
+for every file named so (`~/.local/state/phil/media.json`).
+
 ### PDFs
 
 PDFs get a thumbnail of their first page, cropped from the top so the title
@@ -458,6 +483,8 @@ apps/phil/          launch.js (options, window URL), server.js (listing, files,
                     (FileManager1), shell-init.bash, ui/ (ui/vendor: xterm.js 6, MIT; Lucide's icons, ISC; Day.js, MIT, for "5 minutes ago")
 apps/jsonedit/      launch.js, server.js, ui/ (json.js: a parser that keeps positions)
 apps/textedit/      launch.js, server.js, ui/ (markdown.js: Markdown to HTML and back)
+apps/phil/media.js, imdb.js, imdb-build.js
+                    the Media view: names to titles, IMDb's datasets as an SQLite database
 apps/phil/tagging.js, tagging/
                     auto-tagging: tagger.py (the Python helper: SigLIP 2, EmbeddingGemma 2),
                     tags.txt and document-tags.txt (phil's lists)
