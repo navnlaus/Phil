@@ -159,7 +159,9 @@ after changing the code.
   ("+2" when there are more), all of them with speed and time left in its
   tooltip; a click opens where the first one goes in phil. phil keeps them in
   `$XDG_RUNTIME_DIR/phil/progress.json` (not incognito windows'); the widget
-  hides them when that's more than 15 seconds old, phil being gone.
+  hides them when that's more than 15 seconds old, phil being gone. panda-dl's
+  downloads under way (torrents too) are there as well ("󰇚 name 45%"), with no
+  phil window open too (phil asks panda-dl every few seconds for it).
 - `jsonedit.desktop` and `textedit.desktop`, made the default apps for JSON and
   for text files (plain text, Markdown, scripts, code, configs, logs; not HTML
   or XML), so they open from browsers' download lists, `xdg-open` and file

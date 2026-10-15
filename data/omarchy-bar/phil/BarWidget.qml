@@ -3,7 +3,8 @@ import Quickshell
 import Quickshell.Io
 import qs.Ui
 
-// phil's copies, moves and deletes that have taken more than 10 seconds:
+// phil's copies, moves and deletes, and panda-dl's downloads (torrents), that
+// have taken more than 10 seconds:
 // "󰆏 Top Gear 45%" with a thin bar under it, the first one's ("+2": more of
 // them); the tooltip lists them all. A click opens where the first one goes
 // in phil. From what phil writes ($XDG_RUNTIME_DIR/phil/progress.json, see
@@ -58,7 +59,13 @@ BarWidget {
     return (i && n < 10 ? n.toFixed(1) : Math.round(n)) + " " + units[i]
   }
   function icon(j) {
-    return j.op === "delete" ? "󰆴" : j.op === "move" ? "󰪹" : "󰆏"
+    return j.op === "download" ? "󰇚" : j.op === "delete" ? "󰆴" : j.op === "move" ? "󰪹" : "󰆏"
+  }
+  function duration(s) {
+    if (s < 60) return Math.round(s) + " s"
+    if (s < 3600) return Math.round(s / 60) + " min"
+    const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60)
+    return m ? h + " h " + m + " min" : h + " h"
   }
   function short(name) {
     return name.length > 22 ? name.slice(0, 21) + "…" : name
@@ -67,13 +74,13 @@ BarWidget {
     return j.items > 1 ? "“" + j.name + "” and " + (j.items - 1) + " more" : "“" + j.name + "”"
   }
   function line(j) {
-    const verb = j.op === "delete" ? "Deleting" : j.op === "move" ? "Moving" : "Copying"
-    const where = j.op === "delete" ? "" : " to " + (j.dest.split("/").pop() || "/")
+    const verb = j.op === "download" ? "Downloading" : j.op === "delete" ? "Deleting" : j.op === "move" ? "Moving" : "Copying"
+    const where = j.op === "delete" ? "" : (j.op === "download" ? " into " : " to ") + (j.dest.split("/").pop() || "/")
     if (j.counting) return verb + " " + what(j) + ": counting (" + j.found.toLocaleString() + " so far)"
     const amount = j.op === "delete" ? j.bytes.toLocaleString() + " of " + j.total.toLocaleString() + " items"
       : size(j.bytes) + " of " + size(j.total)
     return verb + " " + what(j) + where + ": " + (j.paused ? "paused at " : "") + j.percent + "% (" + amount
-      + (j.speed && !j.paused ? ", " + j.speed + ", " + j.eta + " left" : "") + ")"
+      + (j.speed && !j.paused ? ", " + size(j.speed) + "/s" + (j.eta != null ? ", " + duration(j.eta) + " left" : "") : "") + ")"
   }
   function quote(s) {
     return "'" + s.replace(/'/g, "'\\''") + "'"
