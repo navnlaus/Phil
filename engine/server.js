@@ -90,7 +90,7 @@ function serve(name, apps, { token, quit, tls }) {
     return res;
   });
 
-  function handle(req) {
+  async function handle(req) {
     const url = new URL(req.url);
     // Only answer requests addressed to us (blocks DNS rebinding) that carry the session cookie.
     // (HTTP/2 has no Host header: its address, :authority, is the URL's.)
@@ -108,6 +108,13 @@ function serve(name, apps, { token, quit, tls }) {
       return text(400, "Bad request");
     }
 
+    // A window of the engine's browser (chromium.js): its page's messages, and its address, /<app>.
+    if (req.method === "POST" && url.pathname === "/engine/window") {
+      const { id, message } = await req.json().catch(() => ({}));
+      self.postMessage({ window: { id: String(id ?? ""), message: String(message ?? "") } });
+      return json({ ok: true });
+    }
+    if (req.method === "GET" && (url.pathname === `/${name}` || url.pathname === `/${name}-incognito`)) url.pathname = "/";
     const embed = /^\/engine\/embed\/([\w-]+)(\/.*)$/.exec(url.pathname);
     if (embed && apps[embed[1]]) {
       url.pathname = embed[2];

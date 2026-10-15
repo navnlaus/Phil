@@ -72,6 +72,43 @@ terminals, like phil's).
   development runs don't end up in the installed engine); `--browser` prints a
   URL instead of opening a window.
 
+### Windows in Chromium instead of WebKitGTK
+
+With `"browser": "default"` in `~/.config/phil/settings.json` (or
+`PHIL_BROWSER=default`), the engine's windows open in a Chromium-based browser
+instead: the default browser when it's one (Chrome, Chromium, Brave, Vivaldi,
+Edge, Opera…), otherwise the first of those installed; a browser's name
+(`"chromium"`) or path picks one. Its video and drawing are Blink's: HLS
+cameras that stuttered in WebKitGTK play smoothly. Without one (or with
+`"webkit"`, the default), windows are WebKitGTK's. A newly started engine
+takes the setting (`phil-engine --retire`, or `phil --quit`).
+
+- One browser for all the engine's windows, with a profile of its own
+  (`~/.local/state/phil/browser-<name>`; incognito: a throwaway one), so
+  nothing of your browsing (extensions, Shields, history) is in it. Its program
+  is the one your browsing runs, so its code is in memory once: with Brave
+  running, two phil windows took 443 MB in all (WebKitGTK: 519 MB). Every
+  window's page is in one page process (`--process-per-site`). With no windows
+  for 10 minutes, a background engine closes the browser; the next window
+  starts it again (about half a second).
+- Windows are app windows (no tabs or address bar), handed to the running
+  browser as `<browser> --app=<url>`. The engine drives it over its DevTools
+  protocol on a private pipe (two FIFOs in a folder only you can open, in
+  `$XDG_RUNTIME_DIR`; no port), to see windows come and go, close one, and give
+  it the servers' session cookies (a window's address carries no token). The
+  servers' certificate is trusted by this browser alone, for HTTP/2.
+- A window's class (Wayland app id) is the browser's for an app at that
+  address: `brave-127.0.0.1__phil-Default`, `chrome-127.0.0.1__camview-Default`
+  and so on; window rules for `phil` need that too, e.g.
+  `phil(-incognito)?|.*-127\.0\.0\.1__phil(-incognito)?-Default`.
+- Unlike WebKitGTK's windows: a right- or middle-drag of files out of a window
+  stays in it (a left-drag carries their `file://` URIs as any page's would);
+  files dropped in from other programs come without their paths (Chromium keeps
+  them from pages); the browser's own shortcuts work where phil has none of its
+  own (Ctrl+F finds in the page, Ctrl+P prints).
+- `engine/chromium.js`; the pages talk to the engine through the server
+  (`POST /engine/window`, `engine/ui/kit.js`).
+
 ## Install
 
 ```sh
@@ -290,7 +327,7 @@ empty space → Inspect Element works too.
 
 ## Requirements
 
-`webkit2gtk-4.1`, `deno`, `wl-clipboard`, `libvips` (built with poppler, for PDF thumbnails) (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
+`webkit2gtk-4.1` (or a Chromium-based browser: see [Windows in Chromium](#windows-in-chromium-instead-of-webkitgtk)), `deno`, `wl-clipboard`, `libvips` (built with poppler, for PDF thumbnails) (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
 and GStreamer plugins for in-app video (`gst-plugins-good`, `gst-libav`). `mpv`
 and `xdg-open` are used for "open externally". `udisks2` (`udisksctl`) mounts removable drives from the sidebar; a system drive's mount, like everything phil does as root, goes through `sudo`.
 

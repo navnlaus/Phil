@@ -56,6 +56,21 @@ if (globalThis.EventSource) {
   };
 }
 
+// A window of the engine's browser (engine/chromium.js): its id, from its
+// address (?philWindow=), kept for the tab's life (a page may drop its query;
+// a reload keeps it). Its messages go to the engine through the server.
+const browserWindow = (() => {
+  if (globalThis.webkit?.messageHandlers?.phil || globalThis.parent !== globalThis) return null;
+  try {
+    const id = new URLSearchParams(location.search).get("philWindow") ?? sessionStorage.getItem("philWindow");
+    if (id) sessionStorage.setItem("philWindow", id);
+    return id;
+  } catch {
+    return null;
+  }
+})();
+const toEngine = (message) => fetch("/engine/window", { method: "POST", body: JSON.stringify({ id: browserWindow, message }) }).catch(() => {});
+
 /**
  * The page is styled and running: the engine shows its window
  * (engine/window.js); shown inside another app, that app gives it the keyboard
@@ -63,12 +78,14 @@ if (globalThis.EventSource) {
  */
 export function ready(detail = "") {
   if (embedded) tellParent({ engine: "ready" });
+  else if (browserWindow) toEngine(detail ? `ready:${detail}` : "ready");
   else globalThis.webkit?.messageHandlers?.phil?.postMessage(detail ? `ready:${detail}` : "ready");
 }
 
 /** Closes the window, or the embedded view. */
 export function closeWindow() {
   if (embedded) return tellParent({ engine: "close" });
+  if (browserWindow) return toEngine("close");
   const native = globalThis.webkit?.messageHandlers?.phil; // a window of the engine's own
   if (native) return native.postMessage("close");
   fetch("/api/quit", { method: "POST" }).finally(() => globalThis.close()); // --browser
