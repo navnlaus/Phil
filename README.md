@@ -886,7 +886,11 @@ ones that aren't, watched (✓) and started (◐). With a "Media download search
 engine URL" in phil's Preferences (`mediaSearchUrl`; `%s` where the search
 goes, or it's added at the end), a missing episode has a link that opens it in
 the browser, searching for the show and the episode ("Stranger Things S03E04"). Two copies of a movie are one
-movie. Click one for its details: Play (or Resume, or a show's next episode),
+movie. Downloads into a media folder (panda-dl's torrents and web downloads,
+a browser's) show from the moment they start, matched like the rest (a
+magnet still fetching its metadata, by its name): a ↓ and how far on the title,
+a striped bar, and in its details each file's progress, speed and time left;
+done, it's an ordinary file to play. Click one for its details: Play (or Resume, or a show's next episode),
 its copies (play one, or show it in its folder), its IMDb page; a play button
 on each picture plays it straight away. Videos play in videoplayer, shown in
 mediaview (Esc comes back to it). The tab, the sort and pictures or list are

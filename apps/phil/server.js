@@ -17,6 +17,7 @@ import { FolderTotals } from "./foldertotals.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 import { unfinished, watchDownloads } from "./downloads.js";
 import { watchBrowserDownloads } from "./browserdownloads.js";
+import { feed, setDownloads } from "./downloadfeed.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 const DEFAULT_THEME = "overlay"; // see ~/.config/phil/themes (engine/themes.js)
@@ -173,6 +174,7 @@ export function createServer({ profile, controlSocket }) {
   let pandaWriting = [], browserWriting = []; // files downloads are writing (for thumbs.downloading)
   let barDownloadsChanged = () => {}; // (set with the bar's file, below)
   const browserDownloads = watchBrowserDownloads(async (list) => {
+    setDownloads("browser", list); // (for mediaview's server: downloadfeed.js)
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ browserDownloads: list }));
     browserWriting = list.map((d) => d.path);
     thumbs.downloading([...pandaWriting, ...browserWriting]); // (no thumbnails of them till they're done)
@@ -192,11 +194,17 @@ export function createServer({ profile, controlSocket }) {
     }
   }, { incognito: config.incognito });
   const downloads = watchDownloads((list) => {
+    setDownloads("panda", list); // (for mediaview's server: downloadfeed.js)
     pandaWriting = list.flatMap(unfinished);
     barDownloadsChanged();
     thumbs.downloading([...pandaWriting, ...browserWriting]);
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ downloads: list }));
   });
+  // Others in this worker (mediaview) ask for downloads to be followed while they show them.
+  feed.use = () => {
+    const stops = [downloads.use(), browserDownloads.use()];
+    return () => stops.forEach((stop) => stop());
+  };
   // Copies, moves and deletes under way (and panda-dl's downloads), for the bar (the phil widget for
   // Omarchy's bar, extras/omarchy-bar): $XDG_RUNTIME_DIR/phil/progress.json,
   // {pid, updated, jobs: [{id, op (copy, move, delete, download), name, items,

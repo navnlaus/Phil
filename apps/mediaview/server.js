@@ -5,7 +5,8 @@
 //   GET  /api/media              the movies and shows (library()); ?cached=1: as they were last time, at once
 //   GET  /api/media/status       IMDb's datasets: there, being updated
 //   POST /api/media/update       download them (again) and build the database
-//   GET  /api/media/events       the status as it changes (server-sent events)
+//   GET  /api/media/events       IMDb's status as it changes, and (event "downloads") how far
+//                                each video being downloaded into a media folder is (server-sent events)
 //   GET  /api/media/search?q=    titles, picking one by hand
 //   PUT  /api/media/fix          {key, id}: what the files named so are (an IMDb id; 0: none; null: matched again)
 //   GET  /api/media/poster?path= a video's thumbnail
@@ -23,6 +24,8 @@ import { ask } from "../../engine/instance.js";
 import { serverConfig } from "../phil/launch.js";
 import { Hooks, metadataFile } from "../phil/hooks.js";
 import { Thumbnailer } from "../phil/thumbs.js";
+import { feed } from "../phil/downloadfeed.js";
+import { mediaKind } from "../../engine/media.js";
 import * as imdb from "./imdb.js";
 import { library, loadMatches, prepare, unsavedMatches } from "./media.js";
 
@@ -50,8 +53,9 @@ export function createServer({ profile = {}, controlSocket = null }) {
     if (changed) await writeJson(matchesFile, changed).catch(() => {});
   };
   const listeners = new Set(); // /api/media/events
-  const tell = () => {
-    const line = new TextEncoder().encode(`data: ${JSON.stringify(imdb.status())}\n\n`);
+  let stopFeed = null; // phil's downloads followed while a page listens
+  const tell = (event = null, data = imdb.status()) => {
+    const line = new TextEncoder().encode(`${event ? `event: ${event}\n` : ""}data: ${JSON.stringify(data)}\n\n`);
     for (const c of listeners) {
       try {
         c.enqueue(line);
@@ -60,6 +64,39 @@ export function createServer({ profile = {}, controlSocket = null }) {
       }
     }
   };
+
+  // Videos being downloaded into the media folders (phil's downloads: panda-dl's,
+  // a browser's): [{path, root, progress (0 to 1), total, speed, eta, state, name}].
+  // A torrent's own files as soon as it lists them; before, the download itself (its name).
+  const mediaRoots = async () => Object.entries(await hooks.all()).filter(([, m]) => m?.media === true).map(([p]) => p).sort();
+  function mediaDownloads(roots) {
+    const inRoot = (path) => roots.find((r) => path.startsWith(r + "/"));
+    const out = [];
+    const add = (e) => {
+      const root = inRoot(e.path);
+      if (root) out.push({ ...e, root });
+    };
+    for (const d of feed.panda) {
+      if (d.state === "completed") continue;
+      const common = { speed: d.speed ?? null, eta: d.eta ?? null, state: d.state, name: d.name };
+      const videos = (d.files ?? []).filter((f) => mediaKind(f.path) === "video");
+      if (videos.length) {
+        for (const f of videos) add({ path: f.path, progress: f.length ? f.downloaded / f.length : (d.percent ?? 0) / 100, total: f.length ?? null, ...common });
+      } else if (!d.files?.length || d.state === "metadata") add({ path: d.path ?? join(d.dir, d.name), progress: (d.percent ?? 0) / 100, total: d.total ?? null, ...common });
+    }
+    for (const w of feed.browser) {
+      if (mediaKind(w.target) !== "video") continue;
+      add({ path: w.target, progress: (w.percent ?? 0) / 100, total: w.total ?? null, speed: w.speed ?? null, eta: w.eta ?? null, state: w.state, name: w.name });
+    }
+    return out;
+  }
+  // The page's bars, as the downloads go (phil's lists change: every second or so while they do).
+  const tellDownloads = async () => {
+    if (!listeners.size) return;
+    const items = mediaDownloads(await mediaRoots()).map(({ path, progress, speed, eta, state }) => ({ path, progress, speed, eta, state }));
+    tell("downloads", { items });
+  };
+  feed.addEventListener("change", () => tellDownloads().catch(() => {}));
 
   const readState = async () => {
     const state = await Deno.readTextFile(stateFile).then(JSON.parse, () => ({}));
@@ -109,17 +146,17 @@ export function createServer({ profile = {}, controlSocket = null }) {
   // far each video was watched (videoplayer's positions), and what was in the
   // ones not there now (a drive unplugged) when they were last seen.
   async function mediaLibrary() {
-    const meta = await hooks.all();
-    const roots = Object.entries(meta).filter(([, m]) => m?.media === true).map(([p]) => p).sort();
+    const roots = await mediaRoots();
     const state = await readState();
     const watched = await Deno.readTextFile(positionsFile).then(JSON.parse, () => ({}));
     await matchesLoaded;
-    const lib = await library(roots, { fixes: state.fixes, watched, remembered: state.remembered });
+    const downloads = mediaDownloads(roots);
+    const lib = await library(roots, { fixes: state.fixes, watched, remembered: state.remembered, downloads });
     await saveMatches();
     const remembered = Object.fromEntries(roots.map((r) => [r, lib.scanned[r] ?? state.remembered[r]]).filter(([, files]) => files));
     if (JSON.stringify(remembered) !== JSON.stringify(state.remembered)) await saveState({ ...state, remembered });
     delete lib.scanned;
-    const out = { roots: roots.map((path) => ({ path, online: lib.online[path] })), ...lib };
+    const out = { roots: roots.map((path) => ({ path, online: lib.online[path] })), ...lib, downloads: downloads.map((d) => d.path) };
     writeJson(lastFile, out).catch(() => {});
     return { imdb: imdb.status(), ...out };
   }
@@ -141,8 +178,15 @@ export function createServer({ profile = {}, controlSocket = null }) {
         case "GET /api/media/events": {
           let me;
           const body = new ReadableStream({
-            start: (c) => void listeners.add(me = c),
-            cancel: () => void listeners.delete(me),
+            start: (c) => {
+              listeners.add(me = c);
+              stopFeed ??= feed.use();
+              tellDownloads().catch(() => {});
+            },
+            cancel: () => {
+              listeners.delete(me);
+              if (!listeners.size) stopFeed?.(), (stopFeed = null);
+            },
           });
           return new Response(body, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
         }

@@ -199,9 +199,12 @@ export async function prepare(root, { poster, onProgress = () => {} } = {}) {
  * `watched` (path -> {t, at}, videoplayer's positions: t null when watched to
  * the end) says how far each was watched, and when. Roots not there now (a drive
  * unplugged) come from `remembered` (root -> its files when last seen). One
- * inside another is that one's (scanned with it, its files once).
+ * inside another is that one's (scanned with it, its files once). `downloads`
+ * ([{path, root, progress, total, speed, eta, state}]): videos being downloaded
+ * into them, there yet or not, matched from the start like any (their files'
+ * `downloading`).
  */
-export async function library(roots, { fixes = {}, watched = {}, remembered = {} } = {}) {
+export async function library(roots, { fixes = {}, watched = {}, remembered = {}, downloads = [] } = {}) {
   const files = [], online = {};
   const outer = (r) => roots.find((o) => o !== r && r.startsWith(o + "/"));
   for (const root of roots) {
@@ -215,7 +218,18 @@ export async function library(roots, { fixes = {}, watched = {}, remembered = {}
     while (outer(o)) o = outer(o);
     online[root] = online[o];
   }
-  const scanned = Object.fromEntries(roots.filter((r) => online[r] && !outer(r)).map((r) => [r, files.filter((f) => f.root === r).map(({ path, size, mtime }) => ({ path, size, mtime }))]));
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  for (const dl of downloads) {
+    const being = { progress: dl.progress, total: dl.total, speed: dl.speed, eta: dl.eta, state: dl.state };
+    const f = byPath.get(dl.path);
+    if (f) f.downloading = being; // (a torrent writes its files where they go: found already)
+    else if (online[dl.root]) {
+      const nf = { path: dl.path, size: dl.total ?? 0, mtime: Date.now(), root: dl.root, offline: false, downloading: being, notYet: true };
+      files.push(nf);
+      byPath.set(dl.path, nf);
+    }
+  }
+  const scanned = Object.fromEntries(roots.filter((r) => online[r] && !outer(r)).map((r) => [r, files.filter((f) => f.root === r && !f.notYet).map(({ path, size, mtime }) => ({ path, size, mtime }))]));
 
   const movies = new Map(), shows = new Map(), cache = new Map();
   for (const f of files) {
@@ -228,7 +242,7 @@ export async function library(roots, { fixes = {}, watched = {}, remembered = {}
     }
     const m = cache.get(key);
     const pos = watched[f.path];
-    const file = { path: f.path, size: f.size, mtime: f.mtime, quality: d.quality, source: d.source, offline: f.offline, watched: pos ? (pos.t === null ? "done" : pos.t) : null, watchedAt: pos?.at ?? null };
+    const file = { path: f.path, size: f.size, mtime: f.mtime, quality: d.quality, source: d.source, offline: f.offline, watched: pos ? (pos.t === null ? "done" : pos.t) : null, watchedAt: pos?.at ?? null, downloading: f.downloading ?? null };
     if (d.kind === "movie") {
       const id = m ? `tt${m.title.id}` : key;
       if (!movies.has(id)) movies.set(id, { key, ...(m ? info(m) : { title: d.title, year: d.year }), match: m ? (m.sure ? "sure" : "guess") : "none", parsed: { title: d.title, year: d.year }, files: [] });
