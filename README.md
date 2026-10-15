@@ -480,7 +480,7 @@ apps/imageview/     launch.js, server.js, ui/
 apps/videoplayer/   launch.js, server.js (ffprobe, ffmpeg), ui/
 apps/imageresize/   launch.js, server.js (vips), ui/
 apps/mediaview/     launch.js, server.js, ui/; media.js (names to titles), imdb.js and
-                    imdb-build.js (IMDb's datasets as an SQLite database)
+                    imdb-build.js (IMDb's datasets as an SQLite database), store.js (its own)
 engine/media.js     media kinds by name, a folder's images or videos, vips previews of images WebKit can't show
 engine/files.js     reading and saving files for the editors
 data/, scripts/install.sh  desktop entries, D-Bus service file, installer
@@ -909,7 +909,9 @@ with [IMDb's datasets](https://developer.imdb.com/non-commercial-datasets/)
 IMDb has newer ones), so what's in your library never leaves it. Matches it
 isn't sure of are marked ?, those it couldn't find !; any can be put right in
 its details (find the title, pick it; or "Not a movie or show"), and that's kept
-for every file named so (`~/.local/state/phil/media.json`).
+for every file named so. mediaview keeps that, what was in the media folders
+when last seen, the titles matched and the library as last shown in an SQLite
+database, `~/.local/state/phil/media.sqlite`.
 
 ## camview
 

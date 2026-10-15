@@ -17,8 +17,8 @@
 //                                progress as lines of JSON ({phase, done, total, title}), then {finished, total} or {error}
 //   POST /api/media/forget       {path}: a media folder not there now (moved outside phil, or gone) no longer one
 //
-// Incognito (the engine's profile): fixes and what's remembered of unplugged
-// drives aren't written, and thumbnails are made in memory.
+// mediaview's own data is in an SQLite database (store.js). Incognito (the
+// engine's profile): it's read but not written, and thumbnails are made in memory.
 import { basename, dirname, join } from "@std/path";
 import { httpError, json, serveFile, text } from "../../engine/http.js";
 import { ask } from "../../engine/instance.js";
@@ -29,6 +29,7 @@ import { feed } from "../phil/downloadfeed.js";
 import { mediaKind } from "../../engine/media.js";
 import * as imdb from "./imdb.js";
 import { library, loadMatches, prepare, seasonEpisodes, unsavedMatches } from "./media.js";
+import { Store } from "./store.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 
@@ -36,22 +37,13 @@ export function createServer({ profile = {}, controlSocket = null }) {
   const config = serverConfig(profile);
   const thumbs = new Thumbnailer(config);
   const hooks = new Hooks(metadataFile(config.settingsFile), { persist: !config.incognito }); // (phil's: a folder's Properties)
-  const stateFile = join(dirname(config.stateFile), "media.json");
   const positionsFile = join(dirname(config.stateFile), "videoplayer-positions.json");
-  // Titles matched (media.js), and the library as it was last shown (opened again, it shows at once).
-  const matchesFile = join(dirname(config.stateFile), "media-matches.json");
-  const lastFile = join(dirname(config.stateFile), "media-library.json");
-  const matchesLoaded = Deno.readTextFile(matchesFile).then((t) => loadMatches(JSON.parse(t)), () => {});
-  const writeJson = async (file, data) => {
-    if (config.incognito) return;
-    await Deno.mkdir(dirname(file), { recursive: true });
-    const tmp = `${file}.${crypto.randomUUID().slice(0, 8)}.tmp`;
-    await Deno.writeTextFile(tmp, JSON.stringify(data));
-    await Deno.rename(tmp, file);
-  };
-  const saveMatches = async () => {
+  // Fixes, the media folders' files when last seen, titles matched, the library as last shown (store.js).
+  const store = new Store(join(dirname(config.stateFile), "media.sqlite"), { write: !config.incognito });
+  loadMatches(store.matches());
+  const saveMatches = () => {
     const changed = unsavedMatches();
-    if (changed) await writeJson(matchesFile, changed).catch(() => {});
+    if (changed) store.saveMatches(changed);
   };
   const listeners = new Set(); // /api/media/events
   let stopFeed = null; // phil's downloads followed while a page listens
@@ -99,12 +91,6 @@ export function createServer({ profile = {}, controlSocket = null }) {
   };
   feed.addEventListener("change", () => tellDownloads().catch(() => {}));
 
-  const readState = async () => {
-    const state = await Deno.readTextFile(stateFile).then(JSON.parse, () => ({}));
-    return { fixes: state.fixes ?? {}, remembered: state.remembered ?? {} };
-  };
-  const saveState = (state) => writeJson(stateFile, state);
-
   // Folders being made ready (prepare()): root -> {progress, listeners}. Asked
   // again while it is (another window), the same one is followed.
   const preparing = new Map();
@@ -127,12 +113,9 @@ export function createServer({ profile = {}, controlSocket = null }) {
     };
     (async () => {
       try {
-        await matchesLoaded;
         const files = await prepare(root, { poster: (path) => thumbs.get(path), onProgress: (p) => send(p) });
-        await saveMatches();
-        const state = await readState();
-        state.remembered[root] = files;
-        await saveState(state);
+        saveMatches();
+        store.remember(root, files);
         send({ finished: true, total: job.progress?.total ?? 0 }, true);
       } catch (err) {
         send({ error: err.message }, true);
@@ -148,17 +131,16 @@ export function createServer({ profile = {}, controlSocket = null }) {
   // ones not there now (a drive unplugged) when they were last seen.
   async function mediaLibrary() {
     const roots = await mediaRoots();
-    const state = await readState();
     const watched = await Deno.readTextFile(positionsFile).then(JSON.parse, () => ({}));
-    await matchesLoaded;
     const downloads = mediaDownloads(roots);
-    const lib = await library(roots, { fixes: state.fixes, watched, remembered: state.remembered, downloads });
-    await saveMatches();
-    const remembered = Object.fromEntries(roots.map((r) => [r, lib.scanned[r] ?? state.remembered[r]]).filter(([, files]) => files));
-    if (JSON.stringify(remembered) !== JSON.stringify(state.remembered)) await saveState({ ...state, remembered });
+    const remembered = store.remembered();
+    const lib = await library(roots, { fixes: store.fixes(), watched, remembered, downloads });
+    saveMatches();
+    for (const [root, files] of Object.entries(lib.scanned)) store.remember(root, files);
+    for (const root of Object.keys(remembered)) if (!roots.includes(root)) store.forget(root); // (no longer a media folder, or inside one)
     delete lib.scanned;
     const out = { roots: roots.map((path) => ({ path, online: lib.online[path] })), ...lib, downloads: downloads.map((d) => d.path) };
-    writeJson(lastFile, out).catch(() => {});
+    store.setLast(out);
     return { imdb: imdb.status(), ...out };
   }
 
@@ -166,7 +148,7 @@ export function createServer({ profile = {}, controlSocket = null }) {
     async handle(req, url) {
       switch (`${req.method} ${url.pathname}`) {
         case "GET /api/media": { // (and where a missing episode's link searches: phil's Preferences, mediaSearchUrl)
-          const last = url.searchParams.get("cached") === "1" ? await Deno.readTextFile(lastFile).then(JSON.parse, () => null) : null;
+          const last = url.searchParams.get("cached") === "1" ? store.last() : null;
           const settings = await Deno.readTextFile(config.settingsFile).then(JSON.parse, () => ({}));
           const searchUrl = /^https?:\/\/\S+$/.test(settings.mediaSearchUrl ?? "") ? settings.mediaSearchUrl : null;
           return json({ ...(last ? { imdb: imdb.status(), cached: true, ...last } : await mediaLibrary()), searchUrl });
@@ -201,11 +183,8 @@ export function createServer({ profile = {}, controlSocket = null }) {
         case "PUT /api/media/fix": {
           const { key, id } = await req.json();
           if (typeof key !== "string" || !/^(movie|show)\|/.test(key)) throw httpError(400, "A key, from the library");
-          const state = await readState();
-          if (id === null) delete state.fixes[key];
-          else if (id === 0 || (Number.isInteger(id) && imdb.title(id))) state.fixes[key] = id;
-          else throw httpError(404, "No such title");
-          await saveState(state);
+          if (id !== null && id !== 0 && !(Number.isInteger(id) && imdb.title(id))) throw httpError(404, "No such title");
+          store.setFix(key, id);
           return json({ ok: true });
         }
         case "GET /api/media/poster": {
@@ -239,9 +218,7 @@ export function createServer({ profile = {}, controlSocket = null }) {
           const path = absolute((await req.json()).path);
           if ((await hooks.get(path)).media !== true) throw httpError(404, "Not a media folder");
           await hooks.set(path, { media: "" });
-          const state = await readState();
-          delete state.remembered[path];
-          await saveState(state);
+          store.forget(path);
           return json({ ok: true });
         }
         case "POST /api/show": { // on its own (not inside phil): a phil window, through the engine
