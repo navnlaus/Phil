@@ -44,6 +44,10 @@ const KNOWN = [
   "chromium", "google-chrome-stable", "google-chrome", "brave", "brave-browser", "brave-browser-stable",
   "vivaldi-stable", "vivaldi", "microsoft-edge-stable", "microsoft-edge", "thorium-browser", "opera", "chromium-browser",
 ];
+// Whether process `pid` is running. (kill -0, not /proc/<pid>: Deno refuses that without
+// every permission, and the engine hasn't them: it would seem never to be.)
+const alive = (pid) => new Deno.Command("kill", { args: ["-0", String(pid)], stdin: "null", stdout: "null", stderr: "null" }).output().then((o) => o.success, () => false);
+
 const CHROMIUM_LIKE = /chrom|brave|vivaldi|edge|opera|thorium|yandex|cromite|helium/i;
 
 /**
@@ -110,7 +114,8 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
   const runtime = Deno.env.get("XDG_RUNTIME_DIR") || "/tmp";
   const stateHome = Deno.env.get("XDG_STATE_HOME") || join(Deno.env.get("HOME") ?? "/", ".local/state");
   const pipeDir = join(runtime, `phil-browser-${Deno.pid}`);
-  const profile = ephemeral ? join(pipeDir, "profile") : join(stateHome, "phil", `browser-${basename(browser)}`);
+  const ownProfile = ephemeral ? join(pipeDir, "profile") : join(stateHome, "phil", `browser-${basename(browser)}`);
+  let profile = ownProfile, borrowed = false; // borrowed: a profile of this engine's alone (see start())
   const ports = new Set(); // the servers' (their certificate errors let through)
   let session = null; // {send, close}: the browser running, over its pipe, once set up
   let link = null; // the same, from its start (for its events)
@@ -127,6 +132,14 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
     starting ??= (async () => {
       await Deno.mkdir(pipeDir, { recursive: true, mode: 0o700 });
       await Deno.chmod(pipeDir, 0o700);
+      // The profile in use by another engine's browser (one retired, its windows still open; or
+      // one started at the same moment): this one would hand its windows to that one, which
+      // doesn't accept this engine's certificate. Then a profile of its own, for this run.
+      profile = ownProfile, borrowed = false;
+      if (!ephemeral && await inUse(ownProfile)) {
+        profile = join(pipeDir, "profile"), borrowed = true;
+        trace("profile in use by another browser: a temporary one");
+      }
       await Deno.mkdir(profile, { recursive: true, mode: 0o700 }).catch(() => {});
       const fin = join(pipeDir, "in"), fout = join(pipeDir, "out");
       for (const f of [fin, fout]) {
@@ -164,6 +177,13 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
       return s;
     })().finally(() => (starting = null));
     return starting;
+  }
+
+  // Whether a running browser has `dir` (its SingletonLock: "<host>-<pid>", that pid alive).
+  async function inUse(dir) {
+    const lock = await Deno.readLink(join(dir, "SingletonLock")).catch(() => null);
+    const pid = /-(\d+)$/.exec(lock ?? "")?.[1];
+    return !!pid && await alive(pid);
   }
 
   // The DevTools protocol over the pipe: JSON messages, each ended by a NUL.
@@ -257,7 +277,7 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
       await s.send("Browser.close");
       await Promise.race([s.exited, new Promise((r) => setTimeout(r, 5000))]); // done with its profile
     }
-    if (ephemeral) await Deno.remove(profile, { recursive: true }).catch(() => {});
+    if (ephemeral || borrowed) await Deno.remove(profile, { recursive: true }).catch(() => {});
     await Deno.remove(pipeDir, { recursive: true }).catch(() => {});
     finish();
   }
@@ -268,7 +288,7 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
   (async () => {
     for await (const e of Deno.readDir(runtime)) {
       const pid = /^phil-browser-(\d+)$/.exec(e.name)?.[1];
-      if (pid && pid !== String(Deno.pid) && !(await Deno.stat(`/proc/${pid}`).then(() => true, () => false))) {
+      if (pid && pid !== String(Deno.pid) && !(await alive(pid))) {
         await Deno.remove(join(runtime, e.name), { recursive: true }).catch(() => {});
       }
     }
