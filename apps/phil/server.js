@@ -169,8 +169,11 @@ export function createServer({ profile, controlSocket }) {
   // 123456.crdownload"), gets the download's name as its description (not over one given
   // by hand), taken off again when it's done.
   const describedPartials = new Map(); // partial file -> the description given it
+  let pandaWriting = [], browserWriting = []; // files downloads are writing (for thumbs.downloading)
   const browserDownloads = watchBrowserDownloads(async (list) => {
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ browserDownloads: list }));
+    browserWriting = list.map((d) => d.path);
+    thumbs.downloading([...pandaWriting, ...browserWriting]); // (no thumbnails of them till they're done)
     const now = new Map(list.filter((d) => !basename(d.path).startsWith(d.name)).map((d) => [d.path, d.name]));
     for (const [path, name] of now) {
       if (describedPartials.get(path) === name) continue;
@@ -187,7 +190,8 @@ export function createServer({ profile, controlSocket }) {
     }
   });
   const downloads = watchDownloads((list) => {
-    thumbs.downloading(list.flatMap(unfinished));
+    pandaWriting = list.flatMap(unfinished);
+    thumbs.downloading([...pandaWriting, ...browserWriting]);
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ downloads: list }));
   });
   // Copies, moves and deletes under way, for the bar (the phil widget for
@@ -738,6 +742,7 @@ export function createServer({ profile, controlSocket }) {
   // another program. Returns the watcher, or reuses `old` when it already
   // watches the same folders (the page asks again after every refresh, so
   // new subfolders get watched).
+  const MODIFIED_MS = 5000; // a file only growing: told this often, at most (see watchFolder)
   async function watchFolder(dir, old, send) {
     const subfolders = [];
     try {
@@ -762,7 +767,10 @@ export function createServer({ profile, controlSocket }) {
       }
     }
     const watched = new Set(subfolders);
-    let changed = false, timer = null;
+    // Told within half a second of a file coming, going or renamed; a file only
+    // growing (a download writing it) every few seconds, not every half second
+    // (each time, the window reads the folder again).
+    let changed = false, timer = null, timerQuick = false;
     const folders = new Set();
     const flush = () => {
       timer = null;
@@ -779,7 +787,12 @@ export function createServer({ profile, controlSocket }) {
           if (path === dir || parent === dir) changed = true;
           else if (watched.has(parent) && !basename(path).startsWith(".")) folders.add(parent);
         }
-        if ((changed || folders.size) && !timer) timer = setTimeout(flush, 500);
+        if (!changed && !folders.size) continue;
+        const quick = event.kind !== "modify";
+        if (timer && (timerQuick || !quick)) continue;
+        clearTimeout(timer);
+        timer = setTimeout(flush, quick ? 500 : MODIFIED_MS);
+        timerQuick = quick;
       }
     })().catch(() => {});
     return { key, close: () => (clearTimeout(timer), fsWatcher.close()) };
