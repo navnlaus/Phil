@@ -12,7 +12,7 @@ Developed and tested on Omarchy, the install scripts assumes a similar setup.
 | | |
 |---|---|
 | ![The filter box finding pictures by what they show](docs/screenshots/search.webp) | ![Home folder: each folder's tile previews its first files, photos, code and documents alike](docs/screenshots/home.webp) |
-| Search by description: "mountains reflected in a lake" (auto-tagging, SigLIP 2) | Folders preview what's in them, and their most common tags |
+| Search by description: "mountains reflected in a lake" (auto-tagging: SigLIP 2, EmbeddingGemma 2 for documents) | Folders preview what's in them, and their most common tags |
 | ![Documents with text tiles, and the terminal panel following the folder](docs/screenshots/terminal.webp) | ![textedit showing Markdown as it reads, editable](docs/screenshots/markdown.webp) |
 | The terminal panel follows the folder you're in, and the other way round | Markdown, edited as it reads (textedit) |
 | ![textedit with syntax highlighting](docs/screenshots/code.webp) | ![imageresize cropping a photo to an ultrawide wallpaper](docs/screenshots/resize.webp) |
@@ -280,33 +280,52 @@ the details, and a folder's tile its most common ones. Tags come two ways:
 - **By hand**: select pictures (or any files), right-click → "Add tags…", or
   edit a file's tags in Properties. They're kept with its description (and
   follow it when phil renames or moves it).
-- **Auto-tagging** (optional, per folder): in a folder's Properties, tick "Tag
-  the pictures in it automatically, and make them findable by what they show"
-  (for the folder you're in, right-click its name in the path at the top). phil
-  then tags its pictures (and videos) with
-  [SigLIP 2](https://huggingface.co/google/siglip2-base-patch16-224), on this
-  computer, whenever it shows the folder, and the filter box finds them by
-  description as well as by name: "foggy forest", "stars at night". Keywords
-  and a description saved in the files themselves (EXIF, XMP, IPTC) show too:
-  the keywords as tags, the description on the tile when phil has none.
+- **Auto-tagging** (optional): in a folder's Properties, tick "Tag the
+  pictures and documents in it automatically…" (for the folder you're in,
+  right-click its name in the path at the top), or tag every folder opened
+  (Preferences, the gear). phil then tags its pictures (and videos) with
+  [SigLIP 2](https://huggingface.co/google/siglip2-base-patch16-224) and its
+  text and Markdown files with
+  [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2) (its text
+  part), on this computer, whenever it shows the folder, and the filter box
+  finds them by description as well as by name: "foggy forest", "stars at
+  night", "groceries", "why not NixOS". Keywords and a description saved in
+  pictures themselves (EXIF, XMP, IPTC) show too: the keywords as tags, the
+  description on the tile when phil has none. Preferences turns pictures and
+  documents on and off separately (every folder opened, or not, follows that).
 
-  Set it up once with `scripts/install-tagging.sh`: a Python environment in
-  `~/.local/share/phil/tagging` (it picks the PyTorch that works with your GPU,
-  down to the GTX 10 series, or the CPU's) and the model: about 8 GB with
-  PyTorch for an NVIDIA GPU, much less for the CPU. A Python helper does the
-  work, started when there's tagging to do and gone when idle. A picture is
-  looked at once and remembered (its embedding, next to the thumbnails), so
-  coming back to a folder is instant; on a GTX 1080 Ti new pictures take a few
-  seconds a folder, most of it reading the files.
+  Set it up once with `scripts/install-tagging.sh` (`--documents` for text and
+  Markdown files too): a Python environment in `~/.local/share/phil/tagging`
+  (it picks the PyTorch that works with your GPU, down to the GTX 10 series,
+  or the CPU's) and the models: about 8 GB with PyTorch for an NVIDIA GPU
+  (EmbeddingGemma 2 another 1.5 GB), much less for the CPU. A Python helper
+  does the work, offline, started when there's tagging to do and gone when
+  idle; each model is loaded only once it's needed. A file is looked at once
+  and remembered (its embedding, next to the thumbnails), so coming back to a
+  folder is instant; on a GTX 1080 Ti new pictures take a few seconds a
+  folder, most of it reading the files, and documents (the first 2,048 tokens
+  of each) are quicker.
 
-Auto-tagging picks from a list: phil's (`apps/phil/tagging/tags.txt`, about
-130 everyday ones: mountains, beach, city, night sky, document,
-screenshot...) and yours, `~/.config/phil/tags.txt`, which tags added by hand
-join, so it looks for them in other pictures too. A picture gets up to five,
-those it's at least 5% sure of. Searching shows what it's at least 1% sure
-of, best first (what's really there scores far above that). Names of people
-and such won't be recognized (that's another kind of model). Properties shows
-what auto-tagging found next to the tags given by hand.
+Auto-tagging picks from two lists, both edited in Preferences. Pictures':
+phil's (`apps/phil/tagging/tags.txt`, about 250 everyday ones: mountains,
+beach, city, night sky, receipt, screenshot...) plus `~/.config/phil/tags.txt`
+(tags added by hand join it, so it looks for them in other pictures too), or,
+once edited, the whole of `~/.config/phil/picture-tags.txt`. Documents': phil's
+(`apps/phil/tagging/document-tags.txt`, about 200: what kind of text it is,
+such as notes, recipe, invoice, meeting notes or readme, and what it's about,
+such as budget, travel, health or programming), or
+`~/.config/phil/document-tags.txt`. One tag per line; lines starting with `#`
+are left out. "phil's list" goes back to phil's.
+
+A picture gets up to five tags, those it's at least 5% sure of. Searching
+shows what it's at least 1% sure of, best first (what's really there scores
+far above that). A document gets up to five, those that fit it far better
+than the rest of the list do (two standard deviations above the list's mean,
+after taking off how well each fits text about nothing in particular, so
+tags that suit any text don't win); searching shows the documents that fit
+better than text about nothing does. Names of people and such won't be
+recognized (that's another kind of model). Properties shows what
+auto-tagging found next to the tags given by hand.
 
 ### PDFs
 
@@ -354,8 +373,10 @@ the Transfers view is (Esc, ×, or opening a folder closes it): whether the
 sidebar shows Transfers and Cameras (`showTransfers`, `showCameras` in
 `~/.config/phil/settings.json`), the theme (every window follows), whether
 windows open in the default browser or WebKitGTK (`"browser"`), whether the
-engine keeps a log (`"log"`; both from its next start), and a way to the
-Transfers view and its download settings.
+engine keeps a log (`"log"`; both from its next start), auto-tagging (pictures
+and documents, each on or off: `tagPictures`, `tagDocuments`; every folder
+opened: `autoTagAll`; and the tag lists), and a way to the Transfers view and
+its download settings.
 
 ### Themes
 
@@ -438,7 +459,8 @@ apps/phil/          launch.js (options, window URL), server.js (listing, files,
 apps/jsonedit/      launch.js, server.js, ui/ (json.js: a parser that keeps positions)
 apps/textedit/      launch.js, server.js, ui/ (markdown.js: Markdown to HTML and back)
 apps/phil/tagging.js, tagging/
-                    auto-tagging: tagger.py (the Python helper: SigLIP 2) and tags.txt
+                    auto-tagging: tagger.py (the Python helper: SigLIP 2, EmbeddingGemma 2),
+                    tags.txt and document-tags.txt (phil's lists)
 apps/imageview/     launch.js, server.js, ui/
 apps/videoplayer/   launch.js, server.js (ffprobe, ffmpeg), ui/
 apps/imageresize/   launch.js, server.js (vips), ui/
