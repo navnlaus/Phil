@@ -372,7 +372,7 @@ function makeMediaRow() {
   row.innerHTML = `<span class="c-pic"><img loading="lazy" alt=""><span class="mv-bar"><span></span></span></span><span class="c-title"><span class="t"></span><span class="mv-badges"></span></span><span class="c-year"></span><span class="c-rating"></span><span class="c-votes"></span><span class="c-length"></span><span class="c-genres"></span><span class="c-quality"></span><span class="c-added"></span>`;
   row.onclick = () => openMediaDetail(row.item);
   row.ondblclick = () => play(row.item);
-  row.onkeydown = (e) => e.key === "Enter" && (e.preventDefault(), openMediaDetail(row.item));
+  row.onkeydown = (e) => void (e.key === "Enter" && (e.preventDefault(), openMediaDetail(row.item)));
   return row;
 }
 

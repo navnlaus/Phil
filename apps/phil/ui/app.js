@@ -1793,7 +1793,8 @@ function saveMediaSearch() {
   saveSettings(0);
 }
 mediaSearchInput.onchange = saveMediaSearch;
-mediaSearchInput.onkeydown = (e) => e.key === "Enter" && (e.preventDefault(), mediaSearchInput.blur());
+// (void: an on-handler that returns false cancels the key: nothing could be typed.)
+mediaSearchInput.onkeydown = (e) => void (e.key === "Enter" && (e.preventDefault(), mediaSearchInput.blur()));
 
 // Auto-tagging, if it's set up (scripts/install-tagging.sh; --documents for
 // text and Markdown files): what's tagged, which folders, and the tag lists.
@@ -1838,7 +1839,7 @@ for (const box of prefsView.querySelectorAll(".prefs-list")) {
     }
   };
   area.oninput = () => (save.disabled = false, box.querySelector(".status").textContent = "Not saved");
-  area.onkeydown = (e) => (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && (e.preventDefault(), save.disabled || save.click());
+  area.onkeydown = (e) => void ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && (e.preventDefault(), save.disabled || save.click()));
   save.onclick = () => put(area.value);
   reset.onclick = () => confirm(`Go back to phil's list of ${box.dataset.kind === "pictures" ? "picture" : "document"} tags? Tags of your own in it go.`) && put(null);
 }
@@ -2625,7 +2626,7 @@ function makeCamera() {
   text.append(document.createElement("span"));
   a.append(text);
   a.ondblclick = () => openCamera(a.item);
-  a.onkeydown = (e) => e.key === "Enter" && (e.preventDefault(), openCamera(a.item));
+  a.onkeydown = (e) => void (e.key === "Enter" && (e.preventDefault(), openCamera(a.item)));
   a.oncontextmenu = (e) => {
     e.preventDefault();
     e.stopPropagation(); // not the sidebar's menu
