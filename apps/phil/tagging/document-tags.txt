@@ -1,0 +1,210 @@
+# phil's own tags for auto-tagging text and Markdown files (apps/phil/tagging.js).
+# Once edited in Preferences, the whole list is ~/.config/phil/document-tags.txt.
+
+# what kind of text it is
+notes
+personal notes
+diary
+journal
+to-do list
+checklist
+shopping list
+ideas
+brainstorm
+meeting notes
+lecture notes
+minutes
+letter
+email
+cover letter
+resume
+recipe
+poem
+song lyrics
+story
+fiction
+essay
+article
+blog post
+report
+summary
+review
+proposal
+plan
+project plan
+specification
+requirements
+design decisions
+tutorial
+how-to guide
+installation guide
+user manual
+reference documentation
+readme
+changelog
+release notes
+FAQ
+glossary
+bibliography
+quotes
+transcript
+screenplay
+speech
+presentation notes
+contract
+agreement
+invoice
+receipt
+quote
+terms and conditions
+license
+privacy policy
+form
+log file
+configuration
+data
+list of links
+# money
+finance
+budget
+expenses
+banking
+taxes
+insurance
+investing
+stock trading
+options and derivatives
+cryptocurrency
+real estate
+rent
+mortgage
+salary
+pricing
+sales
+accounting
+# work
+job application
+job interview
+business
+startup
+marketing
+advertising
+customer support
+management
+project goals
+team
+hiring
+# home and life
+family
+children
+parenting
+relationships
+friends
+home
+house renovation
+gardening
+cleaning
+moving house
+pets
+cars
+shopping
+gifts
+wedding
+birthday
+holidays
+travel
+travel itinerary
+packing list
+hotel booking
+flights
+events
+# health
+health
+medical
+medication
+fitness
+workout
+nutrition
+diet
+mental health
+sleep
+# learning and culture
+education
+school
+university
+homework
+exam
+language learning
+history
+politics
+philosophy
+religion
+psychology
+science
+physics
+chemistry
+biology
+astronomy
+mathematics
+statistics
+economics
+law
+books
+reading list
+movies
+TV series
+music
+art
+photography
+video
+games
+video games
+sports
+cooking
+food
+# technology
+technology
+computers
+hardware
+graphics cards
+software
+programming
+source code
+web development
+user interface
+design
+databases
+data storage
+backups and recovery
+operating systems
+Linux
+command line
+package management
+networking
+servers
+cloud
+security
+passwords
+privacy
+artificial intelligence
+machine learning
+neural networks
+game AI
+simulation
+testing
+debugging
+file management
+downloads
+torrents
+home automation
+smart home
+cameras
+electronics
+3D printing
+# places and nature
+maps and geography
+weather
+nature
+environment
+climate
+animals

@@ -1,21 +1,30 @@
-// Auto-tagging pictures (optional, per folder: turned on in its Properties):
-// SigLIP 2 base, in a Python helper (tagging/tagger.py) that phil starts
-// while there's tagging to do and stops when idle. scripts/install-tagging.sh
-// sets up its environment; without it, tagging says what to run.
+// Auto-tagging pictures and documents (optional; per folder, turned on in its
+// Properties, or every folder opened, in Preferences): pictures with SigLIP 2
+// base, text and Markdown files with EmbeddingGemma 2 (its text part), in a
+// Python helper (tagging/tagger.py) that phil starts while there's tagging to
+// do and stops when idle. scripts/install-tagging.sh sets up its environment
+// (--documents: EmbeddingGemma 2 too); without it, tagging says what to run.
+// Each kind can be turned off in Preferences.
 //
 // A picture is embedded once (from the file; a video, or a format the
 // helper can't read, from its thumbnail) and the embedding cached
 // (per folder, next to the thumbnails). Its tags are scored from that against
 // the tag list each time, so a tag added to the list tags every picture
-// right away: the list is tagging/tags.txt plus ~/.config/phil/tags.txt,
-// where tags added to pictures by hand go too. Keywords and a description
+// right away. Pictures' list: tagging/tags.txt plus ~/.config/phil/tags.txt
+// (tags added by hand), or, once edited in Preferences, all of
+// ~/.config/phil/picture-tags.txt; documents': tagging/document-tags.txt, or
+// ~/.config/phil/document-tags.txt. Keywords and a description
 // the file carries itself (EXIF, XMP, IPTC) come along: keywords as tags.
+// A document's tags are the ones that fit it best compared with the rest of
+// the list (its own z-scores), since every topic fits any text a little.
 // The same embeddings answer searches by description (search()).
-import { basename, dirname, join } from "@std/path";
+import { basename, dirname, extname, join } from "@std/path";
 import { mediaKind } from "../../engine/media.js";
 
-const CUTOFF = 0.05; // the probability a tag needs
+const CUTOFF = 0.05; // the probability a tag needs (a picture's)
+const DOC_CUTOFF = 2; // a document's: standard deviations above the list's mean
 const SEARCH_CUTOFF = 0.01; // and a picture, to match a search (what's there scores 0.04 and up, the rest under 0.003)
+const DOC_SEARCH_CUTOFF = 0.02; // a document, to match a search: above how well it fits text about nothing (unrelated text scores below 0)
 const SUMMARY = 12; // a folder's most common tags, kept for its tile
 const MOST = 5; // tags per picture at most
 const BATCH = 32;
@@ -26,68 +35,142 @@ const dataHome = () => env("XDG_DATA_HOME") ?? join(env("HOME") ?? "/", ".local"
 /** The helper's Python: PHIL_TAGGING_PYTHON, or the environment the installer makes. */
 export const taggingPython = () => env("PHIL_TAGGING_PYTHON") ?? join(dataHome(), "phil", "tagging", "venv", "bin", "python");
 
-/** Pictures that can be tagged: images and videos (by a frame). */
-export const taggable = (name) => ["image", "video"].includes(mediaKind(name));
+const DOCUMENT_EXT = new Set(["txt", "text", "md", "markdown", "mdown", "mkd", "org", "rst", "adoc"]);
+
+/** What a file is to tagging: "pictures" (images, and videos by a frame), "documents" (text and Markdown files), or null. */
+export function tagKind(name) {
+  if (["image", "video"].includes(mediaKind(name))) return "pictures";
+  return DOCUMENT_EXT.has(extname(name).slice(1).toLowerCase()) ? "documents" : null;
+}
+
+const hfHub = () => env("HF_HUB_CACHE") ?? join(env("HF_HOME") ?? join(env("XDG_CACHE_HOME") ?? join(env("HOME") ?? "/", ".cache"), "huggingface"), "hub");
+const exists = (path) => Deno.stat(path).then(() => true, () => false);
+const read = (text) => text.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+const LIST_HEAD = {
+  pictures: "# The tags phil's auto-tagging looks for in pictures, one per line (lines starting with # are left out).\n",
+  documents: "# The tags phil's auto-tagging looks for in text and Markdown files, one per line (lines starting with # are left out).\n",
+};
 
 export class Tagging {
   #helper = new Helper();
   #cacheDir; // null: in memory only (incognito)
-  #userTags; // ~/.config/phil/tags.txt
+  #configDir; // ~/.config/phil: the tag lists
   #persist;
-  #memory = new Map(); // "texts" or "folder <dir>" -> its data (read once; incognito: only here)
-  #extraTags = new Set(); // incognito: tags added this session
+  #memory = new Map(); // "texts", "queries" or "folder <dir>" -> its data (read once; incognito: only here)
+  #extraTags = { pictures: new Set(), documents: new Set() }; // incognito: tags added this session
   #summaries = new Map(); // folder -> its most common tags
 
-  constructor({ cacheDir, userTagsFile, persist = true }) {
+  constructor({ cacheDir, configDir, persist = true }) {
     this.#cacheDir = cacheDir;
-    this.#userTags = userTagsFile;
+    this.#configDir = configDir;
     this.#persist = persist;
   }
 
-  /** Whether the helper's environment is there. */
+  /** What's set up: {pictures, documents} (the helper's environment; for documents, EmbeddingGemma 2 downloaded too). */
   async available() {
-    return await Deno.stat(taggingPython()).then((s) => s.isFile, () => false);
+    const python = await Deno.stat(taggingPython()).then((s) => s.isFile, () => false);
+    if (!python) return { pictures: false, documents: false };
+    let library = false; // sentence-transformers, in the environment's lib/python3.x
+    const lib = join(dirname(dirname(taggingPython())), "lib");
+    try {
+      for await (const d of Deno.readDir(lib)) library ||= await exists(join(lib, d.name, "site-packages", "sentence_transformers"));
+    } catch { /* no lib folder */ }
+    return { pictures: true, documents: library && await exists(join(hfHub(), "models--google--embeddinggemma-2", "snapshots")) };
   }
 
-  /** The tag list: phil's, then the user's (and tags added by hand). */
-  async vocabulary() {
-    const read = (text) => text.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
-    const own = read(await Deno.readTextFile(new URL("./tagging/tags.txt", import.meta.url)));
-    const theirs = read(await Deno.readTextFile(this.#userTags).catch(() => ""));
-    return [...new Set([...own, ...theirs, ...this.#extraTags])];
-  }
-
-  /** Adds tags to the user's list (tags given to pictures by hand). */
-  async addToVocabulary(tags) {
-    const known = new Set(await this.vocabulary());
-    const fresh = tags.filter((t) => !known.has(t));
-    if (!fresh.length) return;
-    if (!this.#persist) return void fresh.forEach((t) => this.#extraTags.add(t));
-    const before = await Deno.readTextFile(this.#userTags).catch(() => null);
-    const head = before === null
-      ? "# Tags phil's auto-tagging looks for, besides the ones built into phil.\n# One per line. Tags you add to pictures are added here.\n"
-      : before && !before.endsWith("\n") ? "\n" : "";
-    await Deno.mkdir(dirname(this.#userTags), { recursive: true });
-    await Deno.writeTextFile(this.#userTags, head + fresh.join("\n") + "\n", { append: true });
+  #listFile(kind) {
+    return join(this.#configDir, kind === "pictures" ? "picture-tags.txt" : "document-tags.txt");
   }
 
   /**
-   * Tags the pictures in `files` ([{path, size, mtime}], one folder's): yields
-   * {tags: {path: [[tag, probability], ...]}, descriptions: {path: text},
+   * A kind's tag list, {tags, text, custom}: the file edited in Preferences
+   * (custom), or phil's (and for pictures, ~/.config/phil/tags.txt: tags added
+   * to it, by hand or before lists could be edited). `text`: the list as it's
+   * edited, one tag per line, # comments and all.
+   */
+  async list(kind) {
+    const edited = await Deno.readTextFile(this.#listFile(kind)).catch(() => null);
+    let text = edited;
+    if (text === null) {
+      text = await Deno.readTextFile(new URL(kind === "pictures" ? "./tagging/tags.txt" : "./tagging/document-tags.txt", import.meta.url));
+      text = text.replace(/^(#.*\n)+\n?/, LIST_HEAD[kind] + "\n"); // its own heading: about phil's source
+      const added = kind === "pictures" ? read(await Deno.readTextFile(join(this.#configDir, "tags.txt")).catch(() => "")) : [];
+      if (added.length) text += `\n# added\n${added.join("\n")}\n`;
+    }
+    const extra = [...this.#extraTags[kind]];
+    return { tags: [...new Set([...read(text), ...extra])], text: extra.length ? `${text}\n${extra.join("\n")}\n` : text, custom: edited !== null };
+  }
+
+  /** The tag list for `kind` ("pictures" or "documents"). */
+  async vocabulary(kind) {
+    return (await this.list(kind)).tags;
+  }
+
+  /** Replaces a kind's whole list (Preferences: its text, one tag per line); null: phil's again. */
+  async setList(kind, text) {
+    if (!this.#persist) throw new Error("Not in an incognito window");
+    const file = this.#listFile(kind);
+    // Pictures: tags.txt's tags were part of the list, now in the file (or let go, back to phil's).
+    const old = kind === "pictures" ? join(this.#configDir, "tags.txt") : null;
+    if (text === null) {
+      await Deno.remove(file).catch(() => {});
+      if (old) await Deno.remove(old).catch(() => {});
+      return;
+    }
+    text = text.split("\n").map((l) => l.trim().replace(/\s+/g, " ")).join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+    await Deno.mkdir(this.#configDir, { recursive: true });
+    const tmp = `${file}.${crypto.randomUUID().slice(0, 8)}.tmp`;
+    await Deno.writeTextFile(tmp, text);
+    await Deno.rename(tmp, file);
+    if (old) await Deno.remove(old).catch(() => {});
+  }
+
+  /** Adds tags given by hand to the list of `kind` ("pictures": also for folders and other files). */
+  async addToVocabulary(tags, kind = "pictures") {
+    const { tags: known, text, custom } = await this.list(kind);
+    const fresh = tags.filter((t) => !known.includes(t) && !t.startsWith("#"));
+    if (!fresh.length) return;
+    if (!this.#persist) return void fresh.forEach((t) => this.#extraTags[kind].add(t));
+    if (custom || kind === "documents") return await this.setList(kind, `${text}\n${fresh.join("\n")}\n`); // documents: no list of additions; the whole list
+    const file = join(this.#configDir, "tags.txt");
+    const before = await Deno.readTextFile(file).catch(() => null);
+    const head = before === null
+      ? "# Tags phil's auto-tagging looks for, besides the ones built into phil.\n# One per line. Tags you add to pictures are added here.\n"
+      : before && !before.endsWith("\n") ? "\n" : "";
+    await Deno.mkdir(this.#configDir, { recursive: true });
+    await Deno.writeTextFile(file, head + fresh.join("\n") + "\n", { append: true });
+  }
+
+  /**
+   * Tags the pictures and documents in `files` ([{path, size, mtime}], one
+   * folder's; only those of `kinds`, {pictures, documents}): yields
+   * {tags: {path: [[tag, score], ...]}, descriptions: {path: text},
    * left} as it goes, first for the ones already embedded, then batch by
    * batch; then saves the folder's most common tags for its tile (summary()). `thumbnail(path, signal)`
    * gives a picture's thumbnail file (or null): what's looked at for videos,
    * and for pictures the helper can't read.
    */
-  async *tag(dir, files, thumbnail, signal) {
-    const vocab = await this.vocabulary();
-    const { scale, bias, texts } = await this.#textEmbeddings(vocab);
-    const tagEmb = vocab.map((t) => texts[t]);
+  async *tag(dir, files, thumbnail, signal, kinds = { pictures: true, documents: false }) {
+    files = files.filter((f) => kinds[tagKind(f.path)]);
+    const pictures = files.filter((f) => tagKind(f.path) === "pictures"), documents = files.filter((f) => tagKind(f.path) === "documents");
     // A picture's tags: its own keywords, then the ones found.
-    const score = (item) => {
-      const own = (item.meta?.keywords ?? []).map((k) => [k, 1]);
-      return [...own, ...scoreTags(decode(item.emb), vocab, tagEmb, scale, bias).filter(([t]) => !own.some(([k]) => k === t))];
-    };
+    let score = null;
+    if (pictures.length) {
+      const vocab = await this.vocabulary("pictures");
+      const { scale, bias, texts } = await this.#textEmbeddings(vocab);
+      const tagEmb = vocab.map((t) => texts[t]);
+      score = (item) => {
+        const own = (item.meta?.keywords ?? []).map((k) => [k, 1]);
+        return [...own, ...scoreTags(decode(item.emb), vocab, tagEmb, scale, bias).filter(([t]) => !own.some(([k]) => k === t))];
+      };
+    }
+    let scoreDoc = null;
+    if (documents.length) {
+      const vocab = await this.vocabulary("documents");
+      const queries = await this.#queryEmbeddings(vocab);
+      scoreDoc = (item) => scoreDocument(decode(item.doc), vocab, queries);
+    }
+    const tagsOf = (f, item) => (tagKind(f.path) === "pictures" ? score(item) : scoreDoc(item));
     const all = {}; // path -> tags, for the summary
     const described = (items) => Object.fromEntries(items.filter(([, it]) => it.meta?.description).map(([p, it]) => [p, it.meta.description]));
 
@@ -96,36 +179,46 @@ export class Tagging {
     const ready = {}, todo = [];
     for (const f of files) {
       const known = store.items[basename(f.path)];
-      if (known?.sig === sig(f)) ready[f.path] = all[f.path] = score(known);
+      if (known?.sig === sig(f) && (tagKind(f.path) === "pictures" ? known.emb : known.doc)) ready[f.path] = all[f.path] = tagsOf(f, known);
       else todo.push(f);
     }
     yield { tags: ready, descriptions: described(files.map((f) => [f.path, store.items[basename(f.path)]]).filter(([p, it]) => ready[p] && it)), left: todo.length };
 
-    for (let i = 0; i < todo.length; i += BATCH) {
+    // Documents first (quick), then pictures.
+    todo.sort((a, b) => (tagKind(a.path) === "documents" ? 0 : 1) - (tagKind(b.path) === "documents" ? 0 : 1));
+    for (let i = 0; i < todo.length;) {
       signal?.throwIfAborted();
-      const batch = todo.slice(i, i + BATCH);
-      const thumb = (f) => thumbnail(f.path, signal).catch(() => null);
-      // The pictures themselves, then thumbnails for what that didn't work for.
-      const sources = await Promise.all(batch.map((f) => (mediaKind(f.path) === "image" ? f.path : thumb(f))));
-      let { embeddings, meta } = await this.#helper.request("images", { paths: sources.map((s) => s ?? "") });
-      const retry = batch.map((f, j) => (!embeddings[j] && sources[j] === f.path ? j : -1)).filter((j) => j !== -1);
-      if (retry.length) {
-        const thumbs = await Promise.all(retry.map((j) => thumb(batch[j])));
-        const again = (await this.#helper.request("images", { paths: thumbs.map((t) => t ?? "") })).embeddings;
-        embeddings = [...embeddings];
-        retry.forEach((j, k) => (embeddings[j] = thumbs[k] ? again[k] : null));
+      const kind = tagKind(todo[i].path);
+      let batch = todo.slice(i, i + BATCH);
+      const other = batch.findIndex((f) => tagKind(f.path) !== kind);
+      if (other !== -1) batch = batch.slice(0, other); // a batch is of one kind
+      i += batch.length;
+      let embeddings, meta = null;
+      if (kind === "documents") ({ embeddings } = await this.#helper.request("documents", { paths: batch.map((f) => f.path) }));
+      else {
+        const thumb = (f) => thumbnail(f.path, signal).catch(() => null);
+        // The pictures themselves, then thumbnails for what that didn't work for.
+        const sources = await Promise.all(batch.map((f) => (mediaKind(f.path) === "image" ? f.path : thumb(f))));
+        ({ embeddings, meta } = await this.#helper.request("images", { paths: sources.map((s) => s ?? "") }));
+        const retry = batch.map((f, j) => (!embeddings[j] && sources[j] === f.path ? j : -1)).filter((j) => j !== -1);
+        if (retry.length) {
+          const thumbs = await Promise.all(retry.map((j) => thumb(batch[j])));
+          const again = (await this.#helper.request("images", { paths: thumbs.map((t) => t ?? "") })).embeddings;
+          embeddings = [...embeddings];
+          retry.forEach((j, k) => (embeddings[j] = thumbs[k] ? again[k] : null));
+        }
       }
       signal?.throwIfAborted();
       const tags = {}, items = [];
       batch.forEach((f, j) => {
         if (!embeddings[j]) return;
-        const item = { sig: sig(f), emb: embeddings[j], ...(meta?.[j] ? { meta: meta[j] } : {}) };
+        const item = kind === "documents" ? { sig: sig(f), doc: embeddings[j] } : { sig: sig(f), emb: embeddings[j], ...(meta?.[j] ? { meta: meta[j] } : {}) };
         store.items[basename(f.path)] = item;
-        tags[f.path] = all[f.path] = score(item);
+        tags[f.path] = all[f.path] = tagsOf(f, item);
         items.push([f.path, item]);
       });
       await this.#save(this.#folderFile(dir), store);
-      yield { tags, descriptions: described(items), left: Math.max(0, todo.length - i - BATCH) };
+      yield { tags, descriptions: described(items), left: todo.length - i };
     }
     // Done: the folder's most common tags, for its tile.
     const counts = new Map();
@@ -145,23 +238,54 @@ export class Tagging {
   }
 
   /**
-   * Searching a tagged folder's pictures by description: {path: probability}
-   * for the ones that match `text` (the helper embeds it), best first.
+   * Searching a tagged folder's pictures and documents (those of `kinds`) by
+   * description: {path: score} for the ones that match `text` (the helper
+   * embeds it), best first. A picture's score is how likely it shows it, a
+   * document's how much better it fits than text about nothing.
    */
-  async search(dir, text) {
+  async search(dir, text, kinds = { pictures: true, documents: false }) {
     const store = await this.#load(`folder ${dir}`, this.#folderFile(dir));
     const items = Object.entries(store.items ?? {});
-    if (!items.length) return {};
-    const { scale, bias } = await this.#textEmbeddings([]);
-    const [query] = (await this.#helper.request("texts", { texts: [text] })).embeddings;
-    const q = decode(query);
-    const found = items.map(([name, item]) => {
-      const e = decode(item.emb);
-      let dot = 0;
-      for (let k = 0; k < e.length; k++) dot += e[k] * q[k];
-      return [join(dir, name), 1 / (1 + Math.exp(-(dot * scale + bias)))];
-    }).filter(([, p]) => p >= SEARCH_CUTOFF).sort((a, b) => b[1] - a[1]);
+    const dot = (a, b) => {
+      let d = 0;
+      for (let k = 0; k < a.length; k++) d += a[k] * b[k];
+      return d;
+    };
+    const found = [];
+    if (kinds.pictures && items.some(([, it]) => it.emb)) {
+      const { scale, bias } = await this.#textEmbeddings([]);
+      const q = decode((await this.#helper.request("texts", { texts: [text] })).embeddings[0]);
+      for (const [name, item] of items) {
+        if (!item.emb) continue;
+        const p = 1 / (1 + Math.exp(-(dot(decode(item.emb), q) * scale + bias)));
+        if (p >= SEARCH_CUTOFF) found.push([join(dir, name), p]);
+      }
+    }
+    if (kinds.documents && items.some(([, it]) => it.doc)) {
+      const { embeddings: [query], base: [base] } = await this.#helper.request("queries", { texts: [text] });
+      const q = decode(query);
+      for (const [name, item] of items) {
+        if (!item.doc) continue;
+        const s = dot(decode(item.doc), q) - base;
+        if (s >= DOC_SEARCH_CUTOFF) found.push([join(dir, name), s]);
+      }
+    }
+    found.sort((a, b) => b[1] - a[1]);
     return Object.fromEntries(found.map(([p, s]) => [p, Math.round(s * 1000) / 1000]));
+  }
+
+  // Document tags' embeddings and bases (EmbeddingGemma 2's), asking the helper for the ones not seen before.
+  async #queryEmbeddings(vocab) {
+    const file = this.#cacheDir && join(this.#cacheDir, "queries.json");
+    const store = await this.#load("queries", file);
+    store.texts ??= {};
+    const missing = vocab.filter((t) => !store.texts[t]);
+    if (missing.length) {
+      const { embeddings, base } = await this.#helper.request("queries", { texts: missing });
+      missing.forEach((t, i) => (store.texts[t] = { emb: embeddings[i], base: base[i] }));
+      await this.#save(file, store);
+    }
+    return vocab.map((t) => ({ emb: decode(store.texts[t].emb), base: store.texts[t].base }));
   }
 
   // The tags' embeddings, asking the helper for the ones not seen before.
@@ -230,6 +354,22 @@ function scoreTags(emb, vocab, tagEmb, scale, bias) {
   return out.sort((a, b) => b[1] - a[1]).slice(0, MOST);
 }
 
+// A document's tags: those that fit it well above the rest of the list (how
+// well each fits, less how well it fits text about nothing, as standard
+// deviations from the list's mean), best first.
+function scoreDocument(emb, vocab, queries) {
+  const scores = queries.map(({ emb: q, base }) => {
+    let dot = 0;
+    for (let k = 0; k < emb.length; k++) dot += emb[k] * q[k];
+    return dot - base;
+  });
+  if (scores.length < 3) return [];
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const sd = Math.sqrt(scores.reduce((a, b) => a + (b - mean) ** 2, 0) / scores.length) || 1;
+  return scores.map((s, i) => [vocab[i], Math.round(((s - mean) / sd) * 100) / 100, s])
+    .filter(([, z, s]) => z >= DOC_CUTOFF && s > 0).sort((a, b) => b[1] - a[1]).slice(0, MOST).map(([t, z]) => [t, z]);
+}
+
 // FNV-1a: a folder's cache file name.
 function hashOf(s) {
   let h = 0x811c9dc5;
@@ -280,7 +420,8 @@ class Helper {
         stdin: "piped",
         stdout: "piped",
         stderr: "inherit", // into the engine's log
-        env: { PYTHONUNBUFFERED: "1", TRANSFORMERS_VERBOSITY: "error" },
+        // Offline: the models are downloaded by the installer, and nothing goes out while tagging.
+        env: { PYTHONUNBUFFERED: "1", TRANSFORMERS_VERBOSITY: "error", HF_HUB_OFFLINE: "1" },
       }).spawn();
       this.#child = child;
       const { promise: started, resolve, reject } = Promise.withResolvers();

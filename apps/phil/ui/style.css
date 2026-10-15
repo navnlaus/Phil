@@ -938,8 +938,15 @@ body.choosing #files { --chooser-h: 48px; }
 /* What the settings leave out of the sidebar (and a file chooser's window). */
 body.no-transfers #transfers-panel, body.no-cameras #cameras-panel { display: none; }
 #transfers-panel.empty { display: none; }
+#prefs-view [hidden] { display: none; }
 #prefs-view select { max-width: 280px; }
 #prefs-view .tv-field .check + .hint { margin-top: 2px; }
-#prefs-transfers { flex: none; padding: 4px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised); color: var(--text); }
-#prefs-transfers:hover { background: var(--bg-hover); }
+.prefs-tagging { display: flex; flex-direction: column; gap: 4px; }
+.prefs-tagging .dim { color: var(--text-dim); }
+.prefs-list textarea { width: 100%; min-height: 120px; resize: vertical; font-family: var(--mono, monospace); font-size: 12px; line-height: 1.45; }
+.prefs-list .tv-row { align-items: center; }
+.prefs-list .status { margin: 0 0 0 4px; }
+#prefs-view .tv-row > button { flex: none; padding: 4px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised); color: var(--text); }
+#prefs-view .tv-row > button:hover:not(:disabled) { background: var(--bg-hover); }
+#prefs-view .tv-row > button:disabled { opacity: 0.5; }
 body.choosing .sidebar-foot { display: none; } /* a file chooser: no settings */

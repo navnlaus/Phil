@@ -1,52 +1,90 @@
-# phil's own tags for auto-tagging pictures (apps/phil/tagging.js); yours,
-# and the ones you add to pictures, are in ~/.config/phil/tags.txt.
+# phil's own tags for auto-tagging pictures (apps/phil/tagging.js). Yours, and
+# the ones you add to pictures, are in ~/.config/phil/tags.txt; once the list is
+# edited in Preferences, the whole of it is ~/.config/phil/picture-tags.txt.
+
+# people
 person
 people
 crowd
 portrait
+selfie
+group photo
 child
 baby
 family
+friends
+couple
+old person
+hands
+face
+# animals
 dog
+puppy
 cat
+kitten
 bird
 horse
+cow
+sheep
+farm animals
 wildlife
+deer
+bear
+fox
 insect
+butterfly
 fish
+underwater
+# nature and landscape
+landscape
 mountains
+hills
+volcano
 snow
+ice
 glacier
 valley
 cliff
 rocks
+cave
 canyon
 desert
 sand dunes
 beach
 sea
+ocean
 coast
 waves
 lake
 river
 waterfall
+hot spring
 reflection
 island
 forest
+jungle
 trees
 path
 field
 meadow
+farmland
+vineyard
 flowers
 garden
+park
 leaves
 plants
+moss
+mushrooms
+# sky and light
 sky
 clouds
 sunset
 sunrise
 golden hour
+blue hour
 storm
+lightning
 fog
 rain
 rainbow
@@ -56,76 +94,175 @@ stars
 milky way
 moon
 aurora
+eclipse
 space
 earth from space
-city lights
+fireworks
+# towns and buildings
 city
+city lights
 skyline
 buildings
+skyscraper
 architecture
 street
+alley
+market
+shop
 road
+highway
 bridge
+tunnel
 house
+cabin
+village
 church
+temple
 castle
+lighthouse
+monument
+statue
 ruins
+museum
 interior
 room
+living room
+bedroom
+bathroom
+stairs
+window
+door
+construction site
+factory
+# getting around
 car
+vintage car
+motorcycle
 bicycle
+bus
+truck
 boat
-train
-airplane
+sailboat
+ship
 harbour
+train
+train station
+airplane
+airport
+# food and drink
 food
+breakfast
+meal
+dessert
+cake
+bread
+pizza
+fruit
+vegetables
 drink
 coffee
-cake
-fruit
+tea
+wine
+beer
+cocktail
 restaurant
+cafe
 kitchen
+cooking
+picnic
+# art and design
 abstract
 texture
 pattern
 marble
+wood
+metal
 colorful
 black and white
 minimal
 art
 painting
 drawing
+sketch
+illustration
+cartoon
 sculpture
 graffiti
+street art
+logo
+# documents and screens
 document
+handwriting
 text
 screenshot
 receipt
+ticket
 map
 diagram
 chart
 poster
 book
+newspaper
+whiteboard
 computer
+laptop
 phone
+screen
 desk
 office
+# things
+clothes
+shoes
+jewelry
+toys
+furniture
+musical instrument
+guitar
+piano
+camera
+tools
+car interior
+# activities and events
 sport
+football
+running
 hiking
+climbing
 camping
 skiing
+snowboarding
+surfing
 swimming
 cycling
+fishing
+gardening
+travel
+road trip
 concert
+festival
 party
 wedding
 birthday
+christmas
+halloween
+graduation
+meeting
+classroom
+# seasons and weather
 winter
+spring
 summer
 autumn
-landscape
+# how it's taken
 aerial view
+drone shot
 panorama
 close-up
+macro
 silhouette
 long exposure
+bokeh
+motion blur
+underexposed
+overexposed
+blurry

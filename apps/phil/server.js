@@ -9,7 +9,7 @@ import { FolderSummaries, makeSummary } from "./folders.js";
 import { Hooks, metadataFile, runHook } from "./hooks.js";
 import * as cameras from "../camview/cameras.js";
 import { requireSudo, sudo, sudoPassword, sudoWanted } from "./sudo.js";
-import { taggable, Tagging } from "./tagging.js";
+import { Tagging, tagKind } from "./tagging.js";
 import { home, serverConfig } from "./launch.js";
 import { canWrite, driveInfo, driveSpeed, folderSize, me, properties } from "./properties.js";
 import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
@@ -263,9 +263,19 @@ export function createServer({ profile, controlSocket }) {
   // Auto-tagging (tagging.js): embeddings cached next to the thumbnails.
   const tagging = new Tagging({
     cacheDir: config.incognito ? null : join(thumbs.dir, "tags"),
-    userTagsFile: join(dirname(config.settingsFile), "tags.txt"),
+    configDir: dirname(config.settingsFile), // the tag lists
     persist: !config.incognito,
   });
+  // What's tagged: pictures, documents, each if it's set up and not turned off in Preferences.
+  const tagKinds = async () => {
+    const [available, settings] = await Promise.all([tagging.available(), readSettings()]);
+    return { pictures: available.pictures && settings.tagPictures !== false, documents: available.documents && settings.tagDocuments !== false };
+  };
+  // Tags given by hand join the list of each kind among `paths` (pictures': folders' and other files' too).
+  const addTagsToLists = async (paths, tags) => {
+    const kinds = new Set(paths.map((p) => tagKind(p) ?? "pictures"));
+    for (const kind of kinds) await tagging.addToVocabulary(tags, kind);
+  };
   // A picture's thumbnail file, made if need be: what tagging looks at.
   const thumbnailFile = async (path, signal) => {
     const url = await thumbs.get(path, signal);
@@ -311,7 +321,7 @@ export function createServer({ profile, controlSocket }) {
           incognito: config.incognito,
           thumbDir: config.thumbsInMemory ? "in memory" : config.thumbDir,
           thumbSize: thumbs.name,
-          tagging: { available: await tagging.available() }, // auto-tagging is set up (scripts/install-tagging.sh)
+          tagging: { available: await tagging.available() }, // auto-tagging is set up (scripts/install-tagging.sh): {pictures, documents}
           settings: { ...await readSettings(), theme: await currentTheme() }, // a theme that's gone: the default
         });
       case "GET /api/list": {
@@ -457,7 +467,7 @@ export function createServer({ profile, controlSocket }) {
         const tags = "tags" in changes ? cleanTags(changes.tags) : null;
         const auto = "autoTags" in changes ? { autoTags: changes.autoTags ? true : "" } : {}; // a folder's: tag its pictures
         await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...clean("icon"), ...(tags ? { tags: tags.length ? tags : "" } : {}), ...auto });
-        if (tags?.length) await tagging.addToVocabulary(tags);
+        if (tags?.length) await addTagsToLists([path], tags);
         return json({ ok: true });
       }
       case "POST /api/tags": { // {paths, tags}: tags added by hand to the selected pictures
@@ -468,7 +478,7 @@ export function createServer({ profile, controlSocket }) {
           requirePath(p);
           await hooks.set(p, { tags: [...new Set([...(all[p]?.tags ?? []), ...tags])] });
         }
-        await tagging.addToVocabulary(tags);
+        await addTagsToLists(body.paths ?? [], tags);
         return json({ ok: true, tags });
       }
       case "POST /api/run-hook": { // Properties' "Run now"
@@ -477,6 +487,19 @@ export function createServer({ profile, controlSocket }) {
       }
       case "POST /api/add-to-config":
         return json(await addToConfig(requirePath((await req.json()).path)));
+      case "GET /api/tag-lists": // Preferences: what auto-tagging looks for, {available, pictures: {tags, text, custom}, documents}
+        return json({ available: await tagging.available(), pictures: await tagging.list("pictures"), documents: await tagging.list("documents") });
+      case "PUT /api/tag-lists": { // {kind, text: one tag per line | null (phil's list again)}
+        const { kind, text } = await req.json();
+        if (kind !== "pictures" && kind !== "documents") throw httpError(400, "pictures or documents");
+        if (text !== null && typeof text !== "string") throw httpError(400, "text: the list, or null");
+        try {
+          await tagging.setList(kind, text);
+        } catch (err) {
+          throw httpError(409, err.message);
+        }
+        return json(await tagging.list(kind));
+      }
       case "GET /api/themes": // the bottom bar's theme picker
         return json({ themes: await themeNames(), dir: themesDir(), theme: await currentTheme() });
       case "PUT /api/theme": // {theme}: picked there
@@ -647,8 +670,8 @@ export function createServer({ profile, controlSocket }) {
       }
       if (msg.search) { // {search: {dir, text}}: its pictures that look like `text`, as {searched: dir, text, scores}
         const { dir, text } = msg.search;
-        tagging.available()
-          .then((ok) => (ok ? tagging.search(dir, text) : {}))
+        tagKinds()
+          .then((kinds) => (kinds.pictures || kinds.documents ? tagging.search(dir, text, kinds) : {}))
           .then((scores) => send({ searched: dir, text, scores }), (err) => send({ searched: dir, text, scores: {}, error: err.message }));
       }
       if ("tag" in msg) { // {tag: folder} tags its pictures, sending {tagged: folder, tags, left}; {tag: null} stops
@@ -733,19 +756,22 @@ export function createServer({ profile, controlSocket }) {
     await Promise.all(Array.from({ length: 6 }, worker));
   }
 
-  // Tags the pictures in `dir` for a page, sending what's ready as it goes:
-  // {tagged: dir, tags: {path: [[tag, probability]]}, left}, or {tagged: dir,
-  // error} ("setup" when the tagger isn't installed).
+  // Tags the pictures and documents in `dir` for a page (the kinds set up and
+  // on), sending what's ready as it goes: {tagged: dir, tags: {path: [[tag,
+  // score]]}, left}, or {tagged: dir, error} ("setup" when the tagger isn't
+  // installed).
   async function tagFolder(dir, signal, send) {
-    if (!(await tagging.available())) return send({ tagged: dir, error: "setup" });
+    if (!(await tagging.available()).pictures) return send({ tagged: dir, error: "setup" });
+    const kinds = await tagKinds();
+    if (!kinds.pictures && !kinds.documents) return send({ tagged: dir, tags: {}, left: 0 });
     const files = [];
     for await (const d of Deno.readDir(dir)) {
-      if (d.name.startsWith(".") || !taggable(d.name)) continue;
+      if (d.name.startsWith(".") || !kinds[tagKind(d.name)]) continue;
       const stat = await Deno.stat(join(dir, d.name)).catch(() => null);
       if (stat?.isFile) files.push({ path: join(dir, d.name), size: stat.size, mtime: stat.mtime?.getTime() ?? 0 });
     }
     try {
-      for await (const step of tagging.tag(dir, files, thumbnailFile, signal)) {
+      for await (const step of tagging.tag(dir, files, thumbnailFile, signal, kinds)) {
         if (signal.aborted) return;
         send({ tagged: dir, ...step });
       }

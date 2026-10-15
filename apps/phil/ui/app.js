@@ -741,7 +741,8 @@ async function load(path) {
   terminal.follow(listing.path);
   state.entries = listing.entries;
   if (previous !== listing.path) changedFolders.clear(), autoTags.clear(), tagFilter.clear(), carried.clear(), searchScores.clear();
-  state.autoTagged = !!listing.autoTags;
+  state.listingAutoTags = !!listing.autoTags;
+  state.autoTagged = autoTagging(listing);
   thumbs.watch(listing.path);
   thumbs.tag(state.autoTagged ? listing.path : null);
   showTagStatus("");
@@ -824,7 +825,8 @@ async function refresh() {
     render();
     grid.scrollTop = top;
     thumbs.watch(path); // new subfolders get watched too
-    state.autoTagged = !!listing.autoTags;
+    state.listingAutoTags = !!listing.autoTags;
+    state.autoTagged = autoTagging(listing);
     renderTags();
     thumbs.tag(state.autoTagged ? path : null); // new pictures get tagged (the rest come from the cache)
   } else if (!listing && state.path === path) {
@@ -1643,7 +1645,8 @@ async function openPrefsView() {
   settingsButton.setAttribute("aria-pressed", "true");
   prefsView.querySelector(".tv-head .close").focus({ preventScroll: true });
   const s = state.settings;
-  for (const input of prefsView.querySelectorAll("[data-pref]")) input.checked = input.dataset.pref === "log" ? s.log === true : s[input.dataset.pref] !== false;
+  for (const input of prefsView.querySelectorAll("[data-pref]")) input.checked = "off" in input.dataset ? s[input.dataset.pref] === true : s[input.dataset.pref] !== false;
+  showTaggingPrefs();
   // Another browser named in the settings file (a name or a path): kept, and shown.
   browserSelect.querySelector(".other")?.remove();
   if (s.browser && s.browser !== "webkit" && s.browser !== "default") browserSelect.add(Object.assign(new Option(s.browser, s.browser), { className: "other" }));
@@ -1666,12 +1669,83 @@ function closePrefsView() {
 }
 
 for (const input of prefsView.querySelectorAll("[data-pref]")) {
-  input.onchange = () => {
-    if (input.dataset.pref === "log") input.checked ? (state.settings.log = true) : delete state.settings.log;
-    else state.settings[input.dataset.pref] = input.checked;
+  input.onchange = async () => {
+    const key = input.dataset.pref;
+    if ("off" in input.dataset) input.checked ? (state.settings[key] = true) : delete state.settings[key]; // (off unless set)
+    else state.settings[key] = input.checked;
     applySettings();
-    saveSettings(0);
+    if (!/^tag|^autoTag/.test(key)) return saveSettings(0);
+    await saveSettingsNow(); // the server reads them when it tags
+    showTaggingPrefs();
+    retag();
   };
+}
+
+// Auto-tagging, if it's set up (scripts/install-tagging.sh; --documents for
+// text and Markdown files): what's tagged, which folders, and the tag lists.
+const taggingAvailable = () => state.init.tagging?.available ?? { pictures: false, documents: false };
+
+async function showTaggingPrefs() {
+  const available = taggingAvailable();
+  const rows = [...prefsView.querySelectorAll(".prefs-tagging, .prefs-list, .prefs-list-label")];
+  rows.forEach((el) => (el.hidden = !available.pictures));
+  prefsView.querySelector('[data-pref="tagDocuments"]').disabled = !available.documents;
+  const off = !state.settings.autoTagAll ? " Otherwise, the folders it's turned on for in their Properties." : "";
+  prefsView.querySelector(".prefs-tagging-hint").textContent = !available.pictures
+    ? "Not set up: run scripts/install-tagging.sh in phil's source folder (several GB: PyTorch and the model; --documents for text and Markdown files too)."
+    : !available.documents
+    ? `For text and Markdown files, run scripts/install-tagging.sh --documents in phil's source folder (EmbeddingGemma 2, about 1.5 GB).${off}`
+    : `It stores what each file shows or is about, so describing it in the filter box finds it.${off}`;
+  if (!available.pictures) return;
+  const lists = await api("/api/tag-lists").catch(() => null);
+  for (const box of prefsView.querySelectorAll(".prefs-list")) {
+    const list = lists?.[box.dataset.kind], area = box.querySelector("textarea");
+    box.hidden = box.previousElementSibling.hidden = box.dataset.kind === "documents" && !lists?.available.documents;
+    if (!list || document.activeElement === area || box.querySelector(".save").disabled === false) continue; // being edited
+    showTagList(box, list);
+  }
+}
+
+function showTagList(box, list) {
+  box.querySelector("textarea").value = list.text;
+  box.querySelector(".save").disabled = true;
+  box.querySelector(".reset").disabled = !list.custom;
+  box.querySelector(".status").textContent = `${list.tags.length} tags${list.custom ? ", yours" : ", phil's"}`;
+}
+
+for (const box of prefsView.querySelectorAll(".prefs-list")) {
+  const area = box.querySelector("textarea"), save = box.querySelector(".save"), reset = box.querySelector(".reset");
+  const put = async (text) => {
+    try {
+      showTagList(box, await api("/api/tag-lists", { method: "PUT", body: JSON.stringify({ kind: box.dataset.kind, text }) }));
+      retag(); // the new list, from the saved embeddings
+    } catch (err) {
+      box.querySelector(".status").textContent = err.message;
+    }
+  };
+  area.oninput = () => (save.disabled = false, box.querySelector(".status").textContent = "Not saved");
+  area.onkeydown = (e) => (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && (e.preventDefault(), save.disabled || save.click());
+  save.onclick = () => put(area.value);
+  reset.onclick = () => confirm(`Go back to phil's list of ${box.dataset.kind === "pictures" ? "picture" : "document"} tags? Tags of your own in it go.`) && put(null);
+}
+
+// Whether this folder's pictures and documents are tagged: it's set to be
+// (its Properties), or every folder is (Preferences).
+const autoTagging = (listing) => !!listing?.autoTags || (!choosing && state.settings.autoTagAll === true && taggingAvailable().pictures);
+
+// What's tagged changed (the kinds, every folder or not, a list): the folder again.
+function retag() {
+  autoTags.clear();
+  state.autoTagged = autoTagging({ autoTags: state.listingAutoTags });
+  thumbs.tag(state.autoTagged ? state.path : null);
+  renderTags();
+  render();
+}
+
+function saveSettingsNow() {
+  clearTimeout(saveTimer);
+  const { chooser: _, ...settings } = state.settings;
+  return fetch("/api/settings", { method: "PUT", body: JSON.stringify(settings) }).catch(() => {});
 }
 browserSelect.onchange = () => {
   if (browserSelect.value) state.settings.browser = browserSelect.value;
@@ -2320,10 +2394,13 @@ async function showProperties(entry) {
   const autoBox = $p("#props-autotag");
   $p(".autotag").hidden = p.kind !== "folder";
   autoBox.checked = !!p.meta?.autoTags;
-  $p("#props-autotag-hint").textContent = state.init.tagging?.available
-    ? "With SigLIP 2, on this computer: it stores what each picture shows, so typing a description in the filter box (\u201cfoggy forest\u201d) finds them. Keywords and descriptions saved in the files show too."
-    : "Set it up first: run scripts/install-tagging.sh in phil's source folder (several GB: PyTorch and the model).";
-  autoBox.disabled = !state.init.tagging?.available && !autoBox.checked;
+  const available = taggingAvailable();
+  $p("#props-autotag-hint").textContent = !available.pictures
+    ? "Set it up first: run scripts/install-tagging.sh in phil's source folder (several GB: PyTorch and the model)."
+    : state.settings.autoTagAll === true
+    ? "Every folder opened is tagged already (Preferences)."
+    : `On this computer (SigLIP 2${available.documents ? "; text and Markdown files with EmbeddingGemma 2" : ""}): it stores what each picture shows${available.documents ? " and each document is about" : ""}, so typing a description in the filter box (\u201cfoggy forest\u201d) finds them. Keywords and descriptions saved in the files show too. What's tagged: Preferences.`;
+  autoBox.disabled = !available.pictures && !autoBox.checked;
   descInput.value = p.meta?.description ?? "";
   input.value = p.meta?.onChange ?? "";
   // A folder's icon, for its tile and in the sidebar: picked from a list (pickIcon).

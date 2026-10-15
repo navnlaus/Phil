@@ -169,8 +169,27 @@
             </div>
             <span>Log</span>
             <div class="tv-field">
-              <label class="check"><input type="checkbox" data-pref="log"> Keep a log</label>
+              <label class="check"><input type="checkbox" data-pref="log" data-off> Keep a log</label>
               <p class="hint">What the engine says, in $XDG_RUNTIME_DIR/phil/main.log. From phil's next start; never in incognito.</p>
+            </div>
+            <span>Auto-tagging</span>
+            <div class="tv-field">
+              <div class="prefs-tagging">
+                <label class="check"><input type="checkbox" data-pref="tagPictures"> Pictures <span class="dim">(SigLIP 2)</span></label>
+                <label class="check"><input type="checkbox" data-pref="tagDocuments"> Text and Markdown files <span class="dim">(EmbeddingGemma 2)</span></label>
+                <label class="check"><input type="checkbox" data-pref="autoTagAll" data-off> Every folder opened</label>
+              </div>
+              <p class="hint prefs-tagging-hint"></p>
+            </div>
+            <label for="prefs-list-pictures" class="prefs-list-label">Picture tags</label>
+            <div class="tv-field prefs-list" data-kind="pictures">
+              <textarea id="prefs-list-pictures" rows="10" spellcheck="false" autocomplete="off"></textarea>
+              <div class="tv-row"><button type="button" class="save" disabled>Save</button><button type="button" class="reset">phil's list</button><span class="hint status"></span></div>
+            </div>
+            <label for="prefs-list-documents" class="prefs-list-label">Document tags</label>
+            <div class="tv-field prefs-list" data-kind="documents">
+              <textarea id="prefs-list-documents" rows="10" spellcheck="false" autocomplete="off"></textarea>
+              <div class="tv-row"><button type="button" class="save" disabled>Save</button><button type="button" class="reset">phil's list</button><span class="hint status"></span></div>
             </div>
             <span>Downloads</span>
             <div class="tv-field">
@@ -225,7 +244,7 @@
           </div>
         </div>
         <div class="autotag">
-          <label class="check"><input type="checkbox" id="props-autotag"> Tag the pictures in it automatically, and make them findable by what they show</label>
+          <label class="check"><input type="checkbox" id="props-autotag"> Tag the pictures and documents in it automatically, and make them findable by what they show or are about</label>
           <p class="hint" id="props-autotag-hint"></p>
         </div>
         <div class="hook">
