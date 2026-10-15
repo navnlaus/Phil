@@ -225,7 +225,7 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
       let ours = false;
       try {
         const u = new URL(params.requestURL);
-        ours = u.protocol === "https:" && u.hostname === "127.0.0.1" && ports.has(u.port);
+        ours = (u.protocol === "https:" || u.protocol === "wss:") && u.hostname === "127.0.0.1" && ports.has(u.port); // (wss: the pages' WebSockets)
       } catch { /* not a URL */ }
       return void link?.send("Security.handleCertificateError", { eventId: params.eventId, action: ours ? "continue" : "cancel" }, sessionId);
     }
