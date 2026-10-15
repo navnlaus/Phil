@@ -38,6 +38,7 @@ const state = {
   speeds: {}, // their last read speed tests: {path: {read, at}} (Properties → Run speed test)
   transfers: new Map(), // copies and moves under way: id -> their progress (the server's transfer())
   downloads: [], // downloads under way (panda-dl's; the server's downloads.js)
+  browserDownloads: [], // others' (a browser's partial file growing; browserdownloads.js)
   stopped: [], // copies and moves cut off, anywhere: [{path, copying}] (the server's records of them)
   clip: null, // files copied or cut, in any phil window: {op, paths, text}
   settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, theme: "overlay" },
@@ -237,6 +238,7 @@ const thumbs = {
       if ("searched" in msg) return onSearched(msg);
       if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes);
       if (msg.downloads) return onDownloads(msg.downloads);
+      if (msg.browserDownloads) return (state.browserDownloads = msg.browserDownloads), showTransfers();
       if (msg.made) return onMadeInBackground(msg.made, msg.url);
       if (msg.hook) return onHookRan(msg.hook);
       if (msg.transfer) return onTransfer(msg.transfer);
@@ -3578,6 +3580,8 @@ function showTransfers() {
     if (d.state === "completed") continue;
     add(tiles.get(d.dir), { key: `download ${d.id} folder`, d });
   }
+  // Others' downloads (a browser's): a bar on its partial file.
+  for (const w of state.browserDownloads) add(tiles.get(w.path), { key: `web ${w.id}`, w });
   // Copies cut off (a crash, ×): their record says how far they got; ↻ goes on, × forgets it.
   for (const e of state.view) if (e.copying?.state === "stopped" && !live.has(e.path)) add(tiles.get(e.path), { key: "stopped", stopped: e });
   for (const bar of document.querySelectorAll(".transfer-bar")) if (!bars.has(bar.parentElement)) bars.set(bar.parentElement, []); // none there now
@@ -3586,7 +3590,7 @@ function showTransfers() {
       key: (b) => b.key,
       kind: barKind,
       make: (b) => makeTransferBar(barKind(b)),
-      show: (bar, b) => (b.d ? showDownloadBar(bar, b.d, b.part) : b.stopped ? showStoppedBar(bar, b.stopped) : showTransferBar(bar, b.t, b)),
+      show: (bar, b) => (b.w ? showWebBar(bar, b.w) : b.d ? showDownloadBar(bar, b.d, b.part) : b.stopped ? showStoppedBar(bar, b.stopped) : showTransferBar(bar, b.t, b)),
     });
     // More than one on a tile (a copy into a folder a download goes to): one under the other.
     [...host.querySelectorAll(":scope > .transfer-bar")].forEach((bar, i) => put(bar.style, "top", i ? `${8 + i * 24}px` : ""));
@@ -3603,6 +3607,7 @@ function renderTransferList() {
     ...[...state.transfers.values()].map((t) => ({ key: `transfer ${t.id}`, t })),
     ...state.stopped.filter((e) => !live.has(e.path)).map((e) => ({ key: `stopped ${e.path}`, stopped: e })),
     ...state.downloads.map((d) => ({ key: `download ${d.id}`, d })),
+    ...state.browserDownloads.map((w) => ({ key: `web ${w.id}`, w })),
   ];
   keyed($("#transfers"), list, { key: (b) => b.key, kind: barKind, make: makeTransferRow, show: showTransferRow });
   if (!transfersView.hidden) renderTransfersView(list);
@@ -3620,11 +3625,13 @@ function makeTransferRow(b) {
 function showTransferRow(row, b) {
   const [name, bar] = row.children;
   bar.item = b;
-  if (b.stopped) showStoppedBar(bar, b.stopped);
+  if (b.w) showWebBar(bar, b.w);
+  else if (b.stopped) showStoppedBar(bar, b.stopped);
   else if (b.d) showDownloadBar(bar, b.d);
   else showTransferBar(bar, b.t);
   let what;
-  if (b.stopped) what = `${b.stopped.copying.op === "move" ? "Moving" : "Copying"} ${b.stopped.path.split("/").pop()}`;
+  if (b.w) what = b.w.name;
+  else if (b.stopped) what = `${b.stopped.copying.op === "move" ? "Moving" : "Copying"} ${b.stopped.path.split("/").pop()}`;
   else if (b.d) what = b.d.name;
   else what = `${{ move: "Moving", delete: "Deleting" }[b.t.op] ?? "Copying"} ${b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop()}`;
   put(name, "textContent", what);
@@ -3651,6 +3658,11 @@ function transferTip(b) {
   const of = (done, total) => (total ? `${formatSize(done)} of ${formatSize(total)}` : "");
   const line = (...parts) => parts.filter(Boolean).join(" · ");
   const when = (label, ms) => (ms ? `${label} ${whenText(ms)}` : "");
+  if (b.w) {
+    const w = b.w, going = w.state === "downloading";
+    return [line(`${w.app}: ${going ? "downloading" : "paused or stalled"}`, w.total ? of(w.bytes, w.total) : formatSize(w.bytes),
+      going && w.speed ? `${formatSize(w.speed)}/s` : "", going && w.eta != null ? `${formatDuration(w.eta)} left` : ""), when("Started", w.started)].filter(Boolean).join("\n");
+  }
   if (b.stopped) {
     const c = b.stopped.copying;
     return [line(`${c.op === "move" ? "Move" : "Copy"} stopped at ${c.percent}%`, of(c.bytes, c.total)), when("Stopped", c.updated)].filter(Boolean).join("\n");
@@ -3676,6 +3688,10 @@ function goToTransfer(b) {
   if (b.stopped) {
     initialSelect = [b.stopped.path];
     return navigate(parentOf(b.stopped.path));
+  }
+  if (b.w) {
+    initialSelect = [b.w.path];
+    return navigate(parentOf(b.w.path));
   }
   const dir = b.d ? b.d.dir : b.t.dest;
   const made = b.d ? (b.d.files?.length ? b.d.files.map((f) => f.path) : [b.d.path]).filter((p) => p?.startsWith(dir + "/")).map((p) => topIn(dir, p))
@@ -3738,13 +3754,20 @@ function makeTransferCard(b) {
 function showTransferCard(card, b) {
   const bar = card.querySelector(".transfer-bar");
   bar.item = b;
-  if (b.stopped) showStoppedBar(bar, b.stopped);
+  if (b.w) showWebBar(bar, b.w);
+  else if (b.stopped) showStoppedBar(bar, b.stopped);
   else if (b.d) showDownloadBar(bar, b.d);
   else showTransferBar(bar, b.t);
-  const what = b.stopped ? b.stopped.path.split("/").pop() : b.d ? b.d.name : b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop();
+  const what = b.w ? b.w.name : b.stopped ? b.stopped.path.split("/").pop() : b.d ? b.d.name : b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop();
   put(card.querySelector(".tv-name"), "textContent", what);
   let state, where, facts;
-  if (b.stopped) {
+  if (b.w) {
+    const w = b.w, going = w.state === "downloading";
+    state = `${w.app}: ${going ? "downloading" : "paused or stalled"}`;
+    where = `Into ${w.dir}`;
+    facts = [w.total ? `${formatSize(w.bytes)} of ${formatSize(w.total)}` : formatSize(w.bytes), going && w.speed ? `↓ ${formatSize(w.speed)}/s` : "",
+      going && w.eta != null ? `${formatDuration(w.eta)} left` : "", w.started ? `started ${whenText(w.started)}` : "", "(phil can't pause or stop it: the browser can)"];
+  } else if (b.stopped) {
     const c = b.stopped.copying;
     state = `${c.op === "move" ? "Moving" : "Copying"} stopped at ${c.percent}%`;
     where = `To ${parentOf(b.stopped.path)}`;
@@ -3854,7 +3877,7 @@ $("#tv-dir-here").onclick = () => {
 };
 
 const partDone = (b) => b.d.state === "completed" || (b.part?.length != null && b.part.downloaded >= b.part.length);
-const barKind = (b) => (b.d ? (partDone(b) ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
+const barKind = (b) => (b.w ? "web" : b.d ? (partDone(b) ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
 
 // A download's files, and the folders in it (below the folder it goes to),
 // each with how much of it there is and how much is downloaded: path ->
@@ -3952,6 +3975,19 @@ function showDownloadBar(bar, d, part = null) {
 // A copy's speed and time left (server.js: bytes/s and seconds), after `sep`; "" when not known.
 const copySpeed = (t, sep) => (t.speed ? `${sep}${formatSize(t.speed)}/s` : "") + (t.speed && t.eta != null ? `${sep}${formatDuration(t.eta)} left` : "");
 
+// Another program's download (a browser's): how far (its size known: from the browser's
+// History), how fast; a size unknown, a moving stripe.
+function showWebBar(bar, w) {
+  const going = w.state === "downloading", known = w.percent != null;
+  bar.classList.toggle("paused", !going);
+  bar.classList.toggle("unknown", !known && going);
+  put(bar.querySelector(".fill").style, "width", known ? `${w.percent}%` : "100%");
+  const amount = known ? `${w.percent}%` : formatSize(w.bytes);
+  put(bar.querySelector(".pct"), "textContent", going ? `${amount}${w.speed ? ` · ${formatSize(w.speed)}/s` : ""}` : inSidebar(bar) ? amount : `Stalled ${amount}`);
+  put(bar, "title", `${w.app}: ${w.name}, ${known ? `${formatSize(w.bytes)} of ${formatSize(w.total)}` : formatSize(w.bytes)}` +
+    (going ? `${w.speed ? `, ${formatSize(w.speed)}/s` : ""}${w.eta != null ? `, ${formatDuration(w.eta)} left` : ""}` : " (paused or stalled)"));
+}
+
 function formatDuration(s) {
   if (s < 60) return `${Math.round(s)} s`;
   if (s < 3600) return `${Math.round(s / 60)} min`;
@@ -3978,6 +4014,8 @@ function makeTransferBar(kind) {
     // Downloaded (an icon), and while it's seeding, ↑ and how fast.
     label.innerHTML = `${icon("l:download")}<span class="seeding">${icon("l:arrow-up")}<span></span></span>`;
     bar.append(barButton("×", "", () => stopDownloadPart(bar.item)));
+  } else if (kind === "web") {
+    bar.classList.add("download", "web"); // another program's: no buttons (phil can't pause or stop it)
   } else if (kind === "download") {
     bar.classList.add("download");
     const act = (action) => api("/api/download", { method: "POST", body: JSON.stringify({ action, id: bar.item.d.id }) }).catch((err) => alert(err.message));
