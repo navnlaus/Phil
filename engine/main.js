@@ -219,7 +219,9 @@ async function serve({ profile = {}, request = null, browser = false, standalone
   const openWindow = ({ open, startupId }) => {
     const app = launchers[open?.app];
     if (!app) return console.error(`${NAME}: no app called ${open?.app}`);
-    windows.openWindow(windowUrl(open), { appId: app.appId + (profile.incognito ? "-incognito" : ""), app: open.app, startupId });
+    // Its class: the app's, a variant's (phil --choose: phil-choose), incognito's.
+    const appId = app.appId + (open.variant ? `-${open.variant}` : "") + (profile.incognito ? "-incognito" : "");
+    windows.openWindow(windowUrl(open), { appId, app: open.app, startupId });
   };
 
   if (profile.incognito) console.log(`${NAME}: incognito`);

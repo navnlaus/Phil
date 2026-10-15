@@ -273,7 +273,7 @@ export function createServer({ profile, controlSocket }) {
         });
       case "GET /api/list": {
         const listing = await listDir(requirePath(path), url.searchParams.get("sort") ?? "name");
-        rememberDir(listing.path);
+        if (url.searchParams.get("remember") !== "0") rememberDir(listing.path); // (not a file chooser's)
         return json(listing);
       }
       case "GET /file":

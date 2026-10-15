@@ -752,7 +752,7 @@ async function load(path) {
   let slow = false;
   const slowTimer = setTimeout(() => ((slow = true), flashStatus(`Opening ${path.split("/").pop() || path}…`, 60_000)), 300);
   try {
-    listing = await api(`/api/list?path=${encodeURIComponent(path)}&sort=${state.settings.sort}`);
+    listing = await api(`/api/list?path=${encodeURIComponent(path)}&sort=${state.settings.sort}${choosing ? "&remember=0" : ""}`);
   } catch (err) {
     debug(`load ${path} failed after ${Math.round(performance.now() - started)} ms: ${err.message}`);
     if (thisLoad !== loads) return; // another is shown by now
@@ -846,7 +846,7 @@ async function refresh() {
     return;
   }
   const path = state.path;
-  refreshing = api(`/api/list?path=${encodeURIComponent(path)}&sort=${state.settings.sort}`).catch(() => null);
+  refreshing = api(`/api/list?path=${encodeURIComponent(path)}&sort=${state.settings.sort}${choosing ? "&remember=0" : ""}`).catch(() => null);
   const listing = await refreshing;
   refreshing = null;
   if (listing && state.path === path && !renaming) {
@@ -4370,7 +4370,7 @@ refreshSpeeds(); // the drives' last speed tests, for their tooltips
 loadCameras(); // the network cameras found so far (looked for again with the sidebar's refresh button)
 thumbs.connect();
 
-restoreTerminal = state.settings.termOpen;
+restoreTerminal = state.settings.termOpen && !choosing; // (a file chooser: just the folder)
 // Files to select, from ?select= (phil file..., "Show in folder"); dropped from
 // the URL so they aren't reselected later.
 const selectParams = new URLSearchParams(location.search).getAll("select");
