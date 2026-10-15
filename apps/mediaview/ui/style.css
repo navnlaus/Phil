@@ -148,6 +148,15 @@ body.detail .mv-page { right: var(--mv-detail); }
 .mv-d-actions .primary svg { width: 15px; height: 15px; margin: -2px 6px 0 0; vertical-align: middle; fill: currentColor; }
 .mv-d-actions svg { width: 14px; height: 14px; }
 .mv-d-files { margin: 14px 0 18px; display: flex; flex-direction: column; gap: 2px; }
+/* A show's seasons: a click opens or closes one. */
+.mv-season { display: flex; align-items: center; gap: 6px; width: 100%; height: 32px; margin-top: 4px; padding: 0 6px; border-radius: 6px; font-weight: 600; text-align: left; }
+.mv-season .hint { margin: 0 0 0 4px; font-weight: normal; font-size: 12px; }
+.mv-season .chev { width: 14px; height: 14px; color: var(--text-dim); transition: transform 0.15s; }
+.mv-season[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.mv-season.none { color: var(--text-dim); }
+.mv-season-eps { display: flex; flex-direction: column; gap: 2px; }
+.mv-season-eps:not(:empty) { margin-bottom: 8px; }
+.mv-loading { margin: 4px 0 4px 32px; }
 .mv-d-files h4 { display: flex; align-items: baseline; gap: 8px; margin: 14px 0 6px; font-size: 13px; }
 .mv-d-files h4:first-child { margin-top: 4px; }
 .mv-d-files h4 .hint { margin: 0; font-weight: normal; font-size: 12px; }

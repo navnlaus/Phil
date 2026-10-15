@@ -885,7 +885,9 @@ every episode, with its title and rating, the ones that are there and the
 ones that aren't, watched (✓) and started (◐). With a "Media download search
 engine URL" in phil's Preferences (`mediaSearchUrl`; `%s` where the search
 goes, or it's added at the end), a missing episode has a link that opens it in
-the browser, searching for the show and the episode ("Stranger Things S03E04"). Two copies of a movie are one
+the browser, searching for the show and the episode ("Stranger Things S03E04"). A
+show's seasons open and close with a click: those with episodes here open,
+the others (every one IMDb lists) closed, their episodes looked up when opened. Two copies of a movie are one
 movie. Downloads into a media folder (panda-dl's torrents and web downloads,
 a browser's) show from the moment they start, matched like the rest (a
 magnet still fetching its metadata, by its name): a ↓ and how far on the title,

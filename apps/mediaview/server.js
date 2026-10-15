@@ -8,6 +8,7 @@
 //   GET  /api/media/events       IMDb's status as it changes, and (event "downloads") how far
 //                                each video being downloaded into a media folder is (server-sent events)
 //   GET  /api/media/search?q=    titles, picking one by hand
+//   GET  /api/media/season?id=&season=  a show's season none of which is here: its episodes
 //   PUT  /api/media/fix          {key, id}: what the files named so are (an IMDb id; 0: none; null: matched again)
 //   GET  /api/media/poster?path= a video's thumbnail
 //   POST /api/open-url           {url}: a web page (an IMDb link, a missing episode's search), in the default browser
@@ -27,7 +28,7 @@ import { Thumbnailer } from "../phil/thumbs.js";
 import { feed } from "../phil/downloadfeed.js";
 import { mediaKind } from "../../engine/media.js";
 import * as imdb from "./imdb.js";
-import { library, loadMatches, prepare, unsavedMatches } from "./media.js";
+import { library, loadMatches, prepare, seasonEpisodes, unsavedMatches } from "./media.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 
@@ -189,6 +190,11 @@ export function createServer({ profile = {}, controlSocket = null }) {
             },
           });
           return new Response(body, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
+        }
+        case "GET /api/media/season": {
+          const id = Number(url.searchParams.get("id")), season = Number(url.searchParams.get("season"));
+          if (!Number.isInteger(id) || !Number.isInteger(season)) throw httpError(400, "id and season, numbers");
+          return json(seasonEpisodes(id, season));
         }
         case "GET /api/media/search":
           return json(imdb.search(url.searchParams.get("q") ?? "").map((t) => ({ ...t, imdb: imdb.tconst(t.id) })));
