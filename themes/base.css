@@ -286,3 +286,18 @@
   outline: 2px solid var(--accent);
   outline-offset: 0;
 }
+
+/* Scrollbars in Blink (Chromium-based browsers' windows; kit.js marks the page):
+   thin and trackless, wider under the pointer, near WebKitGTK's (which overlay
+   the page; Blink's take a strip of their own, so it's a narrow one). */
+html.blink ::-webkit-scrollbar { width: 8px; height: 8px; }
+html.blink ::-webkit-scrollbar-track, html.blink ::-webkit-scrollbar-corner { background: transparent; }
+html.blink ::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 35%, transparent) padding-box;
+}
+html.blink ::-webkit-scrollbar-thumb:hover, html.blink ::-webkit-scrollbar-thumb:active {
+  border-width: 1px;
+  background-color: color-mix(in srgb, var(--text) 55%, transparent);
+}
