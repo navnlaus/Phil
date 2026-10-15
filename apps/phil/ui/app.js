@@ -3523,18 +3523,52 @@ function makeTransferRow(b) {
 function showTransferRow(row, b) {
   const [name, bar] = row.children;
   bar.item = b;
+  if (b.stopped) showStoppedBar(bar, b.stopped);
+  else if (b.d) showDownloadBar(bar, b.d);
+  else showTransferBar(bar, b.t);
+  let what, where;
   if (b.stopped) {
     const c = b.stopped.copying;
-    showStoppedBar(bar, b.stopped);
-    put(name, "textContent", `${c.op === "move" ? "Moving" : "Copying"} ${b.stopped.path.split("/").pop()}`);
-    put(row, "title", `From ${c.from}\nTo ${parentOf(b.stopped.path)}\nClick: show it there`);
-    return;
+    what = `${c.op === "move" ? "Moving" : "Copying"} ${b.stopped.path.split("/").pop()}`;
+    where = `From ${c.from}\nTo ${parentOf(b.stopped.path)}`;
+  } else if (b.d) {
+    what = b.d.name;
+    where = `${b.d.path ?? b.d.dir}`;
+  } else {
+    const items = b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop();
+    what = `${{ move: "Moving", delete: "Deleting" }[b.t.op] ?? "Copying"} ${items}`;
+    where = b.t.op === "delete" ? `In ${b.t.dest}` : ""; // (a copy's details say where to)
   }
-  if (b.d) showDownloadBar(bar, b.d);
-  else showTransferBar(bar, b.t);
-  const what = b.d ? b.d.name : b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop();
-  put(name, "textContent", b.d ? what : `${{ move: "Moving", delete: "Deleting" }[b.t.op] ?? "Copying"} ${what}`);
-  put(row, "title", b.d ? `${b.d.path ?? b.d.dir}\nClick: show it in ${b.d.dir}` : `${b.t.op === "delete" ? "Deleting in" : "To"} ${b.t.dest}\nClick: show it there`);
+  put(name, "textContent", what);
+  // Hovering the row (its bar too) says what's happening first, then the bar's details and where.
+  const details = bar.getAttribute("title");
+  bar.removeAttribute("title");
+  put(row, "title", [transferState(b), details, where, `Click: show it ${b.d ? `in ${b.d.dir}` : "there"}`].filter(Boolean).join("\n"));
+}
+
+// What's happening to a transfer, in a few words: "Copy paused", "Move stopped at 95%", "Download paused"...
+function transferState(b) {
+  if (b.stopped) {
+    const c = b.stopped.copying;
+    return `${c.op === "move" ? "Move" : "Copy"} stopped at ${c.percent}% (phil was closed, or it was stopped): ↻ resumes it`;
+  }
+  if (b.t) {
+    const t = b.t;
+    if (t.op === "delete") return t.counting ? "Counting what to delete" : "Deleting";
+    return `${t.op === "move" ? "Move" : "Copy"} ${t.paused ? "paused" : "under way"}`;
+  }
+  const d = b.d;
+  if (d.checking != null) return `Download: checking its files (${d.checking}%)`;
+  return {
+    paused: "Download paused",
+    completed: d.upSpeed > 0 ? "Downloaded, seeding" : "Downloaded",
+    error: `Download failed${d.error ? `: ${d.error}` : ""}`,
+    failed: `Download failed${d.error ? `: ${d.error}` : ""}`,
+    queued: "Download queued",
+    metadata: "Download: finding the torrent",
+    initializing: "Download starting",
+    starting: "Download starting",
+  }[d.state] ?? "Downloading";
 }
 
 // The folder a transfer goes to (a delete's: the one it's deleting in), with what it's making selected.
