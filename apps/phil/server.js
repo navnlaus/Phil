@@ -327,7 +327,7 @@ export function createServer({ profile, controlSocket }) {
       case "GET /preview":
         return imagePreview(requirePath(path), url.searchParams.get("size") ?? "2560");
       case "POST /api/open":
-        return openExternal(await req.json());
+        return openExternal(await req.json(), config.incognito);
       case "POST /api/delete": {
         const paths = (await req.json()).paths ?? [];
         await downloads.deleting(paths); // a download writing them stops (with nothing left of it: it's removed)
@@ -483,9 +483,6 @@ export function createServer({ profile, controlSocket }) {
         return json(await pickTheme((await req.json()).theme));
       case "POST /api/themes": // {name}: a new one, from the template
         return json(await newTheme((await req.json()).name));
-      case "POST /api/debug-log": // {lines}: what the page recorded (ui/app.js, DEBUG_CLICKS), into phil's log
-        for (const line of ((await req.json()).lines ?? []).slice(0, 200)) console.error(`phil page: ${String(line).slice(0, 300)}`);
-        return json({ ok: true });
       case "PUT /api/settings": { // a window's settings; ?chooser=1: a file chooser's own (its "chooser" key), the rest kept
         if (config.incognito) return json({ ok: true }); // incognito: this session only
         const body = await req.json(), saved = await readSettings();
@@ -1899,9 +1896,11 @@ async function freeName(path) {
   }
 }
 
-function openExternal({ path, app }) {
+function openExternal({ path, app }, incognito) {
   requirePath(path);
-  const [cmd, ...args] = app === "mpv" ? ["mpv", "--", path] : ["xdg-open", path];
+  // (Incognito: mpv doesn't remember where it was either.)
+  const mpv = ["mpv", ...(incognito ? ["--save-position-on-quit=no", "--no-resume-playback"] : []), "--", path];
+  const [cmd, ...args] = app === "mpv" ? mpv : ["xdg-open", path];
   const child = new Deno.Command(cmd, { args, stdin: "null", stdout: "null", stderr: "null" }).spawn();
   child.unref();
   child.status.catch(() => {});

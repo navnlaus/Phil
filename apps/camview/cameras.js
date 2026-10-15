@@ -232,9 +232,7 @@ export function discover({ force = false } = {}) {
     try {
       const known = await load();
       const extra = known.filter((c) => c.added && !c.hidden && c.type !== "rtsp" && c.type !== "page").map((c) => `${c.host}:${c.port}`); // (not streams added by URL)
-      console.error(`phil: TEMPORARY looking for cameras (${new Date().toTimeString().slice(0, 8)})`);
       const found = await onvif.discover({ extra });
-      console.error(`phil: TEMPORARY cameras looked for (${new Date().toTimeString().slice(0, 8)})`);
       let changed = false;
       const foundIds = new Set(found.map((f) => idOf(f.host, f.port)));
       // Not found in the sweep: asked twice more, given longer (a camera on Wi-Fi

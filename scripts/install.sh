@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds phil-engine and installs it with its apps to ~/.local/bin:
 #  - phil-engine, the engine, and a small command per app (phil, jsonedit,
-#    textedit, imageview, imageresize, camview, and phil-editor, which picks jsonedit
+#    textedit, imageview, videoplayer, imageresize, camview, and phil-editor, which picks jsonedit
 #    or textedit for a file)
 #  - the themes (shared styles, phil's tile themes) in ~/.config/phil/themes,
 #    where they can be edited; open windows follow the edits
@@ -12,7 +12,8 @@
 #  - on Omarchy, a widget for its bar: copies, moves and deletes under way
 #  - desktop entries for jsonedit, textedit and imageview, the default apps for
 #    JSON, text and image files (what xdg-open, browsers' download lists and
-#    file pickers use), and for imageresize, offered under "Open with"
+#    file pickers use), and for videoplayer and imageresize, offered under
+#    "Open with"
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -25,14 +26,14 @@ install -Dm755 phil-engine "$engine"
 # The themes, where they can be edited (~/.config/phil/themes).
 "$engine" --install-themes
 # An app's command runs the engine with the app's name.
-for app in phil jsonedit textedit imageview imageresize camview phil-editor; do
+for app in phil jsonedit textedit imageview videoplayer imageresize camview phil-editor; do
   printf '#!/bin/sh\nexec "%s" %s "$@"\n' "$engine" "$app" > "$bindir/$app.tmp"
   chmod 755 "$bindir/$app.tmp"
   mv -f "$bindir/$app.tmp" "$bindir/$app"
 done
 
 install -d "$data/applications" "$data/dbus-1/services"
-for entry in phil jsonedit textedit imageview imageresize camview; do
+for entry in phil jsonedit textedit imageview videoplayer imageresize camview; do
   sed "s|@BIN@|$bindir/$entry|g" "data/$entry.desktop" > "$data/applications/$entry.desktop"
 done
 sed "s|@BIN@|$bindir/phil|g" data/org.freedesktop.FileManager1.service > "$data/dbus-1/services/org.freedesktop.FileManager1.service"

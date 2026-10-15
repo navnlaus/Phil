@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=videoplayer
+GenericName=Video Player
+Comment=Play a video, and the others in its folder
+Exec=@BIN@ %f
+Icon=video-x-generic
+Terminal=false
+Categories=AudioVideo;Video;Player;
+Keywords=video;player;movie;mp4;mkv;
+MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;video/x-ms-wmv;video/x-flv;video/mpeg;video/mp2t;video/3gpp;video/ogg;video/x-m4v;
+StartupWMClass=videoplayer

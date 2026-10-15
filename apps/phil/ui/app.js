@@ -16,8 +16,6 @@ const filterInput = $("#filter");
 const sortSelect = $("#sort");
 const hiddenButton = $("#btn-hidden");
 const zoomInput = $("#zoom");
-const viewerEl = $("#viewer");
-const stage = viewerEl.querySelector(".stage");
 const contextMenu = $("#context");
 
 const KIND_ICON = { dir: "folder", image: "image", video: "video", pdf: "file", file: "file" };
@@ -84,7 +82,6 @@ function lucideIcon(name) {
   }
   return id;
 }
-const fileUrl = (path) => `/file?path=${encodeURIComponent(path)}`;
 
 // Elements are kept in step with their data rather than rebuilt: rebuilding a
 // panel or a tile made everything in it blink (and lost a click landing on it).
@@ -153,8 +150,7 @@ function formatDate(ms) {
 }
 
 async function api(path, options) {
-  const asked = performance.now(); // TEMPORARY (slow first clicks): requests over 300 ms logged
-  const res = await fetch(path, options).finally(() => performance.now() - asked > 300 && debug(`slow request: ${path.slice(0, 120)} ${Math.round(performance.now() - asked)} ms (asked at ${Math.round(asked)}ms)`));
+  const res = await fetch(path, options);
   if (!res.ok) throw Object.assign(new Error((await res.text()) || res.statusText), { status: res.status });
   return res.json();
 }
@@ -705,39 +701,6 @@ new ResizeObserver(redrawTexts).observe(grid);
 
 // ---------------------------------------------------------------- navigation
 
-// TEMPORARY, looking into first clicks in the sidebar that do nothing: what
-// happens to clicks there, the window's focus, and folder loads, timed from
-// the page's start, to phil's log ($XDG_RUNTIME_DIR/phil/main.log), a batch a second.
-const DEBUG_CLICKS = true;
-const debugLines = [];
-const debug = (text) => DEBUG_CLICKS && debugLines.push(`${Math.round(performance.now())}ms ${text}`);
-if (DEBUG_CLICKS) {
-  setInterval(() => debugLines.length && fetch("/api/debug-log", { method: "POST", body: JSON.stringify({ lines: debugLines.splice(0) }) }).catch(() => {}), 1000);
-  const where = (e) => {
-    const a = e.target.closest?.("#places a, #cameras a");
-    return a ? (a.dataset.path ?? a.dataset.camera ?? a.textContent.trim()) : e.target.closest?.("#sidebar") ? "sidebar (no place)" : null;
-  };
-  for (const type of ["pointerdown", "pointerup", "click", "mousedown", "mouseup"]) {
-    addEventListener(type, (e) => {
-      const w = where(e);
-      if (w) debug(`${type} on ${w} button=${e.button} focused=${document.hasFocus()} prevented=${e.defaultPrevented}`);
-    }, true);
-  }
-  addEventListener("focus", () => debug("window focus"));
-  // The page busy (nothing else runs then: a click waits): any stretch over 300 ms.
-  let tick = performance.now();
-  setInterval(() => {
-    const now = performance.now();
-    if (now - tick > 400) debug(`page busy for ${Math.round(now - tick - 100)} ms`);
-    tick = now;
-  }, 100);
-  grid.addEventListener("dblclick", (e) => debug(`dblclick on tile ${e.target.closest?.(".tile")?.querySelector(".name")?.textContent ?? "(none)"}`), true);
-  addEventListener("blur", () => debug("window blur"));
-  addEventListener("hashchange", () => debug(`hashchange → ${decodeURIComponent(location.hash.slice(1))}`), true);
-  debug(`page start, hash ${decodeURIComponent(location.hash.slice(1)) || "(none)"}`);
-  setTimeout(() => debug(`protocols: ${[...new Set(performance.getEntriesByType("resource").map((r) => r.nextHopProtocol || "?"))].join(", ")} (page: ${performance.getEntriesByType("navigation")[0]?.nextHopProtocol || "?"})`), 3000);
-}
-
 function navigate(path) {
   closeTransfersView(); // a folder opened: shown
   if (path === loading) return; // clicked again while it opens (a drive waking up)
@@ -756,8 +719,6 @@ async function load(path) {
   if (state.path) scrollPositions.set(state.path, grid.scrollTop);
   const previous = state.path;
   let listing;
-  const started = performance.now();
-  debug(`load ${path} (showing ${previous})`);
   // Taken at once: its place in the sidebar lit, and, when it takes a while, a word that it's coming.
   loading = path;
   const thisLoad = ++loads;
@@ -767,7 +728,6 @@ async function load(path) {
   try {
     listing = await api(`/api/list?path=${encodeURIComponent(path)}&sort=${state.settings.sort}${choosing ? "&remember=0" : ""}`);
   } catch (err) {
-    debug(`load ${path} failed after ${Math.round(performance.now() - started)} ms: ${err.message}`);
     if (thisLoad !== loads) return; // another is shown by now
     showGridMessage(`Can't open ${path}: ${err.message}`);
     return;
@@ -777,7 +737,6 @@ async function load(path) {
     if (loading === path) loading = null;
   }
   if (thisLoad !== loads) return; // another was asked for meanwhile
-  debug(`load ${path} listed in ${Math.round(performance.now() - started)} ms (${listing.entries.length} entries)`);
   state.path = listing.path;
   terminal.follow(listing.path);
   state.entries = listing.entries;
@@ -796,9 +755,7 @@ async function load(path) {
 
   // Coming up from a child folder: select it, like other file managers do.
   const selectPath = previous && parentOf(previous) === listing.path ? previous : null;
-  const drawing = performance.now();
   render(selectPath);
-  debug(`load ${listing.path}: grid drawn in ${Math.round(performance.now() - drawing)} ms (${state.view.length} tiles)`);
   grid.scrollTop = selectPath ? grid.scrollTop : scrollPositions.get(listing.path) ?? 0;
   if (selectPath) tiles.get(selectPath)?.scrollIntoView({ block: "center" });
   // Don't steal focus from the terminal when the view follows a `cd` typed there.
@@ -852,9 +809,8 @@ function onFolderChanged({ changed, folders }) {
 
 async function refresh() {
   if (refreshing) return void (refreshAgain = true);
-  // Not while renaming, dragging or viewing (the viewer goes by position in
-  // the list): try again in a moment.
-  if (renaming || band?.active || drag?.active || !viewerEl.hidden) {
+  // Not while renaming or dragging: try again in a moment.
+  if (renaming || band?.active || drag?.active) {
     refreshLater ??= setTimeout(() => (refreshLater = null, refresh()), 700);
     return;
   }
@@ -1747,8 +1703,7 @@ function open(index) {
   }
   if (entry.kind === "dir") navigate(entry.path);
   else if (entry.kind === "image") openInApp("imageview", { file: entry.path, sort: state.settings.sort });
-  // mpv plays everything; WebKit's player stalls on some files (NVIDIA decoding).
-  else if (entry.kind === "video") openExternal(entry.path, "mpv");
+  else if (entry.kind === "video") openInApp("videoplayer", { file: entry.path, sort: state.settings.sort });
   else if (entry.kind === "pdf") openExternal(entry.path);
   else if (isJson(entry)) openInApp("jsonedit", { file: entry.path });
   else if (isDocument(entry)) openInApp("textedit", { file: entry.path }); // to read, as Markdown; "Open with default app" to edit
@@ -1825,10 +1780,10 @@ if (choosing) {
   name.addEventListener("input", updateChooser);
   name.addEventListener("keydown", (e) => e.stopPropagation()); // the name's keys, not the folder's (Enter saves)
   // Esc cancels, as a dialog's: anywhere in the window, unless something over it takes it
-  // first (a menu, a dialog, the viewer, an app shown, renaming, the filter cleared).
+  // first (a menu, a dialog, an app shown, renaming, the filter cleared).
   addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || e.defaultPrevented || choosing.answered) return;
-    if (!contextMenu.hidden || dialogOpen() || !viewerEl.hidden || !appView.hidden || renaming) return;
+    if (!contextMenu.hidden || dialogOpen() || !appView.hidden || renaming) return;
     e.preventDefault();
     answerChoice([]);
   });
@@ -1870,7 +1825,7 @@ async function openFile(entry) {
 }
 
 // Another app (jsonedit) shown in this window, over the folder, like the
-// viewer. Its close button (or Esc) comes back here.
+// Transfers view. Its close button (or Esc) comes back here.
 const appView = $("#app-view");
 
 let focusBeforeApp = null; // where the keyboard goes back to: the grid, or the terminal it was opened from
@@ -1912,75 +1867,11 @@ addEventListener("message", (e) => {
     frame.contentWindow.postMessage({ engine: "focus" }, "*"); // now it can focus its view (kit.js holdFocus)
   } else if (e.data?.engine === "close") {
     closeApp();
-  } else if (e.data?.app === "imageview" && e.data.showing) { // the image it shows: selected here, for when it closes
+  } else if ((e.data?.app === "imageview" || e.data?.app === "videoplayer") && e.data.showing) { // the image or video it shows: selected here, for when it closes
     const i = state.view.findIndex((v) => v.path === e.data.showing);
     if (i !== -1) select(i);
   }
 });
-
-// "Play here": a video in this window (mpv plays everything else; images open
-// in imageview).
-const viewer = {
-  index: -1,
-
-  open(index) {
-    viewerEl.hidden = false;
-    this.show(index);
-  },
-
-  close() {
-    stage.replaceChildren(); // stops video playback
-    viewerEl.hidden = true;
-    if (document.fullscreenElement) document.exitFullscreen();
-    grid.focus({ preventScroll: true });
-  },
-
-  step(dir) {
-    for (let i = this.index + dir; i >= 0 && i < state.view.length; i += dir) {
-      if (state.view[i].kind === "video") return this.show(i);
-    }
-  },
-
-  show(index) {
-    const entry = state.view[index];
-    this.index = index;
-    select(index);
-    stage.replaceChildren();
-    const failed = (msg) => {
-      const el = document.createElement("div");
-      el.className = "message";
-      el.textContent = msg;
-      stage.replaceChildren(el);
-    };
-
-    const video = document.createElement("video");
-    video.controls = true;
-    video.autoplay = true;
-    video.onerror = () =>
-      failed("This video can't be played here — GStreamer is probably missing a codec\n(gst-plugins-good / gst-libav). Use mpv instead.");
-    // WebKit's player waits forever on some files instead of failing, e.g.
-    // Matroska files with embedded subtitles.
-    setTimeout(() => {
-      if (video.isConnected && video.readyState === 0) failed("This video doesn't load in the built-in player (files with embedded\nsubtitles don't). Use mpv instead.");
-    }, 6000);
-    video.src = fileUrl(entry.path);
-    stage.append(video);
-    video.focus();
-
-    viewerEl.querySelector(".caption").textContent =
-      `${entry.name}   ·   ${formatSize(entry.size)}   ·   ${formatDate(entry.mtime)}`;
-  },
-};
-
-viewerEl.querySelector(".close").onclick = () => viewer.close();
-viewerEl.querySelector(".prev").onclick = () => viewer.step(-1);
-viewerEl.querySelector(".next").onclick = () => viewer.step(1);
-viewerEl.querySelector(".open-ext").onclick = () => openExternal(state.view[viewer.index].path);
-viewerEl.querySelector(".open-mpv").onclick = () => {
-  const path = state.view[viewer.index].path;
-  viewer.close();
-  openExternal(path, "mpv");
-};
 
 // ---------------------------------------------------------------- deleting
 
@@ -2154,8 +2045,8 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "dir" && remoteOf(entry.path)) items.push([`SSH here (${remoteOf(entry.path).host})`, () => sshTo(entry.path)]);
   if (entry.kind === "image") items.push(["View", () => open(state.view.indexOf(entry))]);
   if (entry.kind === "image") items.push(["Resize, crop, compress…", () => openInApp("imageresize", { file: entry.path })]);
+  if (entry.kind === "video") items.push(["Play here", () => openInApp("videoplayer", { file: entry.path, sort: state.settings.sort })]);
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
-  if (entry.kind === "video") items.push(["Play here", () => viewer.open(state.view.indexOf(entry))]);
   if (isJson(entry)) items.push(["Edit in jsonedit", () => openInApp("jsonedit", { file: entry.path })]);
   if (isJson(entry) || tiles.get(entry.path)?.firstElementChild.text) items.push(["Add to Config", () => addToConfig(entry)]);
   items.push(...clipItems(entry));
@@ -2985,7 +2876,6 @@ $("#places").addEventListener("click", (e) => {
   const a = e.target.closest("a[data-path]");
   if (!a || e.button !== 0 || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey || e.defaultPrevented) return;
   e.preventDefault();
-  debug(`opening ${a.dataset.path} (sidebar click)`);
   navigate(a.dataset.path);
 });
 
@@ -4423,7 +4313,7 @@ document.addEventListener("keydown", (e) => {
   if (!appView.hidden && e.key === "Escape") return askAppToClose(), e.preventDefault(), e.stopPropagation();
   // Esc closes the Transfers view, wherever the keyboard is (not a menu or dialog over it).
   if (!transfersView.hidden && e.key === "Escape" && contextMenu.hidden && !dialogOpen()) return closeTransfersView(), e.preventDefault(), e.stopPropagation();
-  if (!viewerEl.hidden || !appView.hidden || dialogOpen()) return;
+  if (!appView.hidden || dialogOpen()) return;
   if (isToggleKey(e)) toggleTerminal();
   else if (isFocusKey(e) && e.key === "ArrowDown") setTerminalOpen(true);
   else if (isFocusKey(e)) grid.focus({ preventScroll: true });
@@ -4459,18 +4349,6 @@ document.addEventListener("keydown", (e) => {
   }
   if (!contextMenu.hidden && e.key === "Escape") return hideContextMenu(), handled();
   if (e.target.closest?.("#term-panel")) return; // keys typed into the shell are the shell's
-
-  if (!viewerEl.hidden) {
-    const inVideo = e.target.tagName === "VIDEO";
-    if (e.key === "Escape") viewer.close();
-    else if (e.key === "ArrowRight" && !inVideo) viewer.step(1);
-    else if (e.key === "ArrowLeft" && !inVideo) viewer.step(-1);
-    else if (e.key === "PageDown") viewer.step(1);
-    else if (e.key === "PageUp") viewer.step(-1);
-    else if (e.key === "f") document.fullscreenElement ? document.exitFullscreen() : viewerEl.requestFullscreen();
-    else return;
-    return handled();
-  }
 
   if (e.altKey && e.key === "ArrowLeft") return history.back(), handled();
   if (e.altKey && e.key === "ArrowRight") return history.forward(), handled();
