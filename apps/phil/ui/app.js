@@ -1155,11 +1155,32 @@ function showFolderInfo(tile, entry) {
   if (box.dataset.look !== look || !box.firstChild) fillFolderFace(box, summary, previews, entry);
   box.dataset.look = look;
   const meta = tile.querySelector(".meta");
-  // Before its summary (which waits for its pictures' thumbnails), its total size if that's in.
-  meta.textContent = summary ? folderContents(summary, entry.total) : entry.total?.bytes !== undefined ? formatSize(entry.total.bytes) : "";
-  tile.title = entry.name + (meta.textContent ? `\n${meta.textContent}` : "") + titleNotes(entry);
+  // Before its summary (which waits for its pictures' thumbnails), its total size if that's in;
+  // being copied into, its size as the copy goes (copySize).
+  const live = copySize(entry);
+  const total = live?.total ?? entry.total;
+  put(meta, "textContent", live?.text ?? (summary ? folderContents(summary, total) : total?.bytes !== undefined ? formatSize(total.bytes) : ""));
+  put(tile, "title", entry.name + (meta.textContent ? `\n${meta.textContent}` : "") + titleNotes(entry));
   showMarks(tile, entry);
   tile.classList.toggle("empty-dir", !!summary && !summary.files && !summary.dirs);
+}
+
+// A folder being copied into, its size from the copy's progress: the folder a copy (of
+// one item) is making, "120 GB of 289 GB"; the folder it goes into, its size when the
+// copy was first seen here and what's been copied since. Null: not being copied into.
+const copyBases = new Map(); // transfer id -> {base: the folder's size then, bytes: the copy's then}
+function copySize(entry) {
+  for (const t of state.transfers.values()) {
+    if (t.op === "delete" || t.preparing) continue;
+    if (t.targets?.length === 1 && t.targets[0] === entry.path) {
+      return { text: `${formatSize(t.bytes)} of ${formatSize(t.total)}${t.paused ? " (paused)" : ""}` };
+    }
+    if (t.dest === entry.path && entry.total?.bytes !== undefined) {
+      const seen = copyBases.get(t.id) ?? copyBases.set(t.id, { base: entry.total.bytes, bytes: t.bytes }).get(t.id);
+      return { total: { bytes: seen.base + Math.max(0, t.bytes - seen.bytes) } };
+    }
+  }
+  return null;
 }
 
 // Without pictures, a folder's own icon (Properties), else one for what it holds.
@@ -3631,9 +3652,16 @@ async function loadStoppedTransfers() {
 }
 
 function onTransfer(p) {
-  if (p.finished) state.transfers.delete(p.id);
+  const was = state.transfers.get(p.id);
+  if (p.finished) state.transfers.delete(p.id), copyBases.delete(p.id);
   else state.transfers.set(p.id, p);
   showTransfers();
+  // The folders it's copying into: their size lines as it goes (copySize).
+  const t = p.finished ? was : p;
+  for (const path of t ? [...(t.targets ?? []), t.dest] : []) {
+    const tile = tiles.get(path), entry = tile && state.view[tile.dataset.index];
+    if (entry?.kind === "dir" && entry.path === path) showFolderInfo(tile, entry);
+  }
 }
 
 function showTransfers() {
