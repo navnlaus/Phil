@@ -459,8 +459,13 @@ function showContinueCard(card, { x, next }) {
   put(card.querySelector(".mv-bar > span").style, "width", `${Math.round(p * 100)}%`);
 }
 
-// One title's details: what it is, playing it, its files (a show's seasons and episodes), and its match.
+// One title's details: what it is, playing it, its files (a show's seasons and
+// episodes), and its match. Shown again for the same title (the library
+// reloaded: a download started or finished, a video watched), it's updated in
+// place: its rows kept for their data (keyed), the scroll where it was, seasons
+// open as they were, what's typed in the match's search kept.
 function openMediaDetail(x) {
+  const same = media.open === mediaKey(x) && !mediaDetail.hidden;
   media.open = mediaKey(x);
   media.openKey = x.key;
   mediaDetail.hidden = false;
@@ -470,17 +475,17 @@ function openMediaDetail(x) {
   const poster = d(".mv-d-poster"), src = posterUrl(x);
   d(".mv-d-hero").classList.toggle("empty", !src || noPicture.has(src));
   putSrc(poster, src);
-  d(".mv-d-title").textContent = x.title;
-  d(".mv-d-facts").textContent = mediaMeta(x);
-  d(".mv-d-genres").textContent = (x.genres ?? []).join(" · ");
+  put(d(".mv-d-title"), "textContent", x.title);
+  put(d(".mv-d-facts"), "textContent", mediaMeta(x));
+  put(d(".mv-d-genres"), "textContent", (x.genres ?? []).join(" \u00b7 "));
 
   const next = nextToPlay(x), playButton = d(".mv-d-play");
   playButton.hidden = !next;
   if (next) {
     const t = typeof next.file.watched === "number" ? next.file.watched : 0;
-    playButton.innerHTML = icon("play");
-    playButton.append(next.episode ? `${t ? "Resume" : "Play"} ${episodeName(next.episode)}` : t ? `Resume (${Math.round(t / 60)} min in)` : "Play");
-    playButton.title = next.file.path;
+    const label = next.episode ? `${t ? "Resume" : "Play"} ${episodeName(next.episode)}` : t ? `Resume (${Math.round(t / 60)} min in)` : "Play";
+    if (playButton.textContent !== label) (playButton.innerHTML = icon("play")), playButton.append(label);
+    put(playButton, "title", next.file.path);
     playButton.onclick = () => playMedia(next.file);
   }
   const imdbButton = d(".mv-d-imdb");
@@ -488,74 +493,87 @@ function openMediaDetail(x) {
   if (!imdbButton.querySelector("svg")) imdbButton.insertAdjacentHTML("beforeend", icon("external-link"));
   imdbButton.onclick = () => api("api/open-url", { method: "POST", body: JSON.stringify({ url: `https://www.imdb.com/title/${x.imdb}/` }) }).catch((err) => alert(err.message));
 
-  const files = d(".mv-d-files");
-  files.replaceChildren();
-  if (isShow(x)) {
-    // Each season, opened or not with a click: those with episodes here open, the rest closed
-    // (their episodes fetched when opened).
-    for (const season of x.seasons) {
-      const total = season.episodes?.length ?? season.total, have = (season.episodes ?? []).filter((e) => e.files.length).length;
-      const h = Object.assign(document.createElement("button"), { type: "button", className: "mv-season" + (have ? "" : " none") });
-      h.innerHTML = `<svg class="chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>`;
-      h.append(season.season === null ? "Episodes" : `Season ${season.season}`, Object.assign(document.createElement("span"), { className: "hint", textContent: have ? `${have} of ${total} here` : `none of ${total} here` }));
-      const box = Object.assign(document.createElement("div"), { className: "mv-season-eps" });
-      files.append(h, box);
-      const show = async (open) => {
-        h.setAttribute("aria-expanded", String(open));
-        seasonOpen(x, season.season, open);
-        if (!open) return box.replaceChildren();
-        if (!season.episodes) {
-          box.replaceChildren(Object.assign(document.createElement("p"), { className: "hint mv-loading", textContent: "Its episodes\u2026" }));
-          season.episodes = await api(`api/media/season?id=${x.id}&season=${season.season}`).catch(() => []);
-          if (!h.isConnected || h.getAttribute("aria-expanded") !== "true") return void (season.episodes.length || (season.episodes = null));
-        }
-        box.replaceChildren(...season.episodes.map((e) => episodeRow(x, e)));
-      };
-      h.onclick = () => show(h.getAttribute("aria-expanded") !== "true");
-      show(seasonOpen(x, season.season) ?? have > 0);
-    }
-  } else {
-    const h = document.createElement("h4");
-    h.textContent = x.files.length > 1 ? `${x.files.length} copies` : "File";
-    files.append(h);
-    for (const f of x.files) {
-      const row = document.createElement("div");
-      row.className = "mv-file" + (f.offline ? " offline" : "");
-      row.innerHTML = `<div class="mv-f-main"><span class="mv-f-what"></span><span class="mv-f-name"></span></div><button type="button" class="icon mv-f-play" title="Play">${icon("play")}</button><button type="button" class="icon mv-f-show" title="Show it in its folder">${icon("folder-open")}</button>`;
-      row.querySelector(".mv-f-what").textContent = [f.quality, f.source, formatSize(f.size), f.watched === "done" ? "watched" : typeof f.watched === "number" ? `${Math.round(f.watched / 60)} min in` : "", f.offline ? "its drive isn't there" : ""].filter(Boolean).join(" · ");
-      row.querySelector(".mv-f-name").textContent = f.path.split("/").pop();
-      row.querySelector(".mv-f-name").title = f.path;
-      row.querySelector(".mv-f-play").disabled = row.querySelector(".mv-f-show").disabled = f.offline;
-      if (downloadOf(f)) { // being downloaded: how far, not played yet
-        row.classList.add("downloading");
-        row.dataset.dl = f.path;
-        row.querySelector(".mv-f-main").insertAdjacentHTML("beforeend", `<span class="mv-f-dl"><span class="mv-bar dl"><span></span></span><span class="t"></span></span>`);
-        showFileDownload(row, f);
-      }
-      row.querySelector(".mv-f-play").onclick = () => playMedia(f);
-      row.querySelector(".mv-f-show").onclick = () => showMediaFile(f);
-      row.querySelector(".mv-f-show").title = `Show it in its folder:\n${f.path.slice(0, f.path.lastIndexOf("/")) || "/"}${f.offline ? "\n(its drive isn't there)" : ""}`;
-      files.append(row);
-    }
-  }
+  showDetailFiles(x);
 
   // Its match: out of the way when it's sure.
-  const from = `“${x.parsed.title}${x.parsed.year ? ` (${x.parsed.year})` : ""}”`;
+  const from = `\u201c${x.parsed.title}${x.parsed.year ? ` (${x.parsed.year})` : ""}\u201d`;
   const fix = d(".mv-d-fix");
-  fix.open = x.match !== "sure";
-  d(".mv-d-fix summary").textContent = x.fixed ? "Picked by hand" : x.match === "sure" ? `Matched from ${from}. Not right?` : x.match === "guess" ? `A guess, from ${from}: is it right?` : `Not found in IMDb's titles, from ${from}`;
+  put(d(".mv-d-fix summary"), "textContent", x.fixed ? "Picked by hand" : x.match === "sure" ? `Matched from ${from}. Not right?` : x.match === "guess" ? `A guess, from ${from}: is it right?` : `Not found in IMDb's titles, from ${from}`);
   d(".mv-d-again").hidden = !x.fixed;
   d(".mv-d-again").onclick = () => fixMedia(x, null);
-  d(".mv-d-none").onclick = () => confirm(`Leave “${x.title}” out of the Media view? (Its files stay where they are.)`) && fixMedia(x, 0);
+  d(".mv-d-none").onclick = () => confirm(`Leave \u201c${x.title}\u201d out of the Media view? (Its files stay where they are.)`) && fixMedia(x, 0);
   const search = d(".mv-d-search");
-  search.value = "";
-  d(".mv-d-results").replaceChildren();
   search.oninput = () => {
     clearTimeout(search.timer);
     search.timer = setTimeout(() => findMediaTitles(x, search.value), 250);
   };
+  if (same) return;
+  fix.open = x.match !== "sure";
+  search.value = "";
+  d(".mv-d-results").replaceChildren();
   mediaDetail.scrollTop = 0;
 }
+
+// The details' files: a show's seasons (each opened or not), or a movie's copies.
+function showDetailFiles(x) {
+  const files = mediaDetail.querySelector(".mv-d-files");
+  const mode = isShow(x) ? "show" : "movie";
+  if (files.dataset.mode !== mode || files.dataset.title !== mediaKey(x)) {
+    files.replaceChildren();
+    files.dataset.mode = mode;
+    files.dataset.title = mediaKey(x);
+  }
+  if (mode === "show") return keyed(files, x.seasons, { key: (s) => String(s.season), make: makeSeason, show: (el, s) => showSeason(el, x, s) });
+  let head = files.querySelector(":scope > h4");
+  if (!head) files.prepend((head = document.createElement("h4")));
+  put(head, "textContent", x.files.length > 1 ? `${x.files.length} copies` : "File");
+  keyed(files, x.files, { key: (f) => f.path, kind: (f) => (downloadOf(f) ? "downloading" : ""), make: makeFileRow, show: showFileRow });
+}
+
+// A season: its heading (a click opens or closes it), and its episodes when it's open. Those with
+// episodes here start open, the rest closed: their episodes (none here) fetched when opened, and kept.
+const seasonCache = new Map(); // "<show's id> <season>" -> its episodes (none of them here)
+
+function makeSeason() {
+  const el = document.createElement("div");
+  el.className = "mv-season-wrap";
+  el.innerHTML = `<button type="button" class="mv-season"><svg class="chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg><span class="name"></span><span class="hint"></span></button><div class="mv-season-eps"></div>`;
+  el.firstElementChild.onclick = () => openSeason(el, el.firstElementChild.getAttribute("aria-expanded") !== "true");
+  return el;
+}
+
+function showSeason(el, x, s) {
+  el.show = x;
+  const eps = s.episodes ?? seasonCache.get(`${x.id} ${s.season}`) ?? null;
+  const total = eps?.length ?? s.total, have = (s.episodes ?? []).filter((e) => e.files.length).length;
+  const h = el.firstElementChild;
+  h.classList.toggle("none", !have);
+  put(h.querySelector(".name"), "textContent", s.season === null ? "Episodes" : `Season ${s.season}`);
+  put(h.querySelector(".hint"), "textContent", have ? `${have} of ${total} here` : `none of ${total} here`);
+  openSeason(el, seasonOpen(x, s.season) ?? have > 0, false);
+}
+
+async function openSeason(el, open, remember = true) {
+  const x = el.show, s = el.item, h = el.firstElementChild, box = el.lastElementChild;
+  h.setAttribute("aria-expanded", String(open));
+  if (remember) seasonOpen(x, s.season, open);
+  if (!open) return box.replaceChildren();
+  const cached = `${x.id} ${s.season}`;
+  let eps = s.episodes ?? seasonCache.get(cached);
+  if (!eps) {
+    if (!box.querySelector(".mv-loading")) box.replaceChildren(Object.assign(document.createElement("p"), { className: "hint mv-loading", textContent: "Its episodes\u2026" }));
+    eps = await api(`api/media/season?id=${x.id}&season=${s.season}`).catch(() => null);
+    if (!eps) return;
+    seasonCache.set(cached, eps);
+    if (!el.isConnected || h.getAttribute("aria-expanded") !== "true") return;
+  }
+  box.querySelector(".mv-loading")?.remove();
+  keyed(box, eps, { key: (e) => String(e.episode), kind: episodeKind, make: makeEpisodeRow, show: (row, e) => showEpisodeRow(row, el.show, e) });
+}
+
+// An episode's file here (one that plays first), if any.
+const episodeFile = (e) => e.files.find(playable) ?? e.files.find((g) => !g.offline) ?? e.files[0];
+const episodeKind = (e) => (!episodeFile(e) ? "missing" : downloadOf(episodeFile(e)) ? "downloading" : "here");
 
 // A missing episode's link: the download search engine (phil's Preferences) for
 // "<show> S01E01", in the browser. Null when there's none set.
@@ -582,33 +600,40 @@ function seasonOpen(x, season, open) {
 }
 
 // An episode in a show's details: its number, title and rating, and whether it's here (watched,
-// started, being downloaded), or a search link for it when it isn't.
-function episodeRow(x, e) {
-  const f = e.files.find(playable) ?? e.files.find((g) => !g.offline) ?? e.files[0];
+// started, being downloaded), or a search link for it when it isn't. (row.f: its file.)
+function makeEpisodeRow() {
   const row = document.createElement("div");
-  row.className = "mv-ep" + (f ? "" : " missing") + (f?.offline ? " offline" : "");
+  row.className = "mv-ep";
   row.innerHTML = `<span class="mv-ep-n"><span class="n"></span>${icon("play", "p")}</span><span class="mv-ep-title"></span><span class="mv-ep-rating"></span><span class="mv-ep-state"></span>`;
-  row.querySelector(".n").textContent = e.episode ?? "";
-  row.querySelector(".mv-ep-title").textContent = e.title ?? (f ? f.path.split("/").pop() : "");
-  row.querySelector(".mv-ep-rating").textContent = e.rating ? `\u2605 ${e.rating.toFixed(1)}` : "";
-  const state = !f ? "" : f.offline ? "\u23cf" : f.watched === "done" ? "\u2713" : typeof f.watched === "number" ? "\u25d0" : "";
-  row.querySelector(".mv-ep-state").textContent = state;
-  row.querySelector(".mv-ep-state").title = { "\u23cf": "Its drive isn't there", "\u2713": "Watched", "\u25d0": "Started" }[state] ?? "";
-  if (f && downloadOf(f)) { // being downloaded: how far, not played yet
+  row.onclick = () => row.f && playable(row.f) && playMedia(row.f);
+  row.oncontextmenu = (ev) => row.f && (ev.preventDefault(), showMediaFile(row.f));
+  return row;
+}
+
+function showEpisodeRow(row, x, e) {
+  const f = (row.f = episodeFile(e));
+  row.classList.toggle("missing", !f);
+  row.classList.toggle("offline", !!f?.offline);
+  put(row.querySelector(".n"), "textContent", String(e.episode ?? ""));
+  put(row.querySelector(".mv-ep-title"), "textContent", e.title ?? (f ? f.path.split("/").pop() : ""));
+  put(row.querySelector(".mv-ep-rating"), "textContent", e.rating ? `\u2605 ${e.rating.toFixed(1)}` : "");
+  if (!f) {
+    put(row, "title", "Not here");
+    if (!row.querySelector(".mv-ep-search")) {
+      const search = searchLink(x, e);
+      if (search) row.querySelector(".mv-ep-state").replaceWith(search);
+    }
+    return;
+  }
+  if (downloadOf(f)) { // being downloaded: how far, not played yet
     row.classList.add("downloading");
     row.dataset.dl = f.path;
-    showEpisodeDownload(row, f);
-    row.oncontextmenu = (ev) => (ev.preventDefault(), showMediaFile(f));
-  } else if (f) {
-    row.title = `${f.path}\n${[f.quality, f.source, formatSize(f.size)].filter(Boolean).join(" \u00b7 ")}${f.offline ? "\nIts drive isn't there" : "\nClick: play. Right-click: show it in its folder"}`;
-    row.onclick = () => !f.offline && playMedia(f);
-    row.oncontextmenu = (ev) => (ev.preventDefault(), showMediaFile(f));
-  } else {
-    row.title = "Not here";
-    const search = searchLink(x, e);
-    if (search) row.querySelector(".mv-ep-state").replaceWith(search);
+    return showEpisodeDownload(row, f);
   }
-  return row;
+  const state = f.offline ? "\u23cf" : f.watched === "done" ? "\u2713" : typeof f.watched === "number" ? "\u25d0" : "";
+  put(row.querySelector(".mv-ep-state"), "textContent", state);
+  put(row.querySelector(".mv-ep-state"), "title", { "\u23cf": "Its drive isn't there", "\u2713": "Watched", "\u25d0": "Started" }[state] ?? "");
+  put(row, "title", `${f.path}\n${[f.quality, f.source, formatSize(f.size)].filter(Boolean).join(" \u00b7 ")}${f.offline ? "\nIts drive isn't there" : "\nClick: play. Right-click: show it in its folder"}`);
 }
 
 function showEpisodeDownload(row, f) {
@@ -618,11 +643,36 @@ function showEpisodeDownload(row, f) {
   put(row, "title", `${f.path}\n${downloadText(d)}\nRight-click: show it in its folder`);
 }
 
+// A movie's copy: its quality, size and name; play it, or show it in its folder (or how far it's downloaded).
+function makeFileRow(f) {
+  const row = document.createElement("div");
+  row.className = "mv-file";
+  row.innerHTML = `<div class="mv-f-main"><span class="mv-f-what"></span><span class="mv-f-name"></span></div><button type="button" class="icon mv-f-play" title="Play">${icon("play")}</button><button type="button" class="icon mv-f-show">${icon("folder-open")}</button>`;
+  if (downloadOf(f)) { // (made again when that changes: its kind)
+    row.classList.add("downloading");
+    row.dataset.dl = f.path;
+    row.querySelector(".mv-f-main").insertAdjacentHTML("beforeend", `<span class="mv-f-dl"><span class="mv-bar dl"><span></span></span><span class="t"></span></span>`);
+  }
+  row.querySelector(".mv-f-play").onclick = () => playMedia(row.item);
+  row.querySelector(".mv-f-show").onclick = () => showMediaFile(row.item);
+  return row;
+}
+
+function showFileRow(row, f) {
+  row.classList.toggle("offline", !!f.offline);
+  put(row.querySelector(".mv-f-what"), "textContent", [f.quality, f.source, formatSize(f.size), f.watched === "done" ? "watched" : typeof f.watched === "number" ? `${Math.round(f.watched / 60)} min in` : "", f.offline ? "its drive isn't there" : ""].filter(Boolean).join(" \u00b7 "));
+  put(row.querySelector(".mv-f-name"), "textContent", f.path.split("/").pop());
+  put(row.querySelector(".mv-f-name"), "title", f.path);
+  row.querySelector(".mv-f-play").disabled = row.querySelector(".mv-f-show").disabled = !!f.offline;
+  put(row.querySelector(".mv-f-show"), "title", `Show it in its folder:\n${f.path.slice(0, f.path.lastIndexOf("/")) || "/"}${f.offline ? "\n(its drive isn't there)" : ""}`);
+  showFileDownload(row, f);
+}
+
 function showFileDownload(row, f) {
   const d = downloadOf(f);
   if (!d) return;
   row.querySelector(".mv-f-play").disabled = true;
-  row.querySelector(".mv-f-play").title = "Not till it's downloaded";
+  put(row.querySelector(".mv-f-play"), "title", "Not till it's downloaded");
   put(row.querySelector(".mv-f-dl .mv-bar > span").style, "width", `${Math.round((d.progress ?? 0) * 100)}%`);
   put(row.querySelector(".mv-f-dl .t"), "textContent", downloadText(d));
 }
