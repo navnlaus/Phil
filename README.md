@@ -344,7 +344,7 @@ stop.
   (click the Transfers heading).
 - Any other program can show its downloads there by writing a progress report
   to `$XDG_RUNTIME_DIR/phil/transfers/<name>.json` (`apps/phil/browserdownloads.js`
-  has the format): Streamgrab, a Brave extension that downloads the videos and
+  has the format): [Streamgrab](https://github.com/navnlaus/streamgrab), a Brave extension that downloads the videos and
   streams a page plays, does.
 
 ### Settings
