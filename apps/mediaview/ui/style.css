@@ -147,7 +147,8 @@ body.detail .mv-page { right: var(--mv-detail); }
 .mv-d-files h4 .hint { margin: 0; font-weight: normal; font-size: 12px; }
 .mv-ep { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto 16px; gap: 10px; align-items: center; min-height: 30px; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
 .mv-ep:hover { background: var(--bg-hover); }
-.mv-ep.missing { opacity: 0.38; cursor: default; }
+.mv-ep.missing { cursor: default; }
+.mv-ep.missing > :not(.mv-ep-search) { opacity: 0.38; } /* (its search link: not dimmed) */
 .mv-ep.missing:hover, .mv-ep.offline:hover { background: none; }
 .mv-ep.offline { opacity: 0.6; cursor: default; }
 .mv-ep-n { display: grid; place-items: center; color: var(--text-dim); font-variant-numeric: tabular-nums; }
@@ -158,6 +159,9 @@ body.detail .mv-page { right: var(--mv-detail); }
 .mv-ep-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mv-ep-rating { color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
 .mv-ep-state { color: var(--good); text-align: center; }
+.mv-ep-search { width: 22px; height: 22px; margin: -3px -3px; color: var(--text-dim); }
+.mv-ep-search:hover:not(:disabled) { color: var(--accent); background: var(--bg-hover); }
+.mv-ep-search svg { width: 14px; height: 14px; }
 .mv-file { display: flex; align-items: center; gap: 4px; padding: 8px 6px 8px 12px; border-radius: 8px; background: var(--bg-raised); }
 .mv-file + .mv-file { margin-top: 4px; }
 .mv-file.offline { opacity: 0.6; }

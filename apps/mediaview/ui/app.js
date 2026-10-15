@@ -474,7 +474,11 @@ function openMediaDetail(x) {
           row.title = `${f.path}\n${[f.quality, f.source, formatSize(f.size)].filter(Boolean).join(" · ")}${f.offline ? "\nIts drive isn't there" : "\nClick: play. Right-click: show it in its folder"}`;
           row.onclick = () => !f.offline && playMedia(f);
           row.oncontextmenu = (ev) => (ev.preventDefault(), showMediaFile(f));
-        } else row.title = "Not here";
+        } else {
+          row.title = "Not here";
+          const search = searchLink(x, e);
+          if (search) row.querySelector(".mv-ep-state").replaceWith(search);
+        }
         files.append(row);
       }
     }
@@ -513,6 +517,22 @@ function openMediaDetail(x) {
     search.timer = setTimeout(() => findMediaTitles(x, search.value), 250);
   };
   mediaDetail.scrollTop = 0;
+}
+
+// A missing episode's link: the download search engine (phil's Preferences) for
+// "<show> S01E01", in the browser. Null when there's none set.
+function searchLink(x, e) {
+  const url = media.lib?.searchUrl;
+  if (!url || e.season == null || e.episode == null) return null;
+  const query = `${x.title} S${String(e.season).padStart(2, "0")}E${String(e.episode).padStart(2, "0")}`;
+  const page = url.includes("%s") ? url.replaceAll("%s", encodeURIComponent(query)) : url + encodeURIComponent(query);
+  const b = Object.assign(document.createElement("button"), { type: "button", className: "icon mv-ep-search", title: `Search for \u201c${query}\u201d\n${new URL(page).host}` });
+  b.innerHTML = icon("link");
+  b.onclick = (ev) => {
+    ev.stopPropagation();
+    api("api/open-url", { method: "POST", body: JSON.stringify({ url: page }) }).catch((err) => alert(err.message));
+  };
+  return b;
 }
 
 function closeMediaDetail() {
