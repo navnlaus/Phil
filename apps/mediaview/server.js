@@ -2,7 +2,7 @@
 // (phil's metadata.json: a folder's Properties), IMDb's datasets (imdb.js),
 // and the videos' pictures (phil's thumbnails, shared with it). Runs in the
 // engine's server worker (engine/server.js).
-//   GET  /api/media              the movies and shows (library())
+//   GET  /api/media              the movies and shows (library()); ?cached=1: as they were last time, at once
 //   GET  /api/media/status       IMDb's datasets: there, being updated
 //   POST /api/media/update       download them (again) and build the database
 //   GET  /api/media/events       the status as it changes (server-sent events)
@@ -24,7 +24,7 @@ import { serverConfig } from "../phil/launch.js";
 import { Hooks, metadataFile } from "../phil/hooks.js";
 import { Thumbnailer } from "../phil/thumbs.js";
 import * as imdb from "./imdb.js";
-import { library, prepare } from "./media.js";
+import { library, loadMatches, prepare, unsavedMatches } from "./media.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 
@@ -34,6 +34,21 @@ export function createServer({ profile = {}, controlSocket = null }) {
   const hooks = new Hooks(metadataFile(config.settingsFile), { persist: !config.incognito }); // (phil's: a folder's Properties)
   const stateFile = join(dirname(config.stateFile), "media.json");
   const positionsFile = join(dirname(config.stateFile), "videoplayer-positions.json");
+  // Titles matched (media.js), and the library as it was last shown (opened again, it shows at once).
+  const matchesFile = join(dirname(config.stateFile), "media-matches.json");
+  const lastFile = join(dirname(config.stateFile), "media-library.json");
+  const matchesLoaded = Deno.readTextFile(matchesFile).then((t) => loadMatches(JSON.parse(t)), () => {});
+  const writeJson = async (file, data) => {
+    if (config.incognito) return;
+    await Deno.mkdir(dirname(file), { recursive: true });
+    const tmp = `${file}.${crypto.randomUUID().slice(0, 8)}.tmp`;
+    await Deno.writeTextFile(tmp, JSON.stringify(data));
+    await Deno.rename(tmp, file);
+  };
+  const saveMatches = async () => {
+    const changed = unsavedMatches();
+    if (changed) await writeJson(matchesFile, changed).catch(() => {});
+  };
   const listeners = new Set(); // /api/media/events
   const tell = () => {
     const line = new TextEncoder().encode(`data: ${JSON.stringify(imdb.status())}\n\n`);
@@ -50,13 +65,7 @@ export function createServer({ profile = {}, controlSocket = null }) {
     const state = await Deno.readTextFile(stateFile).then(JSON.parse, () => ({}));
     return { fixes: state.fixes ?? {}, remembered: state.remembered ?? {} };
   };
-  const saveState = async (state) => {
-    if (config.incognito) return;
-    await Deno.mkdir(dirname(stateFile), { recursive: true });
-    const tmp = `${stateFile}.${crypto.randomUUID().slice(0, 8)}.tmp`;
-    await Deno.writeTextFile(tmp, JSON.stringify(state));
-    await Deno.rename(tmp, stateFile);
-  };
+  const saveState = (state) => writeJson(stateFile, state);
 
   // Folders being made ready (prepare()): root -> {progress, listeners}. Asked
   // again while it is (another window), the same one is followed.
@@ -80,7 +89,9 @@ export function createServer({ profile = {}, controlSocket = null }) {
     };
     (async () => {
       try {
+        await matchesLoaded;
         const files = await prepare(root, { poster: (path) => thumbs.get(path), onProgress: (p) => send(p) });
+        await saveMatches();
         const state = await readState();
         state.remembered[root] = files;
         await saveState(state);
@@ -102,18 +113,24 @@ export function createServer({ profile = {}, controlSocket = null }) {
     const roots = Object.entries(meta).filter(([, m]) => m?.media === true).map(([p]) => p).sort();
     const state = await readState();
     const watched = await Deno.readTextFile(positionsFile).then(JSON.parse, () => ({}));
+    await matchesLoaded;
     const lib = await library(roots, { fixes: state.fixes, watched, remembered: state.remembered });
+    await saveMatches();
     const remembered = Object.fromEntries(roots.map((r) => [r, lib.scanned[r] ?? state.remembered[r]]).filter(([, files]) => files));
     if (JSON.stringify(remembered) !== JSON.stringify(state.remembered)) await saveState({ ...state, remembered });
     delete lib.scanned;
-    return { imdb: imdb.status(), roots: roots.map((path) => ({ path, online: lib.online[path] })), ...lib };
+    const out = { roots: roots.map((path) => ({ path, online: lib.online[path] })), ...lib };
+    writeJson(lastFile, out).catch(() => {});
+    return { imdb: imdb.status(), ...out };
   }
 
   return {
     async handle(req, url) {
       switch (`${req.method} ${url.pathname}`) {
-        case "GET /api/media":
-          return json(await mediaLibrary());
+        case "GET /api/media": {
+          const last = url.searchParams.get("cached") === "1" ? await Deno.readTextFile(lastFile).then(JSON.parse, () => null) : null;
+          return json(last ? { imdb: imdb.status(), cached: true, ...last } : await mediaLibrary());
+        }
         case "GET /api/media/status":
           return json(imdb.status());
         case "POST /api/media/update":
