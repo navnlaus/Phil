@@ -517,12 +517,15 @@ function onThumbReady(path, url, busy = false) {
 // to type too small to read, drawn as bars; the rest is cut off). Markdown
 // headings stay large enough to read either way. The text is kept on the tile's box; its canvas is dropped when far away
 // and redrawn when tiles change size.
-function showText(tile, entry) {
+// `again`: its file changed: read again quietly (the old text stays till the new one's
+// there; not counted in the status bar), not shown as loading.
+function showText(tile, entry, { again = false } = {}) {
   const box = tile.firstElementChild;
   if (box.text) return box.querySelector(":scope > canvas") || drawText(box);
   if (box.text === null) return; // not text
-  box.classList.add("loading");
-  thumbs.want(entry.path);
+  if (thumbs.wanted.has(entry.path)) return; // asked for already (read again: no loading look)
+  if (!again) box.classList.add("loading");
+  thumbs.want(entry.path, { quiet: again });
 }
 
 function onTextReady(path, text) {
@@ -911,8 +914,8 @@ function render(selectPath = state.view[state.selected]?.path) {
     let tile = old.get(entry.path);
     if (tile?.dataset.shape === tileShape(entry) && !tile.classList.contains("renaming")) {
       old.delete(entry.path);
-      tile.dataset.index = i;
-      tile.classList.remove("selected");
+      put(tile.dataset, "index", String(i));
+      if (tile.classList.contains("selected")) tile.classList.remove("selected");
       updateTile(tile, entry);
     } else {
       tile = makeTile(entry, i);
@@ -1011,7 +1014,7 @@ function refreshPreview(tile, entry) {
   const near = isNear(tile);
   if (entry.kind === "file") {
     box.text = undefined; // its text read again (and drawn over the old)
-    if (near) showText(tile, entry);
+    if (near) showText(tile, entry, { again: true });
   } else if (typeof entry.thumb === "string") {
     if (box.querySelector("img") || near) setThumbImage(box, entry.thumb);
   } else if (entry.thumb === null && near && !askAgain.has(entry.path)) {
@@ -1070,7 +1073,7 @@ function makeTile(entry, index) {
 function showMarks(tile, entry) {
   const desc = tile.querySelector(".label .desc");
   const description = entry.description ?? carried.get(entry.path) ?? ""; // phil's, or the file's own
-  desc.textContent = description;
+  put(desc, "textContent", description);
   tile.classList.toggle("has-desc", !!description);
   showTileTags(tile, entry);
   showState(tile, entry);
