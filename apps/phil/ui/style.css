@@ -941,6 +941,8 @@ body.no-transfers #transfers-panel, body.no-cameras #cameras-panel { display: no
 #transfers-panel.empty { display: none; }
 #prefs-view [hidden] { display: none; }
 #prefs-view select { max-width: 280px; }
+#prefs-media-search { width: 100%; max-width: 480px; }
+#prefs-view .hint.error { color: var(--error); }
 #prefs-view .tv-field .check + .hint { margin-top: 2px; }
 .prefs-tagging { display: flex; flex-direction: column; gap: 4px; }
 .prefs-tagging .dim { color: var(--text-dim); }

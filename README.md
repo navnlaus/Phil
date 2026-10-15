@@ -882,7 +882,10 @@ genre, and found by name. What's been started comes first, under "Continue
 watching": a movie where videoplayer left it, a show's episode not finished or
 the one after the last watched, played with a click. A show's seasons list
 every episode, with its title and rating, the ones that are there and the
-ones that aren't, watched (✓) and started (◐). Two copies of a movie are one
+ones that aren't, watched (✓) and started (◐). With a "Media download search
+engine URL" in phil's Preferences (`mediaSearchUrl`; `%s` where the search
+goes, or it's added at the end), a missing episode has a link that opens it in
+the browser, searching for the show and the episode ("Stranger Things S03E04"). Two copies of a movie are one
 movie. Click one for its details: Play (or Resume, or a show's next episode),
 its copies (play one, or show it in its folder), its IMDb page; a play button
 on each picture plays it straight away. Videos play in videoplayer, shown in

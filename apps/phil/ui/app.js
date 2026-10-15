@@ -1738,6 +1738,8 @@ async function openPrefsView() {
   settingsButton.setAttribute("aria-pressed", "true");
   prefsView.querySelector(".tv-head .close").focus({ preventScroll: true });
   const s = state.settings;
+  $("#prefs-media-search").value = s.mediaSearchUrl ?? "";
+  for (const el of prefsView.querySelectorAll(".prefs-media-search")) el.hidden = !mediaViewOn();
   for (const input of prefsView.querySelectorAll("[data-pref]")) input.checked = "off" in input.dataset ? s[input.dataset.pref] === true : s[input.dataset.pref] !== false;
   showTaggingPrefs();
   // Another browser named in the settings file (a name or a path): kept, and shown.
@@ -1767,13 +1769,31 @@ for (const input of prefsView.querySelectorAll("[data-pref]")) {
     if ("off" in input.dataset) input.checked ? (state.settings[key] = true) : delete state.settings[key]; // (off unless set)
     else state.settings[key] = input.checked;
     applySettings();
-    if (key === "mediaView") return setMediaViewOn(input.checked);
+    if (key === "mediaView") {
+      for (const el of prefsView.querySelectorAll(".prefs-media-search")) el.hidden = !input.checked;
+      return setMediaViewOn(input.checked);
+    }
     if (!/^tag|^autoTag/.test(key)) return saveSettings(0);
     await saveSettingsNow(); // the server reads them when it tags
     showTaggingPrefs();
     retag();
   };
 }
+
+// Where mediaview's links for missing episodes search (mediaSearchUrl): a web address, %s for what's searched.
+const mediaSearchInput = $("#prefs-media-search");
+function saveMediaSearch() {
+  const url = mediaSearchInput.value.trim();
+  const error = mediaSearchInput.parentElement.querySelector(".error");
+  error.hidden = !url || /^https?:\/\/\S+$/.test(url);
+  error.textContent = "A web address, starting with https:// (or http://)";
+  if (!error.hidden || url === (state.settings.mediaSearchUrl ?? "")) return;
+  if (url) state.settings.mediaSearchUrl = url;
+  else delete state.settings.mediaSearchUrl;
+  saveSettings(0);
+}
+mediaSearchInput.onchange = saveMediaSearch;
+mediaSearchInput.onkeydown = (e) => e.key === "Enter" && (e.preventDefault(), mediaSearchInput.blur());
 
 // Auto-tagging, if it's set up (scripts/install-tagging.sh; --documents for
 // text and Markdown files): what's tagged, which folders, and the tag lists.

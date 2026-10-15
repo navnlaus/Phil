@@ -9,7 +9,7 @@
 //   GET  /api/media/search?q=    titles, picking one by hand
 //   PUT  /api/media/fix          {key, id}: what the files named so are (an IMDb id; 0: none; null: matched again)
 //   GET  /api/media/poster?path= a video's thumbnail
-//   POST /api/open-url           {url}: a web page (an IMDb link), in the default browser
+//   POST /api/open-url           {url}: a web page (an IMDb link, a missing episode's search), in the default browser
 //   POST /api/show               {path}: a file in its folder, in a phil window (mediaview on its own)
 //   POST /api/media/prepare      {path}: a folder just marked as media, made ready (prepare()): its
 //                                progress as lines of JSON ({phase, done, total, title}), then {finished, total} or {error}
@@ -127,9 +127,11 @@ export function createServer({ profile = {}, controlSocket = null }) {
   return {
     async handle(req, url) {
       switch (`${req.method} ${url.pathname}`) {
-        case "GET /api/media": {
+        case "GET /api/media": { // (and where a missing episode's link searches: phil's Preferences, mediaSearchUrl)
           const last = url.searchParams.get("cached") === "1" ? await Deno.readTextFile(lastFile).then(JSON.parse, () => null) : null;
-          return json(last ? { imdb: imdb.status(), cached: true, ...last } : await mediaLibrary());
+          const settings = await Deno.readTextFile(config.settingsFile).then(JSON.parse, () => ({}));
+          const searchUrl = /^https?:\/\/\S+$/.test(settings.mediaSearchUrl ?? "") ? settings.mediaSearchUrl : null;
+          return json({ ...(last ? { imdb: imdb.status(), cached: true, ...last } : await mediaLibrary()), searchUrl });
         }
         case "GET /api/media/status":
           return json(imdb.status());
@@ -164,7 +166,7 @@ export function createServer({ profile = {}, controlSocket = null }) {
         }
         case "POST /api/open-url": {
           const { url: page } = await req.json();
-          if (!/^https:\/\/\S+$/.test(String(page))) throw httpError(400, "A web address (https://…)");
+          if (!/^https?:\/\/\S+$/.test(String(page))) throw httpError(400, "A web address (https://…)");
           const child = new Deno.Command("xdg-open", { args: [page], stdin: "null", stdout: "null", stderr: "null" }).spawn();
           child.unref();
           child.status.catch(() => {});

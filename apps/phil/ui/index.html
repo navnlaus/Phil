@@ -159,6 +159,12 @@
               <label class="check"><input type="checkbox" data-pref="mediaView"> Media view</label>
               <p class="hint">The sidebar's Media (mediaview): the movies and TV shows in your media folders (a folder's Properties marks it), with IMDb's ratings.</p>
             </div>
+            <label for="prefs-media-search" class="prefs-media-search">Media download search engine URL</label>
+            <div class="tv-field prefs-media-search">
+              <input id="prefs-media-search" type="url" spellcheck="false" autocomplete="off" placeholder="https://…/search?q=%s">
+              <p class="hint">In mediaview, a missing episode gets a link that searches here for it: the show's name and the episode, as in “Stranger Things S03E04”, in place of %s (or at the end). Empty: no links.</p>
+              <p class="hint error" hidden></p>
+            </div>
             <label for="prefs-theme">Theme</label>
             <div class="tv-field">
               <select id="prefs-theme"></select>
