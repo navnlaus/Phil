@@ -1802,7 +1802,14 @@ if (choosing) {
   name.hidden = choosing.mode !== "save";
   name.value = choosing.name;
   name.addEventListener("input", updateChooser);
-  name.addEventListener("keydown", (e) => e.key !== "Escape" && e.stopPropagation()); // the name's keys, not the folder's (Enter saves)
+  name.addEventListener("keydown", (e) => e.stopPropagation()); // the name's keys, not the folder's (Enter saves)
+  // Esc in the bar (its name, its buttons): cancelled, as a dialog's Esc.
+  chooser.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    answerChoice([]);
+  }, true); // (first: the name's keys go no further)
   chooser.onsubmit = (e) => (e.preventDefault(), answerChoice(chosenPaths()));
   chooser.querySelector(".ch-cancel").onclick = () => answerChoice([]);
   // Closed some other way (its X, Super+W): cancelled.
