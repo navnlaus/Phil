@@ -492,6 +492,7 @@ function openMediaDetail(x) {
       row.querySelector(".mv-f-play").disabled = row.querySelector(".mv-f-show").disabled = f.offline;
       row.querySelector(".mv-f-play").onclick = () => playMedia(f);
       row.querySelector(".mv-f-show").onclick = () => showMediaFile(f);
+      row.querySelector(".mv-f-show").title = `Show it in its folder:\n${f.path.slice(0, f.path.lastIndexOf("/")) || "/"}${f.offline ? "\n(its drive isn't there)" : ""}`;
       files.append(row);
     }
   }
