@@ -96,7 +96,9 @@ takes the setting (`phil-engine --retire`, or `phil --quit`).
   protocol on a private pipe (two FIFOs in a folder only you can open, in
   `$XDG_RUNTIME_DIR`; no port), to see windows come and go, close one, and give
   it the servers' session cookies (a window's address carries no token). The
-  servers' certificate is trusted by this browser alone, for HTTP/2.
+  servers' certificate is accepted in its windows for the servers alone (each
+  window, held as it opens, sends its certificate errors to the engine, which
+  lets the servers' through and refuses any other), for HTTP/2.
 - A window's class (Wayland app id) is the browser's for an app at that
   address: `brave-127.0.0.1__phil-Default`, `chrome-127.0.0.1__camview-Default`
   and so on; window rules for `phil` need that too, e.g.

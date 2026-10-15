@@ -74,17 +74,32 @@ const browserWindow = (() => {
 // alone, while the page still sees them (the terminal's Ctrl+W deletes a word;
 // camview's closes it). In pages shown inside such a window too (same origin: the
 // window's id is in the tab's storage).
-if (browserWindow || (globalThis.parent !== globalThis && (() => {
+const inBrowserWindow = browserWindow || (globalThis.parent !== globalThis && (() => {
   try {
     return !!sessionStorage.getItem("philWindow");
   } catch {
     return false;
   }
-})())) {
+})());
+if (inBrowserWindow) {
   addEventListener("keydown", (e) => {
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === "w" || (e.shiftKey && key === "q"))) e.preventDefault();
   }, true);
+}
+
+// In the engine's windows (WebKitGTK's or a browser's, and pages shown inside
+// them), a right-click the page doesn't answer itself shows nothing: not the
+// engine's own menu (Back, Reload, Inspect). The inspector opens from the keyboard
+// (Ctrl+Shift+I; a browser's F12 too). In a plain browser (--browser) it's left alone.
+if (inBrowserWindow || globalThis.webkit?.messageHandlers?.phil || (globalThis.parent !== globalThis && (() => {
+  try {
+    return !!globalThis.parent.webkit?.messageHandlers?.phil;
+  } catch {
+    return false;
+  }
+})())) {
+  addEventListener("contextmenu", (e) => e.preventDefault());
 }
 const toEngine = (message) => fetch("/engine/window", { method: "POST", body: JSON.stringify({ id: browserWindow, message }) }).catch(() => {});
 
