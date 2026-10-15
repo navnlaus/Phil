@@ -47,6 +47,12 @@ quickly. The engine keeps running after its last window closes.
   [videoplayer](#videoplayer)).
 - **imageresize**: resize, crop and compress an image (right-click it in phil;
   see [imageresize](#imageresize)).
+- **mediaview**, your movies and TV shows: `mediaview`, the videos in the
+  folders marked as media, matched with IMDb's titles and ratings on this
+  computer (phil's sidebar: Media; see [mediaview](#mediaview)).
+- **camview**, network cameras live: `camview`, every camera that's on, side
+  by side; `camview camera`, one, with pan, tilt and zoom (phil's sidebar:
+  Cameras; see [camview](#camview)).
 - **phil-editor** (`ed` with `alias ed=phil-editor`): the right editor for a
   file, jsonedit for JSON and textedit for other text. Typed in phil's terminal
   panel, it opens the editor in that phil window (the panel's shell has
@@ -922,7 +928,8 @@ database, `~/.local/state/phil/media.sqlite`.
 `camview [camera]` shows a network camera live, and turns it if it can (pan,
 tilt and zoom: PTZ). phil finds the cameras on the local network and lists
 them at the bottom of its sidebar; double-click one to show it in that window
-(camview's command line takes a camera's name or address, or shows the first).
+(camview's command line takes a camera's name or address; without one, it
+shows the wall: every camera that's on).
 
 - **All of them at once**: click "Cameras" (the sidebar's heading) for the
   wall, every camera live side by side, each from its smallest stream, as big
