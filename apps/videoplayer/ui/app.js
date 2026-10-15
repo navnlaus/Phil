@@ -10,7 +10,7 @@ import { closeWindow, copyText, holdFocus, onCloseRequest, ready, tellParent, to
 // seekStepLong), J L 10 s; ↑ ↓ and the wheel the volume; M mutes; [ ] the speed,
 // Backspace back to normal; , . a frame (paused); 0–9 to that tenth; Home the
 // start; Page Up / Page Down the previous / next video in the folder; R repeats;
-// F or a double-click fullscreen; Ctrl+C copies the path; Esc / Q closes.
+// C (Shift+C) the next (previous) crop; F or a double-click fullscreen; Ctrl+C copies the path; Esc / Q closes.
 //
 // The settings (~/.config/phil/videoplayer.json, server.js DEFAULTS): the gear
 // changes some; the file has them all. Nothing's kept in the page itself (no
@@ -35,6 +35,7 @@ const state = {
   incognito: false,
   token: 0, // the video being loaded; earlier loads finishing late are ignored
   seeking: null, // the time dragged to on the timeline
+  crop: null, // the aspect ratio cropped to ("2.39:1"), or none
 };
 
 async function api(path, options) {
@@ -234,22 +235,76 @@ function showLoop() {
   $("#settings [name=loop]").checked = !!state.settings.loop;
 }
 
-// The bars and the pointer: shown while paused, and for a while after the mouse moves.
+// The bars float over the video and fade in when the pointer's on them (base.css),
+// staying while a menu of theirs is open. The pointer hides after a while still,
+// while it plays.
 let idleTimer = 0;
 function wake() {
-  document.body.classList.add("awake");
   document.body.classList.remove("idle");
-  for (const bar of document.querySelectorAll(".overlay-bar")) bar.classList.add("show");
   clearTimeout(idleTimer);
-  if (video.paused || !$("#settings").hidden) return;
+  if (video.paused) return;
   idleTimer = setTimeout(() => {
-    if (video.paused || document.querySelector(".overlay-bar:hover")) return;
-    document.body.classList.remove("awake");
+    if (video.paused || document.querySelector(".overlay-bar:hover, #settings:hover, #crop-menu:hover")) return;
     document.body.classList.add("idle");
-    for (const bar of document.querySelectorAll(".overlay-bar")) bar.classList.remove("show");
   }, (state.settings.hideControlsAfter ?? 2) * 1000);
 }
 addEventListener("pointermove", wake);
+
+// ---------------------------------------------------------------- cropping
+
+// Cropped to an aspect ratio (as VLC's Video → Crop): the middle of the picture
+// that shape, as large as the window takes; bars burnt into the video (a 2.39:1
+// film in a 16:9 file) cut off. "fill": the window's own shape, so the picture fills
+// it (a 2.39:1 film on a 16:9 screen: its sides cut). Kept from video to video while
+// the player's open.
+const CROPS = [null, "fill", "16:10", "16:9", "4:3", "1.85:1", "2:1", "2.21:1", "2.35:1", "2.39:1", "5:3", "5:4", "1:1"];
+const ratioOf = (crop) => crop.split(":").reduce((w, h) => Number(w) / Number(h));
+const cropBox = $("#crop");
+
+// Lays the picture out: the crop's window centered in the stage, the video in it
+// at the scale that fills it, centered.
+function layoutCrop() {
+  const W = stage.clientWidth, H = stage.clientHeight;
+  const w = video.videoWidth, h = video.videoHeight;
+  if (!state.crop || !w || !h) {
+    Object.assign(cropBox.style, { left: "0", top: "0", width: "100%", height: "100%" });
+    Object.assign(video.style, { left: "0", top: "0", width: "100%", height: "100%" });
+    return;
+  }
+  const r = state.crop === "fill" ? W / H : ratioOf(state.crop);
+  const cw = r > w / h ? w : h * r, ch = r > w / h ? w / r : h; // the part kept, in video pixels
+  const s = Math.min(W / cw, H / ch);
+  Object.assign(cropBox.style, { left: `${(W - cw * s) / 2}px`, top: `${(H - ch * s) / 2}px`, width: `${cw * s}px`, height: `${ch * s}px` });
+  Object.assign(video.style, { left: `${((cw - w) / 2) * s}px`, top: `${((ch - h) / 2) * s}px`, width: `${w * s}px`, height: `${h * s}px` });
+}
+new ResizeObserver(layoutCrop).observe(stage);
+video.addEventListener("loadedmetadata", layoutCrop);
+video.addEventListener("resize", layoutCrop); // (its size known, or changed: a stream started)
+
+function setCrop(crop) {
+  state.crop = crop;
+  $("#btn-crop").textContent = crop === "fill" ? "Fill" : crop ? `Crop ${crop}` : "Crop";
+  $("#btn-crop").classList.toggle("on", !!crop);
+  for (const li of $("#crop-menu").children) li.classList.toggle("on", li.dataset.crop === String(crop));
+  layoutCrop();
+}
+
+function cycleCrop(dir) {
+  setCrop(CROPS[(CROPS.indexOf(state.crop) + dir + CROPS.length) % CROPS.length]);
+}
+
+function toggleCropMenu(show = $("#crop-menu").hidden) {
+  $("#crop-menu").hidden = !show;
+  $("#controls").classList.toggle("show", show);
+}
+
+for (const crop of CROPS) {
+  const li = document.createElement("li");
+  li.dataset.crop = String(crop);
+  li.textContent = crop === "fill" ? "Fill window" : crop ?? "None";
+  li.onclick = () => (setCrop(crop), toggleCropMenu(false));
+  $("#crop-menu").append(li);
+}
 
 // ---------------------------------------------------------------- doing things
 
@@ -295,7 +350,7 @@ function toggleFullscreen() {
   else document.documentElement.requestFullscreen().catch(() => {});
 }
 
-function playInMpv() {
+function playInMpv() { // (what can't be played here)
   const e = entry();
   if (!e) return;
   video.pause();
@@ -312,7 +367,7 @@ function close() {
 function toggleSettings(show = $("#settings").hidden) {
   $("#settings").hidden = !show;
   $("#btn-settings").classList.toggle("on", show);
-  wake();
+  $("#top").classList.toggle("show", show);
 }
 
 // ---------------------------------------------------------------- the timeline
@@ -386,9 +441,11 @@ document.addEventListener("keydown", (e) => {
   if (key === "PageUp") return step(-1), handled();
   if (key === "PageDown") return step(1), handled();
   if (key === "r") return toggleLoop(), handled();
+  if (key === "c") return cycleCrop(e.shiftKey ? -1 : 1), handled();
   if (key === "f") return toggleFullscreen(), handled();
   if (key === "Escape" || key === "q") {
-    if (!$("#settings").hidden) toggleSettings(false);
+    if (!$("#crop-menu").hidden) toggleCropMenu(false);
+    else if (!$("#settings").hidden) toggleSettings(false);
     else if (document.fullscreenElement) document.exitFullscreen();
     else close();
     stage.focus({ preventScroll: true });
@@ -397,7 +454,11 @@ document.addEventListener("keydown", (e) => {
 });
 
 // A click plays and pauses; a double-click (two clicks: unchanged) is fullscreen.
-stage.addEventListener("click", () => ($("#settings").hidden ? togglePlay() : toggleSettings(false)));
+stage.addEventListener("click", () => {
+  if (!$("#crop-menu").hidden) return toggleCropMenu(false);
+  if (!$("#settings").hidden) return toggleSettings(false);
+  togglePlay();
+});
 stage.addEventListener("dblclick", toggleFullscreen);
 stage.addEventListener("wheel", (e) => {
   e.preventDefault();
@@ -413,7 +474,7 @@ $("#btn-speed").oncontextmenu = (e) => (e.preventDefault(), setSpeed(0));
 $("#btn-loop").onclick = toggleLoop;
 $("#btn-full").onclick = toggleFullscreen;
 $("#btn-close").onclick = close;
-$("#btn-mpv").onclick = playInMpv;
+$("#btn-crop").onclick = () => toggleCropMenu();
 $("#msg-mpv").onclick = playInMpv;
 $("#btn-settings").onclick = () => toggleSettings();
 $("#prev").onclick = () => step(-1);
