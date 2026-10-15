@@ -110,6 +110,9 @@ takes the setting (`phil-engine --retire`, or `phil --quit`).
   own (Ctrl+F finds in the page, Ctrl+P prints), but not those that would close the
   window or quit the browser (Ctrl+W, Ctrl+Shift+W, Ctrl+Shift+Q): the pages keep
   those (the terminal's Ctrl+W deletes a word).
+- In the engine's windows (either kind), right-clicking something phil has no
+  menu for shows nothing, not the engine's menu with Inspect; the inspector
+  opens from the keyboard (Ctrl+Shift+I, or a browser's F12).
 - `engine/chromium.js`; the pages talk to the engine through the server
   (`POST /engine/window`, `engine/ui/kit.js`).
 
@@ -388,7 +391,8 @@ on each, so a few slow ones (a hung network share, videos playing) held up a
 click; HTTP/2 carries any number over one connection, and WebKit only speaks it
 over TLS. The certificate is made at each start (openssl, a few ms), for
 127.0.0.1, kept in memory only, and trusted by the engine's windows alone
-(`webkit_web_context_allow_tls_certificate_for_host`). `--browser` (a browser
+(`webkit_web_context_allow_tls_certificate_for_host`; a browser's: see
+[Windows in Chromium](#windows-in-chromium-instead-of-webkitgtk)). `--browser` (a browser
 wouldn't trust it) and `PHIL_PLAIN_HTTP=1` stay on plain HTTP, as does an
 engine that can't run openssl.
 
