@@ -165,8 +165,26 @@ export function createServer({ profile, controlSocket }) {
   // Downloads under way (panda-dl's; downloads.js), for every window as
   // {downloads}; what they're writing isn't thumbnailed till they're done.
   // Others' downloads saved through phil's file chooser (a browser's partial file growing), for the Transfers list too.
-  const browserDownloads = watchBrowserDownloads((list) => {
+  // Their temporary file, when its name doesn't say what it is (a browser's "Unconfirmed
+  // 123456.crdownload"), gets the download's name as its description (not over one given
+  // by hand), taken off again when it's done.
+  const describedPartials = new Map(); // partial file -> the description given it
+  const browserDownloads = watchBrowserDownloads(async (list) => {
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ browserDownloads: list }));
+    const now = new Map(list.filter((d) => !basename(d.path).startsWith(d.name)).map((d) => [d.path, d.name]));
+    for (const [path, name] of now) {
+      if (describedPartials.get(path) === name) continue;
+      const meta = await hooks.get(path).catch(() => ({}));
+      if (meta?.description && meta.description !== describedPartials.get(path)) continue; // the user's own
+      await hooks.set(path, { description: name }).catch(() => {});
+      describedPartials.set(path, name);
+    }
+    for (const [path, name] of describedPartials) {
+      if (now.has(path)) continue;
+      describedPartials.delete(path);
+      const meta = await hooks.get(path).catch(() => ({}));
+      if (meta?.description === name) await hooks.set(path, { description: "" }).catch(() => {});
+    }
   });
   const downloads = watchDownloads((list) => {
     thumbs.downloading(list.flatMap(unfinished));
