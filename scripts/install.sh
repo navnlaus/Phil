@@ -66,7 +66,7 @@ if [[ $(sed -n 's/^Comm=//p' <<<"$service") =~ ^phil(-engine)?$ ]]; then
   kill "$(sed -n 's/^PID=//p' <<<"$service")" 2>/dev/null || true
 fi
 
-echo "Installed $engine with phil, jsonedit, textedit, imageview, imageresize, camview and phil-editor in $bindir"
+echo "Installed $engine with phil, jsonedit, textedit, imageview, videoplayer, imageresize, camview and phil-editor in $bindir"
 echo "Folders open with: $(xdg-mime query default inode/directory); JSON with $(xdg-mime query default application/json); text with $(xdg-mime query default text/plain); images with $(xdg-mime query default image/jpeg)"
 owner=$(busctl --user status org.freedesktop.FileManager1 2>/dev/null | sed -n 's/^Comm=//p' || true)
 if [[ -n $owner && ! $owner =~ ^phil(-engine)?$ ]]; then
