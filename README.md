@@ -21,10 +21,12 @@ Developed and tested on Omarchy, the install scripts assumes a similar setup.
 | Copying to another drive with rsync: progress on the folder and in the sidebar, pause, stop and resume | Videos play in the window (videoplayer); Crop cuts off the bars in the picture |
 | ![Downloads: torrents and a web download from panda-dl, and a video from Streamgrab, each with its bar on its tile and in the sidebar's Transfers](docs/screenshots/downloads.webp) | ![The Transfers view: every download in full, with speeds, time left, peers and seeds, and panda-dl's settings](docs/screenshots/transfers-view.webp) |
 | Torrents and web downloads (panda-dl) and browser videos (Streamgrab), as they come in | The Transfers view: each in full, and the settings for downloads |
+| ![mediaview: the movies in the media folders as pictures with their IMDb ratings, what's been started first, one still downloading](docs/screenshots/media.webp) | ![mediaview: a show's details, its next episode to play, and its season's episodes, watched, here or missing](docs/screenshots/media-show.webp) |
+| Movies and TV shows from the folders marked as media, matched with IMDb's titles and ratings on this computer (mediaview): what's been started first, downloads as they come in | A show's seasons and episodes: watched, here, or missing; the next one to play |
 | ![The chips theme](docs/screenshots/chips.webp) | |
 | Themes: here, chips | |
 
-<sub>Photos from [Unsplash](https://unsplash.com).</sub>
+<sub>Photos from [Unsplash](https://unsplash.com). mediaview's library is made up: the titles are real, the pictures are those same photos.</sub>
 
 ## The engine and its apps
 
