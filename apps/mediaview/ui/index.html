@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Media</title>
+  <!-- Relative URLs: mediaview is also served inside other apps (engine/server.js): phil's sidebar's Media. -->
+  <link rel="stylesheet" href="themes/base.css">
+  <link rel="stylesheet" href="ui/style.css">
+  <link rel="stylesheet" href="themes/current.css"> <!-- the theme in use: its colors (engine/themes.js) -->
+  <script type="module" src="ui/app.js"></script>
+</head>
+<body>
+  <!-- Icons (Lucide's, ISC: phil's ui/vendor/lucide-sprite.svg). -->
+  <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
+    <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+    <symbol id="i-external-link" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></symbol>
+    <symbol id="i-layout-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  </svg>
+
+  <!-- The movies and TV shows in the media folders (media.js), a title's details at the side. -->
+  <div class="mv-page">
+    <header class="mv-head">
+      <h2>Media</h2>
+      <div class="mv-tabs" role="tablist">
+        <button type="button" role="tab" data-tab="movies" aria-selected="true">Movies <span class="n"></span></button>
+        <button type="button" role="tab" data-tab="shows" aria-selected="false">TV shows <span class="n"></span></button>
+      </div>
+      <input class="mv-filter" type="search" placeholder="Find a title" spellcheck="false" autocomplete="off" aria-label="Find a title">
+      <select class="mv-genre" aria-label="Genre"><option value="">All genres</option></select>
+      <select class="mv-sort" aria-label="Sort">
+        <option value="added">Recently added</option>
+        <option value="rating">Rating</option>
+        <option value="votes">Most voted</option>
+        <option value="year">Year</option>
+        <option value="title">Title</option>
+        <option value="length">Length</option>
+      </select>
+      <div class="mv-layout">
+        <button type="button" class="icon toggle" data-layout="grid" title="Pictures"></button>
+        <button type="button" class="icon toggle" data-layout="list" title="List"></button>
+      </div>
+      <button class="icon close" type="button" title="Close (Esc)"><svg><use href="#i-close"/></svg></button>
+    </header>
+    <section class="mv-continue-wrap" hidden>
+      <h3 class="heading">Continue watching</h3>
+      <div class="mv-continue"></div>
+    </section>
+    <div class="mv-cols" hidden>
+      <span></span>
+      <button type="button" data-sort="title">Title</button>
+      <button type="button" data-sort="year">Year</button>
+      <button type="button" data-sort="rating">Rating</button>
+      <button type="button" data-sort="votes" class="c-votes">Votes</button>
+      <button type="button" data-sort="length">Length</button>
+      <span class="c-genres">Genres</span>
+      <span class="c-quality">Quality</span>
+      <button type="button" data-sort="added" class="c-added">Added</button>
+    </div>
+    <div class="mv-grid"></div>
+    <p class="hint mv-empty" hidden></p>
+    <p class="hint mv-status"></p>
+  </div>
+  <!-- One movie or show: what it is, playing it, its files (a show's episodes), and putting its match right. -->
+  <aside class="mv-detail" hidden>
+    <div class="mv-d-hero">
+      <img class="mv-d-poster" alt="">
+      <button class="icon close" type="button" title="Close (Esc)"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="mv-d-body">
+      <h3 class="mv-d-title"></h3>
+      <p class="mv-d-facts"></p>
+      <p class="mv-d-genres"></p>
+      <div class="mv-d-actions">
+        <button type="button" class="mv-d-play primary"></button>
+        <button type="button" class="mv-d-imdb" title="Its page on IMDb, in your browser">IMDb</button>
+      </div>
+      <div class="mv-d-files"></div>
+      <details class="mv-d-fix">
+        <summary></summary>
+        <input class="mv-d-search" type="search" placeholder="Find the right title…" spellcheck="false" autocomplete="off">
+        <div class="mv-d-results"></div>
+        <div class="mv-d-buttons"><button type="button" class="mv-d-again">Match it again</button><button type="button" class="mv-d-none">Not a movie or show</button></div>
+      </details>
+    </div>
+  </aside>
+
+  <!-- A video playing (videoplayer, shown in this page). -->
+  <div id="player" hidden></div>
+</body>
+</html>
