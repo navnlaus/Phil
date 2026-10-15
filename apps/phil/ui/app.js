@@ -1436,7 +1436,6 @@ function makePlace(p) {
 }
 
 function showPlace(a, p) {
-  put(a, "href", new URL("#" + encodePath(p.path), location.href).href);
   if (a.dataset.path !== p.path) a.dataset.path = p.path; // drop target
   a.classList.toggle("folder", !!p.folder); // the user's (see placeGapAt)
   // The icon picked in its Properties, if any; a media folder's (not a drive's).
@@ -1453,7 +1452,6 @@ function showPlace(a, p) {
 // it or dragged from it; data-place says where folders dropped beside it go).
 function makeMediaPlace() {
   const a = document.createElement("a");
-  a.href = "#";
   a.className = "folder media-place";
   a.dataset.place = "phil:media";
   a.title = "Your media folders' movies and TV shows (Esc comes back)";
@@ -1488,7 +1486,6 @@ function setMediaViewOn(on) {
 // for the password) and opens it.
 function makeUnmountedPlace() {
   const a = document.createElement("a");
-  a.href = "#";
   a.className = "unmounted";
   a.append(document.createTextNode(""));
   a.onclick = (e) => (e.preventDefault(), mount(a.item, a));
@@ -3086,6 +3083,15 @@ grid.addEventListener("pointerdown", (e) => {
 
 // A click on a place opens it here, not left to the link: WebKit doesn't always
 // follow one (these can be dragged too), and then a click did nothing.
+// (The rows are <a> without an href: a browser window shows a link's address,
+// an internal one, at the bottom while the pointer's on it.)
+new MutationObserver(() => {
+  for (const a of $("#places").children) if (!a.hasAttribute("tabindex")) a.tabIndex = 0, a.setAttribute("role", "link");
+}).observe($("#places"), { childList: true });
+$("#places").addEventListener("keydown", (e) => {
+  const a = e.target.closest("#places > a");
+  if (a && e.key === "Enter") e.preventDefault(), a.click();
+});
 $("#places").addEventListener("click", (e) => {
   const a = e.target.closest("a[data-path]");
   if (!a || e.button !== 0 || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey || e.defaultPrevented) return;
