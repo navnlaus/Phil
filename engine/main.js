@@ -156,6 +156,12 @@ async function startEngine(job, socket) {
 // The engine: GTK/WebKit windows on this thread, the servers in a worker.
 // Without --standalone or --browser it takes the profile's control socket and
 // keeps running after its last window closes (incognito ones don't).
+// The settings' "browser" (~/.config/phil/settings.json): which windows (see serve).
+async function browserSetting() {
+  const config = Deno.env.get("XDG_CONFIG_HOME") || join(Deno.env.get("HOME") ?? "/", ".config");
+  return await Deno.readTextFile(join(config, "phil", "settings.json")).then((t) => JSON.parse(t).browser ?? null, () => null);
+}
+
 async function serve({ profile = {}, request = null, browser = false, standalone = false }) {
   const instance = browser || standalone ? null : socketPath(profile);
 
@@ -181,16 +187,23 @@ async function serve({ profile = {}, request = null, browser = false, standalone
   const launchers = Object.fromEntries(
     await Promise.all(Object.entries(APPS).map(async ([name, app]) => [name, await app.launch()])),
   );
-  const windows = browser ? null : (await import("./window.js")).createApp({
-    name: NAME,
-    ephemeral: !!profile.incognito,
-    keepRunning: !!instance && !profile.incognito,
-    trustCertificate: tls?.cert,
-    trace,
+  // Windows: in a Chromium-based browser (chromium.js) when the settings'
+  // "browser" (or PHIL_BROWSER) asks for one ("default": the default browser,
+  // or another installed; a path) and there is one; otherwise WebKitGTK's (window.js).
+  const chromium = browser ? null : await import("./chromium.js").then(async (m) => {
+    const path = await m.findBrowser(Deno.env.get("PHIL_BROWSER") ?? await browserSetting());
+    return path && { module: m, path };
   });
+  if (!browser) trace(chromium ? `windows: ${chromium.path}` : "windows: WebKitGTK");
+  const appOptions = { name: NAME, ephemeral: !!profile.incognito, keepRunning: !!instance && !profile.incognito, trustCertificate: tls?.cert, trace };
+  const windows = browser ? null : chromium
+    ? chromium.module.createApp({ ...appOptions, browser: chromium.path })
+    : (await import("./window.js")).createApp(appOptions);
 
   const { urls, control } = await serverReady;
   trace("servers listening");
+  // Pages of the browser's windows talk to it through the server (POST /engine/window).
+  if (windows?.onPageMessage) server.onmessage = (e) => e.data.window && windows.onPageMessage(e.data.window);
   if (control === "in-use") {
     // Another engine started at the same moment and won: hand the request over.
     if (request && await ask(instance, request)) Deno.exit(0);
@@ -203,7 +216,7 @@ async function serve({ profile = {}, request = null, browser = false, standalone
   const openWindow = ({ open, startupId }) => {
     const app = launchers[open?.app];
     if (!app) return console.error(`${NAME}: no app called ${open?.app}`);
-    windows.openWindow(windowUrl(open), { appId: app.appId + (profile.incognito ? "-incognito" : ""), startupId });
+    windows.openWindow(windowUrl(open), { appId: app.appId + (profile.incognito ? "-incognito" : ""), app: open.app, startupId });
   };
 
   if (profile.incognito) console.log(`${NAME}: incognito`);
@@ -231,7 +244,7 @@ async function serve({ profile = {}, request = null, browser = false, standalone
     else if (message.quit) windows.quit();
   });
   if (request) openWindow(request);
-  windows.run();
+  await windows.run(); // WebKitGTK's: blocks in gtk_main(); the browser's: a promise
   trace("exiting");
   cleanUp();
   // A retired engine already gave up the socket, and a newer one may own the path now.
