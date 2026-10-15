@@ -48,12 +48,13 @@ const CHROMIUM_LIKE = /chrom|brave|vivaldi|edge|opera|thorium|yandex|cromite|hel
 
 /**
  * The browser to use for windows (its program's path), by `setting` (the
- * settings' "browser", or PHIL_BROWSER): "default" (the default browser if
- * it's Chromium-based, otherwise the first of KNOWN installed), a path, or
- * "webkit"/empty: none (WebKitGTK windows). Null when there's none.
+ * settings' "browser", or PHIL_BROWSER): "default" or empty (the default
+ * browser if it's Chromium-based, otherwise the first of KNOWN installed), a
+ * path, or "webkit": none (WebKitGTK windows). Null when there's none.
  */
 export async function findBrowser(setting) {
-  if (!setting || setting === "webkit") return null;
+  if (setting === "webkit") return null;
+  setting ||= "default";
   if (setting.startsWith("/")) return (await isProgram(setting)) ? setting : null;
   if (setting !== "default") return CHROMIUM_LIKE.test(setting) ? await onPath(setting) : null; // (a name: one of theirs)
   const desktop = await run("xdg-settings", ["get", "default-web-browser"]);

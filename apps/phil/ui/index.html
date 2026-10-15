@@ -75,7 +75,7 @@
     <div class="brand" aria-hidden="true">PHIL</div>
     <nav id="places" aria-label="Folders and drives"></nav>
     <!-- Copies, moves, deletes and downloads under way (or paused): a click shows where it goes. Its heading opens the Transfers view. -->
-    <section id="transfers-panel">
+    <section id="transfers-panel" class="empty">
       <h3 class="heading"><button id="btn-transfers" type="button" title="All transfers, and the settings for downloads">Transfers</button></h3>
       <div id="transfers"></div>
     </section>
@@ -98,6 +98,7 @@
         <label class="check"><input type="checkbox" data-setting="showCameras"> Cameras</label>
         <h3 class="heading">Theme</h3>
         <select id="settings-theme" aria-label="Theme"></select>
+        <button id="settings-transfers" type="button" title="Every transfer, and the settings for downloads">Transfers and downloads…</button>
       </div>
     </div>
   </aside>
