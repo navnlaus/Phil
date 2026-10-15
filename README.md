@@ -81,7 +81,7 @@ the selection), and Open or Save, and Cancel. Double-click (or Enter) on a file
 chooses it; folders asked for, none selected: the folder shown; to save, a file
 clicked gives its name, and replacing one asks first. It waits until the choice
 is made (or the window is closed, any way: cancelled), then the chosen paths
-are in FILE, one per line (nothing: cancelled). This is the wrapper interface
+are in FILE, one per line (nothing: cancelled). Esc cancels, anywhere in it, unless something over it takes it first (a menu, a dialog, the viewer, renaming, a filter being cleared). This is the wrapper interface
 of `xdg-desktop-portal-termfilechooser`, which makes it the desktop's file
 chooser: apps' Open and Save dialogs (Brave's, Firefox's...) are phil windows. Its windows' class is `phil-choose` (in a browser's windows,
 `<browser>-127.0.0.1__phil-choose-Default`), for a window rule that floats
