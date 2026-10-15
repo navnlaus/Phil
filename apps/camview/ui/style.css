@@ -154,6 +154,12 @@ body.wall:hover #wall-list-button, #wall-list-button:focus-visible, #wall-list-b
 #wall-list .error[hidden] { display: none; }
 /* A web page camera: the page in its tile (a click opens it over the wall, to use). */
 #wall .cam iframe { width: 100%; height: 100%; border: 0; display: block; pointer-events: none; background: #000; }
+/* A camera on its own, over the wall: its tile filling the window (still playing), its page over that once it plays. */
+#wall .cam.zoomed { position: fixed; inset: 0; z-index: 5; cursor: default; }
+#wall .cam.zoomed::after, #wall .cam.zoomed .cam-name { display: none; }
+body.zoomed #wall-list-button { display: none; }
+.cam-page { position: fixed; inset: 0; z-index: 6; width: 100%; height: 100%; border: 0; opacity: 0; pointer-events: none; transition: opacity 0.2s; background: transparent; }
+.cam-page.shown { opacity: 1; pointer-events: auto; }
 #wall-page { position: fixed; z-index: 8; inset: 0; background: #000; }
 #wall-page[hidden] { display: none; }
 #wall-page iframe { width: 100%; height: 100%; border: 0; display: block; }
