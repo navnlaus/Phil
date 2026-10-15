@@ -65,7 +65,7 @@ export class Tagging {
     if (!this.#persist) return void fresh.forEach((t) => this.#extraTags.add(t));
     const before = await Deno.readTextFile(this.#userTags).catch(() => null);
     const head = before === null
-      ? "# Tags phil's auto-tagging looks for, besides its own (apps/phil/tagging/tags.txt).\n# One per line. Tags you add to pictures are added here.\n"
+      ? "# Tags phil's auto-tagging looks for, besides the ones built into phil.\n# One per line. Tags you add to pictures are added here.\n"
       : before && !before.endsWith("\n") ? "\n" : "";
     await Deno.mkdir(dirname(this.#userTags), { recursive: true });
     await Deno.writeTextFile(this.#userTags, head + fresh.join("\n") + "\n", { append: true });
