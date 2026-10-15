@@ -268,8 +268,12 @@ export async function library(roots, { fixes = {}, watched = {}, remembered = {}
       if (!ep) eps.push(ep = { season: f.season, episode: f.episode, title: null, files: [] });
       ep.files.push(f);
     }
-    show.seasons = [...seasons].filter(([, eps]) => eps.some((e) => e.files.length)).sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0))
-      .map(([season, eps]) => ({ season, episodes: eps.sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0)) }));
+    // Every season: those with files here, their episodes (there or not); the rest, how many
+    // (`episodes` null: seasonEpisodes() when it's opened). Episodes in no season: only with files.
+    show.seasons = [...seasons].filter(([season, eps]) => season !== null || eps.some((e) => e.files.length)).sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0))
+      .map(([season, eps]) => eps.some((e) => e.files.length)
+        ? { season, episodes: eps.sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0)) }
+        : { season, total: eps.length, episodes: null });
     show.seasonCount = new Set(list.map((e) => e.season).filter((s) => s !== null)).size || show.seasons.length;
     show.added = Math.max(...show.files.map((f) => f.mtime ?? 0));
     delete show.files;
@@ -277,6 +281,10 @@ export async function library(roots, { fixes = {}, watched = {}, remembered = {}
   for (const movie of movies.values()) movie.added = Math.max(...movie.files.map((f) => f.mtime ?? 0));
   return { movies: [...movies.values()], shows: [...shows.values()], online, scanned };
 }
+
+/** A show's season, none of it here (mediaview opens it): its episodes, as library() lists them. */
+export const seasonEpisodes = (id, season) => imdb.episodes(id).filter((e) => e.season === season)
+  .map((e) => ({ season: e.season, episode: e.episode, title: e.title, year: e.year, rating: e.rating, votes: e.votes, files: [] }));
 
 const info = ({ title: t, fixed }) => ({ id: t.id, imdb: imdb.tconst(t.id), title: t.title, year: t.year, endYear: t.endYear, type: t.type, minutes: t.minutes, genres: t.genres ? t.genres.split(",") : [], rating: t.rating, votes: t.votes, ...(fixed ? { fixed: true } : {}) });
 
