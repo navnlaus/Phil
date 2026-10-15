@@ -14,6 +14,16 @@
 // paths saved are kept
 // ($XDG_STATE_HOME/phil/saved-downloads.json), so a restart keeps following them;
 // one whose partial file never shows up (WAIT_MS), or is gone, is let go.
+//
+// And any program's own reports (a downloader's, a converter's): a JSON file
+// each in $XDG_RUNTIME_DIR/phil/transfers/, rewritten as it goes and removed
+// when it's done: {id, app, name, target (where it goes), path (the file being
+// written), bytes, total, percent, speed (bytes/s), eta (s), state
+// ("downloading", "paused", "preparing"...), started (ms), pid, incognito,
+// stoppable (phil's × sends pid SIGTERM)}. A report whose process is gone is
+// dropped (and its file). An incognito phil shows the incognito ones (a private
+// window's downloads), the other phil the others; an incognito phil keeps no
+// list of what was saved.
 
 import { basename, dirname, join } from "@std/path";
 
@@ -53,6 +63,21 @@ async function unconfirmedIn(dir) {
   } catch { /* no such folder */ }
   return found;
 }
+
+export const reportsDir = () => join(Deno.env.get("XDG_RUNTIME_DIR") || "/tmp", "phil", "transfers");
+// Whether a process is there: kill(pid, 0) (0: it is; EPERM: someone else's, there too).
+// (Not /proc: Deno refuses it without --allow-all, which phil's build hasn't.)
+let libc = null;
+const alive = (pid) => {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    libc ??= Deno.dlopen("libc.so.6", { kill: { parameters: ["i32", "i32"], result: "i32" }, __errno_location: { parameters: [], result: "pointer" } });
+    if (libc.symbols.kill(pid, 0) === 0) return true;
+    return new Deno.UnsafePointerView(libc.symbols.__errno_location()).getInt32() === 1; // EPERM
+  } catch {
+    return true; // can't tell: not dropped
+  }
+};
 
 const stateFile = () => join(Deno.env.get("XDG_STATE_HOME") || join(home(), ".local/state"), "phil", "saved-downloads.json");
 
@@ -94,21 +119,25 @@ async function downloadTo(file, target) {
  * bytes, total, percent, speed, eta, started, state: "downloading" | "stalled"}.
  * saved(path): a Save dialog answered with `path` (phil --choose save).
  */
-export function watchBrowserDownloads(onChange) {
+export function watchBrowserDownloads(onChange, { incognito = false } = {}) {
   const items = new Map(); // target -> {saved, partial, app, total, started, samples, grew, bytes}
-  let users = 0, timer = 0, historyTimer = 0, last = "[]";
+  const reports = new Map(); // report file -> its contents (programs' own: reportsDir)
+  let users = 0, timer = 0, historyTimer = 0, last = "[]", reportsWatcher = null;
   const historyChecked = new Map(); // History file -> its mtime when last read
 
   function newItem(saved = Date.now()) {
     return { saved, partial: null, app: null, total: null, started: null, samples: [], grew: Date.now(), bytes: 0 };
   }
-  // The paths saved, kept for a restart.
-  try {
-    for (const { target, saved } of JSON.parse(Deno.readTextFileSync(stateFile()))) {
-      if (typeof target === "string") items.set(target, newItem(saved));
-    }
-  } catch { /* none */ }
+  // The paths saved, kept for a restart (not an incognito phil's).
+  if (!incognito) {
+    try {
+      for (const { target, saved } of JSON.parse(Deno.readTextFileSync(stateFile()))) {
+        if (typeof target === "string") items.set(target, newItem(saved));
+      }
+    } catch { /* none */ }
+  }
   function keep() {
+    if (incognito) return;
     const list = [...items].map(([target, it]) => ({ target, saved: it.saved }));
     Deno.mkdir(dirname(stateFile()), { recursive: true })
       .then(() => Deno.writeTextFile(stateFile(), JSON.stringify(list) + "\n"))
@@ -175,9 +204,59 @@ export function watchBrowserDownloads(onChange) {
     if (users && items.size) timer = setTimeout(poll, POLL_MS);
   }
 
+  // Programs' reports: read when they change (and when windows start looking); this phil's
+  // kind only (incognito or not); one whose process is gone dropped, with its file.
+  async function readReports() {
+    const seen = new Set();
+    try {
+      for await (const e of Deno.readDir(reportsDir())) {
+        if (!e.isFile || !e.name.endsWith(".json")) continue;
+        const file = join(reportsDir(), e.name);
+        seen.add(file);
+        const r = await Deno.readTextFile(file).then(JSON.parse, () => null);
+        if (!r || typeof r !== "object" || typeof r.name !== "string") continue;
+        if (r.pid && !alive(r.pid)) {
+          await Deno.remove(file).catch(() => {});
+          reports.delete(file);
+          continue;
+        }
+        reports.set(file, r);
+      }
+    } catch { /* none yet */ }
+    for (const file of reports.keys()) if (!seen.has(file)) reports.delete(file);
+    publish();
+  }
+  function watchReports() {
+    if (reportsWatcher) return;
+    try {
+      Deno.mkdirSync(reportsDir(), { recursive: true, mode: 0o700 });
+      reportsWatcher = Deno.watchFs(reportsDir(), { recursive: false });
+    } catch {
+      return;
+    }
+    let soon = 0;
+    (async () => {
+      for await (const _ of reportsWatcher) {
+        if (!soon) soon = setTimeout(() => ((soon = 0), readReports()), 300);
+      }
+    })().catch(() => {});
+  }
+
   function publish() {
     const now = Date.now();
-    const list = [...items].filter(([, it]) => it.partial && it.samples.length).map(([target, it]) => {
+    const fromReports = [...reports].filter(([, r]) => !!r.incognito === incognito).map(([file, r]) => {
+      const total = Number(r.total) > 0 ? Number(r.total) : null, bytes = Number(r.bytes) || 0;
+      return {
+        id: `report:${r.id ?? file}`, report: file, app: String(r.app ?? "Download"), name: r.name, target: r.target ?? null,
+        path: r.path ?? r.target ?? null, dir: r.target ? dirname(r.target) : r.path ? dirname(r.path) : null,
+        bytes, total, percent: Number.isFinite(r.percent) ? Math.floor(r.percent * 10) / 10 : total ? Math.floor((bytes / total) * 1000) / 10 : null,
+        speed: Number(r.speed) || 0, eta: Number.isFinite(r.eta) ? r.eta : null, started: r.started ?? null,
+        state: r.state === "downloading" || r.state == null ? "downloading" : String(r.state), stoppable: !!r.stoppable && !!r.pid,
+      };
+    });
+    // (One saved through phil's chooser whose program reports it itself: its report, not both.)
+    const reported = new Set(fromReports.flatMap((r) => [r.target, r.path]).filter(Boolean));
+    const list = [...fromReports, ...[...items].filter(([target, it]) => it.partial && it.samples.length && !reported.has(target) && !reported.has(it.partial)).map(([target, it]) => {
       const [t0, b0] = it.samples[0];
       const speed = now - t0 >= 1000 ? Math.max(0, Math.round(((it.bytes - b0) * 1000) / (now - t0))) : 0;
       const stalled = now - it.grew > STALLED_MS;
@@ -188,7 +267,7 @@ export function watchBrowserDownloads(onChange) {
         speed: stalled ? 0 : speed, eta: !stalled && speed > 0 && total ? Math.round((total - it.bytes) / speed) : null,
         started: it.started, state: stalled ? "stalled" : "downloading",
       };
-    }).sort((a, b) => (a.started ?? 0) - (b.started ?? 0));
+    })].sort((a, b) => (a.started ?? 0) - (b.started ?? 0));
     const json = JSON.stringify(list);
     if (json === last) return;
     last = json;
@@ -196,6 +275,8 @@ export function watchBrowserDownloads(onChange) {
   }
 
   function start() {
+    watchReports();
+    readReports();
     if (!items.size) return;
     readHistories(true).finally(() => !timer && poll());
     const checkHistories = async () => {
@@ -211,6 +292,17 @@ export function watchBrowserDownloads(onChange) {
   return {
     get list() {
       return JSON.parse(last);
+    },
+    /** Stops a program's transfer (its report's × : SIGTERM to its process, when it says it may be). */
+    stop(id) {
+      const r = [...reports.values()].find((r) => `report:${r.id}` === id || r.id === id);
+      if (!r?.stoppable || !alive(r.pid) || !!r.incognito !== incognito) return false;
+      try {
+        Deno.kill(r.pid, "SIGTERM");
+        return true;
+      } catch {
+        return false;
+      }
     },
     /** A Save dialog (phil's file chooser) answered with `path`: followed from now. */
     saved(path) {

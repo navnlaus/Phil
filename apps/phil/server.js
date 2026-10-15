@@ -189,7 +189,7 @@ export function createServer({ profile, controlSocket }) {
       const meta = await hooks.get(path).catch(() => ({}));
       if (meta?.description === name) await hooks.set(path, { description: "" }).catch(() => {});
     }
-  });
+  }, { incognito: config.incognito });
   const downloads = watchDownloads((list) => {
     pandaWriting = list.flatMap(unfinished);
     barDownloadsChanged();
@@ -386,6 +386,8 @@ export function createServer({ profile, controlSocket }) {
         } catch (err) {
           throw httpError(502, err.message);
         }
+      case "POST /api/transfer-report-stop": // {id}: a program's transfer (its report, browserdownloads.js), stopped
+        return json({ stopped: browserDownloads.stop(String((await req.json()).id ?? "")) });
       case "POST /api/choose": { // {out, paths}: a file chooser's answer (phil --choose): the paths, one per line, in <out>, then <out>.done; [] cancelled
         const { out, paths = [], save = false } = await req.json();
         if (typeof out !== "string" || !out.startsWith("/") || !Array.isArray(paths) || !paths.every((p) => typeof p === "string" && p.startsWith("/"))) throw httpError(400, "out, and the chosen paths");
