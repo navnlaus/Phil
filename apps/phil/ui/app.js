@@ -3526,49 +3526,35 @@ function showTransferRow(row, b) {
   if (b.stopped) showStoppedBar(bar, b.stopped);
   else if (b.d) showDownloadBar(bar, b.d);
   else showTransferBar(bar, b.t);
-  let what, where;
-  if (b.stopped) {
-    const c = b.stopped.copying;
-    what = `${c.op === "move" ? "Moving" : "Copying"} ${b.stopped.path.split("/").pop()}`;
-    where = `From ${c.from}\nTo ${parentOf(b.stopped.path)}`;
-  } else if (b.d) {
-    what = b.d.name;
-    where = `${b.d.path ?? b.d.dir}`;
-  } else {
-    const items = b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop();
-    what = `${{ move: "Moving", delete: "Deleting" }[b.t.op] ?? "Copying"} ${items}`;
-    where = b.t.op === "delete" ? `In ${b.t.dest}` : ""; // (a copy's details say where to)
-  }
+  let what;
+  if (b.stopped) what = `${b.stopped.copying.op === "move" ? "Moving" : "Copying"} ${b.stopped.path.split("/").pop()}`;
+  else if (b.d) what = b.d.name;
+  else what = `${{ move: "Moving", delete: "Deleting" }[b.t.op] ?? "Copying"} ${b.t.items > 1 ? `${b.t.items} items` : (b.t.targets?.[0] ?? b.t.dest).split("/").pop()}`;
   put(name, "textContent", what);
-  // Hovering the row (its bar too) says what's happening first, then the bar's details and where.
-  const details = bar.getAttribute("title");
+  // Hovering the row (its bar too): what's happening, and where.
   bar.removeAttribute("title");
-  put(row, "title", [transferState(b), details, where, `Click: show it ${b.d ? `in ${b.d.dir}` : "there"}`].filter(Boolean).join("\n"));
+  put(row, "title", transferTip(b));
 }
 
-// What's happening to a transfer, in a few words: "Copy paused", "Move stopped at 95%", "Download paused"...
-function transferState(b) {
+// A transfer's tooltip in the sidebar: its state and numbers, then where it goes.
+function transferTip(b) {
+  const of = (done, total) => (total ? `${formatSize(done)} of ${formatSize(total)}` : "");
+  const line = (...parts) => parts.filter(Boolean).join(" · ");
   if (b.stopped) {
     const c = b.stopped.copying;
-    return `${c.op === "move" ? "Move" : "Copy"} stopped at ${c.percent}% (phil was closed, or it was stopped): ↻ resumes it`;
+    return `${line(`${c.op === "move" ? "Move" : "Copy"} stopped at ${c.percent}%`, of(c.bytes, c.total))}\n${parentOf(b.stopped.path)}`;
   }
   if (b.t) {
     const t = b.t;
-    if (t.op === "delete") return t.counting ? "Counting what to delete" : "Deleting";
-    return `${t.op === "move" ? "Move" : "Copy"} ${t.paused ? "paused" : "under way"}`;
+    if (t.op === "delete") return `${t.counting ? `Counting: ${t.found.toLocaleString()} so far` : `Deleting: ${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} gone`}\n${t.dest}`;
+    const verb = t.op === "move" ? (t.paused ? "Move paused" : "Moving") : t.paused ? "Copy paused" : "Copying";
+    return `${line(verb, of(t.bytes, t.total), !t.paused && t.speed ? `${formatSize(t.speed)}/s` : "", !t.paused && t.eta != null ? `${formatDuration(t.eta)} left` : "")}\n${t.dest}`;
   }
-  const d = b.d;
-  if (d.checking != null) return `Download: checking its files (${d.checking}%)`;
-  return {
-    paused: "Download paused",
-    completed: d.upSpeed > 0 ? "Downloaded, seeding" : "Downloaded",
-    error: `Download failed${d.error ? `: ${d.error}` : ""}`,
-    failed: `Download failed${d.error ? `: ${d.error}` : ""}`,
-    queued: "Download queued",
-    metadata: "Download: finding the torrent",
-    initializing: "Download starting",
-    starting: "Download starting",
-  }[d.state] ?? "Downloading";
+  const d = b.d, active = d.state === "downloading" && d.checking == null;
+  const state = d.checking != null ? `Checking files ${d.checking}%`
+    : { paused: "Paused", completed: d.upSpeed > 0 ? "Seeding" : "Downloaded", error: "Failed", failed: "Failed", queued: "Queued", metadata: "Finding the torrent", initializing: "Starting", starting: "Starting" }[d.state] ?? "Downloading";
+  return `${line(state, d.state === "completed" ? formatSize(d.total) : of(d.bytes, d.total), active && d.speed ? `${formatSize(d.speed)}/s` : "", active && d.eta ? `${formatDuration(d.eta)} left` : "",
+    d.upSpeed ? `↑ ${formatSize(d.upSpeed)}/s` : "", (d.state === "error" || d.state === "failed") && d.error)}\n${d.dir}`;
 }
 
 // The folder a transfer goes to (a delete's: the one it's deleting in), with what it's making selected.
