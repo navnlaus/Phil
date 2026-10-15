@@ -146,7 +146,8 @@ export function parse(args, { cwd }) {
     } catch { /* none */ }
     return {
       profile,
-      open: { dir, select: [], choose: { mode: opts.choose, multiple: !!opts.multiple, out, name } },
+      // (variant: its window's class gets "-choose", for window rules: a dialog, floating)
+      open: { dir, select: [], variant: "choose", choose: { mode: opts.choose, multiple: !!opts.multiple, out, name } },
       async waitFor() {
         for (;;) {
           try {

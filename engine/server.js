@@ -114,7 +114,7 @@ function serve(name, apps, { token, quit, tls }) {
       self.postMessage({ window: { id: String(id ?? ""), message: String(message ?? "") } });
       return json({ ok: true });
     }
-    if (req.method === "GET" && (url.pathname === `/${name}` || url.pathname === `/${name}-incognito`)) url.pathname = "/";
+    if (req.method === "GET" && new RegExp(`^/${name}(-[a-z]+)*$`).test(url.pathname)) url.pathname = "/"; // (phil-choose, phil-incognito...)
     const embed = /^\/engine\/embed\/([\w-]+)(\/.*)$/.exec(url.pathname);
     if (embed && apps[embed[1]]) {
       url.pathname = embed[2];

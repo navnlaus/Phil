@@ -83,7 +83,9 @@ clicked gives its name, and replacing one asks first. It waits until the choice
 is made (or the window is closed, any way: cancelled), then the chosen paths
 are in FILE, one per line (nothing: cancelled). This is the wrapper interface
 of `xdg-desktop-portal-termfilechooser`, which makes it the desktop's file
-chooser: apps' Open and Save dialogs (Brave's, Firefox's...) are phil windows.
+chooser: apps' Open and Save dialogs (Brave's, Firefox's...) are phil windows. Its windows' class is `phil-choose` (in a browser's windows,
+`<browser>-127.0.0.1__phil-choose-Default`), for a window rule that floats
+them; they don't open the terminal panel or change the folder phil reopens.
 
 ### Windows in Chromium instead of WebKitGTK
 
