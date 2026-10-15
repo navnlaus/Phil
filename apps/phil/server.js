@@ -151,7 +151,7 @@ export function createServer({ profile, controlSocket }) {
   const describedPlaces = async () =>
     Promise.all((await places(await sidebarFolders())).map(async (p) => {
       const meta = p.path ? await hooks.get(p.path).catch(() => null) : null;
-      return { ...p, ...(meta?.description ? { description: meta.description } : {}), ...(meta?.icon ? { customIcon: meta.icon } : {}) };
+      return { ...p, ...(meta?.description ? { description: meta.description } : {}), ...(meta?.icon ? { customIcon: meta.icon } : {}), ...(meta?.media ? { mediaFolder: true } : {}) };
     }));
   // Files copied or cut (Ctrl+C / Ctrl+X), for every window: pasting goes by the
   // desktop's clipboard, which has their paths as text (`text`) while they're it.
@@ -425,6 +425,7 @@ export function createServer({ profile, controlSocket }) {
         const body = await req.json();
         const result = await rename(body);
         await hooks.moved(body.path, result.path);
+        await movedPositions(body.path, result.path).catch(() => {});
         thumbs.carry(body.path, result.path).catch(() => {});
         return json(result);
       }
@@ -542,6 +543,7 @@ export function createServer({ profile, controlSocket }) {
       if (meta[e.path]?.onChange) e.onChange = meta[e.path].onChange;
       if (meta[e.path]?.description) e.description = meta[e.path].description;
       if (meta[e.path]?.icon) e.icon = meta[e.path].icon; // a folder's, picked in its Properties
+      if (meta[e.path]?.media) e.mediaFolder = true; // a media folder (its Properties): mediaview's
       if (meta[e.path]?.copying) { // a copy into it: under way, or stopped (cut off: no job has it)
         e.copying = { ...meta[e.path].copying };
         if (!liveTargets.has(e.path)) e.copying.state = "stopped";
@@ -916,7 +918,31 @@ export function createServer({ profile, controlSocket }) {
   // The metadata of what was deleted or moved (the paths without an error) follows it.
   async function movedHooks(paths, { errors = [] }, to) {
     const failed = new Set(errors.map((e) => e.path));
-    for (const path of paths) if (!failed.has(path)) await hooks.moved(path, to(path)).catch(() => {});
+    for (const path of paths) {
+      if (failed.has(path)) continue;
+      await hooks.moved(path, to(path)).catch(() => {});
+      await movedPositions(path, to(path)).catch(() => {});
+    }
+  }
+
+  // Where each video was left, and which were watched (videoplayer's, by path:
+  // mediaview shows them) follow a move or rename, or go with a delete (`to` null).
+  const positionsFile = join(dirname(config.stateFile), "videoplayer-positions.json");
+  async function movedPositions(from, to) {
+    if (config.incognito) return;
+    const all = await Deno.readTextFile(positionsFile).then(JSON.parse, () => null);
+    if (!all) return;
+    let changed = false;
+    for (const path of Object.keys(all)) {
+      if (path !== from && !path.startsWith(from + "/")) continue;
+      if (to) all[to + path.slice(from.length)] = all[path];
+      delete all[path];
+      changed = true;
+    }
+    if (!changed) return;
+    const tmp = `${positionsFile}.${crypto.randomUUID().slice(0, 8)}.tmp`;
+    await Deno.writeTextFile(tmp, JSON.stringify(all));
+    await Deno.rename(tmp, positionsFile);
   }
 
   async function rename({ path, name }) {

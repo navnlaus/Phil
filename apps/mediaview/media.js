@@ -145,6 +145,39 @@ function matchTitle({ kind, title, year }) {
 
 const matched = new Map(); // key -> match(), kept while the database is the same
 let matchedWith = null;
+const freshMatches = () => {
+  const built = imdb.status().built;
+  if (built !== matchedWith) matched.clear(), (matchedWith = built); // a new database: matched again
+};
+// What files named so are, as fixes and matches know them: one key per movie (title and year) or show.
+const keyOf = (d) => `${d.kind === "episode" ? "show" : "movie"}|${imdb.norm(d.title)}|${d.kind === "episode" ? "" : d.year ?? ""}`;
+
+/**
+ * A folder just marked as media, made ready before it's shown: its videos
+ * found, each title matched, and each one's picture made (`poster(path)`,
+ * its first file's), saying how far it is as it goes (`onProgress({phase,
+ * done, total, title})`). Resolves to its files ([{path, size, mtime}]), for
+ * remembering while its drive is unplugged.
+ */
+export async function prepare(root, { poster, onProgress = () => {} } = {}) {
+  onProgress({ phase: "Looking for videos", done: 0, total: 0 });
+  const files = await scan(root);
+  const titles = new Map(); // key -> {d, file}
+  for (const f of files) {
+    const d = describe(f.path, root);
+    const key = keyOf(d);
+    if (!titles.has(key)) titles.set(key, { d, file: f });
+  }
+  freshMatches();
+  let done = 0;
+  onProgress({ phase: "Matching titles", done, total: titles.size });
+  for (const [key, { d, file }] of titles) {
+    if (!matched.has(key)) matched.set(key, match(d));
+    await poster(file.path).catch(() => {});
+    onProgress({ phase: "Matching titles", done: ++done, total: titles.size, title: matched.get(key)?.title.title ?? d.title });
+  }
+  return files;
+}
 
 /**
  * The library: `roots` (the folders marked as media) scanned, each file
@@ -164,11 +197,10 @@ export async function library(roots, { fixes = {}, watched = {}, remembered = {}
   const scanned = Object.fromEntries(roots.filter((r) => online[r]).map((r) => [r, files.filter((f) => f.root === r).map(({ path, size, mtime }) => ({ path, size, mtime }))]));
 
   const movies = new Map(), shows = new Map(), cache = new Map();
-  const built = imdb.status().built;
-  if (built !== matchedWith) matched.clear(), (matchedWith = built); // a new database: matched again
+  freshMatches();
   for (const f of files) {
     const d = describe(f.path, f.root);
-    const key = `${d.kind === "episode" ? "show" : "movie"}|${imdb.norm(d.title)}|${d.kind === "episode" ? "" : d.year ?? ""}`;
+    const key = keyOf(d);
     if (fixes[key] === 0) continue; // left out by hand
     if (!cache.has(key)) {
       const fixed = fixes[key] ? imdb.title(fixes[key]) : null;
