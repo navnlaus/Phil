@@ -1,0 +1,474 @@
+import { closeWindow, copyText, holdFocus, onCloseRequest, ready, tellParent, tooltips } from "../engine/ui/kit.js";
+
+// The player. A video the browser plays itself is played from the file; one it
+// can't (the server's probe says so, or it fails or shows no picture) from the
+// server's /stream, ffmpeg making it into an MP4 as it plays: that one starts
+// at `offset`, so its times here are offset + the element's, and seeking past
+// what's come is a new stream from there.
+//
+// Keys: Space / K play and pause; ← → seek (settings.seekStep; with Shift,
+// seekStepLong), J L 10 s; ↑ ↓ and the wheel the volume; M mutes; [ ] the speed,
+// Backspace back to normal; , . a frame (paused); 0–9 to that tenth; Home the
+// start; Page Up / Page Down the previous / next video in the folder; R repeats;
+// F or a double-click fullscreen; Ctrl+C copies the path; Esc / Q closes.
+//
+// The settings (~/.config/phil/videoplayer.json, server.js DEFAULTS): the gear
+// changes some; the file has them all. Nothing's kept in the page itself (no
+// local storage); in incognito the server keeps what changes in memory only.
+
+tooltips(); // the page's own, in the theme's style (kit.js)
+
+const $ = (sel) => document.querySelector(sel);
+const video = $("#video");
+const stage = $("#stage");
+const seekBar = $("#seek");
+const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
+const POSITION_EVERY_MS = 15_000; // where it is, told to the server while it plays
+
+const state = {
+  videos: [], // {path, name, size, mtime}
+  index: -1,
+  info: null, // the probe's: {duration, width, height, video, audio, direct}
+  streaming: false, // playing /stream (not the file)
+  offset: 0, // where that stream starts, in the video
+  settings: {},
+  incognito: false,
+  token: 0, // the video being loaded; earlier loads finishing late are ignored
+  seeking: null, // the time dragged to on the timeline
+};
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  if (!res.ok) throw new Error((await res.text()) || res.statusText);
+  return res.json();
+}
+const put = (path, body) => fetch(path, { method: "PUT", body: JSON.stringify(body) }).catch(() => {});
+const q = (path) => encodeURIComponent(path);
+
+// ---------------------------------------------------------------- time
+
+const now = () => (state.streaming ? state.offset : 0) + (video.currentTime || 0);
+const duration = () => state.info?.duration ?? (Number.isFinite(video.duration) ? video.duration : 0);
+
+function clock(s) {
+  s = Math.max(0, Math.floor(s || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+/** Goes to `t` seconds: in the file, in what the stream has, or a new stream from there. */
+function seekTo(t) {
+  const end = duration();
+  t = Math.max(0, end ? Math.min(t, end - 0.05) : t);
+  if (!state.streaming) {
+    video.currentTime = t;
+  } else {
+    const rel = t - state.offset;
+    const have = video.buffered.length ? video.buffered.end(video.buffered.length - 1) : 0;
+    if (rel >= 0 && rel <= have + 1) video.currentTime = rel;
+    else startStream(t, !video.paused);
+  }
+  showTime();
+}
+
+function startStream(t, play = true) {
+  state.streaming = true;
+  state.offset = Math.max(0, t);
+  video.src = `stream?path=${q(entry().path)}&t=${state.offset.toFixed(2)}`;
+  if (play) video.play().catch(() => {});
+  showInfo();
+}
+
+// ---------------------------------------------------------------- videos
+
+const entry = () => state.videos[state.index];
+
+async function show(index) {
+  const e = state.videos[index];
+  if (!e) return;
+  savePosition();
+  state.index = index;
+  const token = ++state.token;
+  $("#name").textContent = e.name;
+  $("#count").textContent = state.videos.length > 1 ? `${index + 1} / ${state.videos.length}` : "";
+  $("#info").textContent = "";
+  document.title = e.name;
+  $("#prev").disabled = index === 0;
+  $("#next").disabled = index === state.videos.length - 1;
+  for (const b of [$("#prev"), $("#next")]) b.classList.toggle("alone", state.videos.length < 2);
+  tellParent({ app: "videoplayer", showing: e.path }); // shown in phil: it selects it
+  showMessage("");
+  spinner(true);
+  video.removeAttribute("src");
+  video.load();
+
+  let info, position;
+  try {
+    [info, { position }] = await Promise.all([api(`api/probe?path=${q(e.path)}`), api(`api/settings?path=${q(e.path)}`)]);
+  } catch (err) {
+    if (token !== state.token) return;
+    spinner(false);
+    return showMessage(`Can't play ${e.name}:\n${err.message}`, true);
+  }
+  if (token !== state.token) return;
+  state.info = info;
+  // Where it was left, unless that's nearly the end.
+  const start = state.settings.resume && position && (!info.duration || position < info.duration - 10) ? position : 0;
+  if (info.direct) {
+    state.streaming = false;
+    state.offset = 0;
+    video.src = `file?path=${q(e.path)}`;
+    if (start) video.addEventListener("loadedmetadata", () => (video.currentTime = start), { once: true });
+    video.play().catch(() => {});
+    // No picture after all (HEVC without the GPU's help), or nothing at all for a
+    // while: the stream instead.
+    setTimeout(() => {
+      if (token === state.token && !state.streaming && video.readyState === 0) startStream(start);
+    }, 8000);
+  } else {
+    startStream(start);
+  }
+  showInfo();
+  showTime();
+}
+
+video.addEventListener("loadeddata", () => {
+  if (!state.streaming && state.info?.video && video.videoWidth === 0) startStream(now(), !video.paused);
+});
+video.addEventListener("error", () => {
+  if (!video.getAttribute("src")) return; // (emptied between videos)
+  spinner(false);
+  if (!state.streaming) return startStream(now());
+  showMessage(`Can't play ${entry()?.name ?? "this video"} here.`, true);
+});
+
+function showInfo() {
+  const e = entry(), info = state.info;
+  if (!e || !info) return;
+  $("#info").textContent = [
+    info.width ? `${info.width} × ${info.height}` : "",
+    formatSize(e.size),
+    formatDate(e.mtime),
+    state.streaming ? "converted as it plays" : "",
+  ].filter(Boolean).join("   ·   ");
+}
+
+function step(dir) {
+  const i = state.index + dir;
+  if (i >= 0 && i < state.videos.length) show(i);
+}
+
+// Where it was left, for the next time (the server forgets it at the end).
+let positionTimer = 0;
+function savePosition() {
+  const e = entry();
+  if (!e || !state.info) return;
+  const t = now(), end = duration();
+  const done = end && (t > end - 10 || t / end > 0.97);
+  put("api/position", { path: e.path, t: t < 5 || done ? null : t });
+}
+video.addEventListener("play", () => (clearInterval(positionTimer), (positionTimer = setInterval(savePosition, POSITION_EVERY_MS))));
+video.addEventListener("pause", () => (clearInterval(positionTimer), savePosition()));
+addEventListener("pagehide", savePosition);
+
+video.addEventListener("ended", () => {
+  // A stream that ended short of the end: ffmpeg couldn't go on.
+  if (state.streaming && duration() && now() < duration() - 3) return showMessage(`Can't play ${entry()?.name ?? "this video"} further here.`, true);
+  if (state.settings.loop) return seekTo(0), video.play().catch(() => {});
+  savePosition();
+  if (state.settings.playNext && state.index < state.videos.length - 1) step(1);
+  else wake();
+});
+
+// ---------------------------------------------------------------- showing it
+
+function showMessage(text, withMpv = false) {
+  $("#message .text").textContent = text;
+  $("#message").hidden = !text;
+  $("#msg-mpv").hidden = !withMpv;
+}
+
+const spinner = (on) => ($("#spinner").hidden = !on);
+video.addEventListener("waiting", () => spinner(true));
+video.addEventListener("seeking", () => spinner(true));
+for (const type of ["playing", "canplay", "pause", "seeked"]) video.addEventListener(type, () => spinner(video.readyState < 3 && !video.paused));
+
+function showTime() {
+  const t = state.seeking ?? now(), end = duration();
+  $("#time").textContent = `${clock(t)} / ${clock(end)}`;
+  $("#seek .played").style.width = end ? `${(t / end) * 100}%` : "0";
+  let have = 0;
+  for (let i = 0; i < video.buffered.length; i++) {
+    if (video.buffered.start(i) <= video.currentTime + 1) have = video.buffered.end(i);
+  }
+  $("#seek .buffered").style.width = end ? `${Math.min(100, ((have + (state.streaming ? state.offset : 0)) / end) * 100)}%` : "0";
+}
+video.addEventListener("timeupdate", showTime);
+video.addEventListener("progress", showTime);
+video.addEventListener("durationchange", showTime);
+
+function showPlaying() {
+  document.body.classList.toggle("playing", !video.paused);
+  $("#btn-play").title = video.paused ? "Play (Space)" : "Pause (Space)";
+  wake();
+}
+video.addEventListener("play", showPlaying);
+video.addEventListener("pause", showPlaying);
+
+function showVolume() {
+  document.body.classList.toggle("muted", video.muted || video.volume === 0);
+  $("#volume").value = video.muted ? 0 : video.volume;
+  $("#btn-mute").title = video.muted ? "Unmute (M)" : "Mute (M)";
+}
+video.addEventListener("volumechange", showVolume);
+
+function showSpeed() {
+  $("#btn-speed").textContent = `${video.playbackRate}×`;
+  $("#btn-speed").classList.toggle("on", video.playbackRate !== 1);
+}
+video.addEventListener("ratechange", showSpeed);
+
+function showLoop() {
+  $("#btn-loop").classList.toggle("on", !!state.settings.loop);
+  $("#btn-loop").title = state.settings.loop ? "Repeating (R)" : "Repeat (R)";
+  $("#settings [name=loop]").checked = !!state.settings.loop;
+}
+
+// The bars and the pointer: shown while paused, and for a while after the mouse moves.
+let idleTimer = 0;
+function wake() {
+  document.body.classList.add("awake");
+  document.body.classList.remove("idle");
+  for (const bar of document.querySelectorAll(".overlay-bar")) bar.classList.add("show");
+  clearTimeout(idleTimer);
+  if (video.paused || !$("#settings").hidden) return;
+  idleTimer = setTimeout(() => {
+    if (video.paused || document.querySelector(".overlay-bar:hover")) return;
+    document.body.classList.remove("awake");
+    document.body.classList.add("idle");
+    for (const bar of document.querySelectorAll(".overlay-bar")) bar.classList.remove("show");
+  }, (state.settings.hideControlsAfter ?? 2) * 1000);
+}
+addEventListener("pointermove", wake);
+
+// ---------------------------------------------------------------- doing things
+
+const togglePlay = () => (video.paused ? video.play().catch(() => {}) : video.pause());
+
+function setVolume(v) {
+  video.volume = Math.max(0, Math.min(1, Math.round(v * 100) / 100));
+  video.muted = false;
+  saveSettings({ volume: video.volume, muted: false });
+}
+
+function toggleMute() {
+  video.muted = !video.muted;
+  if (!video.muted && video.volume === 0) video.volume = 0.5;
+  saveSettings({ muted: video.muted, volume: video.volume });
+}
+
+function setSpeed(dir) {
+  const i = SPEEDS.findIndex((s) => s >= video.playbackRate - 0.001);
+  video.playbackRate = video.defaultPlaybackRate = dir === 0 ? 1 : SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, (i === -1 ? SPEEDS.length - 1 : i) + dir))];
+}
+
+function frame(dir) {
+  video.pause();
+  seekTo(now() + dir / 30);
+}
+
+function toggleLoop() {
+  saveSettings({ loop: !state.settings.loop });
+  showLoop();
+}
+
+let saveTimer = 0, unsaved = {};
+function saveSettings(changed) {
+  Object.assign(state.settings, changed);
+  Object.assign(unsaved, changed);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => (put("api/settings", unsaved), (unsaved = {})), 500);
+}
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+}
+
+function playInMpv() {
+  const e = entry();
+  if (!e) return;
+  video.pause();
+  fetch("api/mpv", { method: "POST", body: JSON.stringify({ path: e.path, t: now() }) }).catch(() => {});
+}
+
+function close() {
+  savePosition();
+  video.pause();
+  if (document.fullscreenElement) document.exitFullscreen();
+  closeWindow();
+}
+
+function toggleSettings(show = $("#settings").hidden) {
+  $("#settings").hidden = !show;
+  $("#btn-settings").classList.toggle("on", show);
+  wake();
+}
+
+// ---------------------------------------------------------------- the timeline
+
+const timeAt = (x) => {
+  const r = seekBar.getBoundingClientRect();
+  return Math.max(0, Math.min(1, (x - r.left) / r.width)) * duration();
+};
+
+function hoverTime(x) {
+  const tip = $("#seek .hover-time"), r = seekBar.getBoundingClientRect();
+  tip.hidden = false;
+  tip.textContent = clock(timeAt(x));
+  tip.style.left = `${Math.max(24, Math.min(r.width - 24, x - r.left))}px`;
+}
+
+seekBar.addEventListener("pointermove", (e) => hoverTime(e.clientX));
+seekBar.addEventListener("pointerleave", () => !state.seeking && ($("#seek .hover-time").hidden = true));
+seekBar.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || !duration()) return;
+  seekBar.setPointerCapture(e.pointerId);
+  seekBar.classList.add("dragging");
+  state.seeking = timeAt(e.clientX);
+  showTime();
+  const move = (ev) => {
+    state.seeking = timeAt(ev.clientX);
+    hoverTime(ev.clientX);
+    if (!state.streaming) video.currentTime = state.seeking; // the file: as it's dragged
+    showTime();
+  };
+  seekBar.addEventListener("pointermove", move);
+  seekBar.addEventListener("pointerup", () => {
+    seekBar.removeEventListener("pointermove", move);
+    seekBar.classList.remove("dragging");
+    const t = state.seeking;
+    state.seeking = null;
+    $("#seek .hover-time").hidden = true;
+    seekTo(t);
+  }, { once: true });
+});
+
+// ---------------------------------------------------------------- input
+
+document.addEventListener("keydown", (e) => {
+  if (e.defaultPrevented || e.altKey) return;
+  if (e.target.closest?.("input, select, textarea, #settings") && e.key !== "Escape") return;
+  const ctrl = e.ctrlKey || e.metaKey;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const handled = () => (e.preventDefault(), wake());
+  const s = state.settings;
+  if (ctrl) {
+    if (key === "c" && !getSelection().toString()) return copyText(entry()?.path ?? ""), handled();
+    if (key === "w") return close(), handled();
+    return;
+  }
+  if (key === " " || key === "k") return togglePlay(), handled();
+  if (key === "ArrowLeft") return seekTo(now() - (e.shiftKey ? s.seekStepLong : s.seekStep)), handled();
+  if (key === "ArrowRight") return seekTo(now() + (e.shiftKey ? s.seekStepLong : s.seekStep)), handled();
+  if (key === "j") return seekTo(now() - 10), handled();
+  if (key === "l") return seekTo(now() + 10), handled();
+  if (key === "ArrowUp") return setVolume(video.volume + 0.05), handled();
+  if (key === "ArrowDown") return setVolume(video.volume - 0.05), handled();
+  if (key === "m") return toggleMute(), handled();
+  if (key === "[") return setSpeed(-1), handled();
+  if (key === "]") return setSpeed(1), handled();
+  if (key === "Backspace") return setSpeed(0), handled();
+  if (key === ",") return frame(-1), handled();
+  if (key === ".") return frame(1), handled();
+  if (/^[0-9]$/.test(key)) return seekTo((duration() * Number(key)) / 10), handled();
+  if (key === "Home") return seekTo(0), handled();
+  if (key === "PageUp") return step(-1), handled();
+  if (key === "PageDown") return step(1), handled();
+  if (key === "r") return toggleLoop(), handled();
+  if (key === "f") return toggleFullscreen(), handled();
+  if (key === "Escape" || key === "q") {
+    if (!$("#settings").hidden) toggleSettings(false);
+    else if (document.fullscreenElement) document.exitFullscreen();
+    else close();
+    stage.focus({ preventScroll: true });
+    return e.preventDefault();
+  }
+});
+
+// A click plays and pauses; a double-click (two clicks: unchanged) is fullscreen.
+stage.addEventListener("click", () => ($("#settings").hidden ? togglePlay() : toggleSettings(false)));
+stage.addEventListener("dblclick", toggleFullscreen);
+stage.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  setVolume(video.volume + (e.deltaY < 0 ? 0.05 : -0.05));
+  wake();
+}, { passive: false });
+
+$("#btn-play").onclick = togglePlay;
+$("#btn-mute").onclick = toggleMute;
+$("#volume").oninput = (e) => setVolume(Number(e.target.value));
+$("#btn-speed").onclick = (e) => setSpeed(e.shiftKey ? -1 : video.playbackRate >= SPEEDS.at(-1) ? 0 : 1);
+$("#btn-speed").oncontextmenu = (e) => (e.preventDefault(), setSpeed(0));
+$("#btn-loop").onclick = toggleLoop;
+$("#btn-full").onclick = toggleFullscreen;
+$("#btn-close").onclick = close;
+$("#btn-mpv").onclick = playInMpv;
+$("#msg-mpv").onclick = playInMpv;
+$("#btn-settings").onclick = () => toggleSettings();
+$("#prev").onclick = () => step(-1);
+$("#next").onclick = () => step(1);
+$("#settings").onchange = (e) => {
+  saveSettings({ [e.target.name]: e.target.checked });
+  showLoop();
+};
+for (const b of document.querySelectorAll("button")) b.addEventListener("mouseup", () => stage.focus({ preventScroll: true }));
+onCloseRequest(close);
+holdFocus(stage);
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let n = bytes, i = -1;
+  do {
+    n /= 1024;
+    i++;
+  } while (n >= 1024 && i < units.length - 1);
+  return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+const formatDate = (ms) => (ms ? new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "");
+
+// ---------------------------------------------------------------- start
+
+const params = new URLSearchParams(location.search);
+const file = params.get("file");
+try {
+  const { settings, incognito, file: settingsFile } = await api("api/settings");
+  state.settings = settings;
+  state.incognito = incognito;
+  video.volume = Math.max(0, Math.min(1, Number(settings.volume) || 0));
+  video.muted = !!settings.muted;
+  video.playbackRate = video.defaultPlaybackRate = Number(settings.speed) || 1; // (the default: kept from video to video)
+  for (const name of ["resume", "playNext", "loop"]) $(`#settings [name=${name}]`).checked = !!settings[name];
+  $("#settings .file").textContent = incognito
+    ? "Incognito: what's changed here lasts until the window closes, and where videos were left isn't kept."
+    : `These and more (seek steps, when the controls hide, how what's converted is): ${settingsFile}`;
+} catch { /* the defaults */ }
+showVolume();
+showSpeed();
+showLoop();
+showPlaying();
+if (!file) {
+  showMessage("No video. Open one with: videoplayer <file>");
+} else {
+  try {
+    const listing = await api(`api/videos?path=${q(file)}&sort=${params.get("sort") ?? "name"}`);
+    state.videos = listing.videos;
+    if (!state.videos.length) showMessage(`No videos in ${listing.dir}`);
+    else show(listing.index);
+  } catch (err) {
+    showMessage(err.message);
+  }
+}
+ready(); // the window appears (or, inside phil, gets the keyboard)

@@ -4,6 +4,7 @@
     "jsonedit": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run engine/main.js jsonedit --standalone",
     "textedit": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run engine/main.js textedit --standalone",
     "imageview": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run engine/main.js imageview --standalone",
+    "videoplayer": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run engine/main.js videoplayer --standalone",
     "imageresize": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run engine/main.js imageresize --standalone",
     "compile": "deno compile --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run --include engine/server.js --include engine/ui --include themes --include apps -o phil-engine engine/main.js",
     "install": "bash scripts/install.sh"

@@ -225,6 +225,14 @@ async function serve({ profile = {}, request = null, browser = false, standalone
   };
 
   if (profile.incognito) console.log(`${NAME}: incognito`);
+  // Incognito: its log (what it said, paths among it) goes with it, however it exits.
+  if (profile.incognito && instance) {
+    addEventListener("unload", () => {
+      try {
+        Deno.removeSync(instance.replace(/\.sock$/, ".log"));
+      } catch { /* gone */ }
+    });
+  }
   if (browser) {
     console.log(`${request.open.app}: open ${windowUrl(request.open)}`);
     server.onmessage = (e) => {

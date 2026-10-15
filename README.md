@@ -34,6 +34,9 @@ quickly. The engine keeps running after its last window closes.
   edited as it reads: `textedit file` (see [textedit](#textedit)).
 - **imageview**, an image viewer: `imageview picture.jpg`, and the other images
   in its folder (see [imageview](#imageview)).
+- **videoplayer**, a video player: `videoplayer film.mkv`, and the other videos
+  in its folder; what the browser can't play, ffmpeg converts as it plays (see
+  [videoplayer](#videoplayer)).
 - **imageresize**: resize, crop and compress an image (right-click it in phil;
   see [imageresize](#imageresize)).
 - **phil-editor** (`ed` with `alias ed=phil-editor`): the right editor for a
@@ -47,8 +50,8 @@ windows get its own Wayland app id (`phil`, `jsonedit`) for window rules. Apps
 share a look: a top (and bottom) bar that floats over the page and fades out
 until hovered (phil's top bar stays, with the folder below it), with an X at
 the right that closes the window (`themes/base.css`, `engine/ui/kit.js`). One app can show another inside its window:
-phil opens `.json` files in jsonedit, other text files and documents in textedit and images
-in imageview that way, and the app's X (or Esc) goes back to the folder. Copying and pasting go through
+phil opens `.json` files in jsonedit, other text files and documents in textedit, images
+in imageview and videos in videoplayer that way, and the app's X (or Esc) goes back to the folder. Copying and pasting go through
 the desktop's clipboard (`wl-copy` / `wl-paste`), so they show up in Omarchy's
 clipboard history and take what was copied anywhere; every way of pressing
 them works the same: Ctrl+C / Ctrl+V, Super+C / Super+V, Ctrl+Insert /
@@ -214,7 +217,14 @@ how phil was closed). A folder argument always wins.
   `$XDG_RUNTIME_DIR` (a tmpfs, i.e. RAM; `/dev/shm` without it), deleted when
   the incognito engine exits, unless `--thumb-dir` is given; folder summaries
   and descriptions or hooks set in Properties in the process itself;
-- WebKit runs a private session: no disk cache, cookies or storage.
+- WebKit runs a private session: no disk cache, cookies or storage (Chromium:
+  a throwaway profile in `$XDG_RUNTIME_DIR`, deleted when it closes);
+- imageview and videoplayer, opened from it (or typed in its terminal panel),
+  are incognito too: imageview's fit mode and videoplayer's settings changes
+  last for the session, and where videos were left isn't kept (nor by mpv,
+  "Play in mpv": `--save-position-on-quit=no --no-resume-playback`);
+- the engine's log (`$XDG_RUNTIME_DIR/phil/incognito.log`) is deleted when it
+  exits.
 
 Files inside `.thumbnails` folders are shown as their own thumbnails.
 
@@ -364,7 +374,8 @@ empty space → Inspect Element works too.
 ## Requirements
 
 `webkit2gtk-4.1` (or a Chromium-based browser: see [Windows in Chromium](#windows-in-chromium-instead-of-webkitgtk)), `deno`, `wl-clipboard`, `libvips` (built with poppler, for PDF thumbnails) (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
-and GStreamer plugins for in-app video (`gst-plugins-good`, `gst-libav`). `mpv`
+`ffmpeg` (videoplayer: probing and converting), and with WebKitGTK, GStreamer
+plugins for its video (`gst-plugins-good`, `gst-libav`). `mpv`
 and `xdg-open` are used for "open externally". `udisks2` (`udisksctl`) mounts removable drives from the sidebar; a system drive's mount, like everything phil does as root, goes through `sudo`.
 
 ## How it works
@@ -396,8 +407,9 @@ apps/textedit/      launch.js, server.js, ui/ (markdown.js: Markdown to HTML and
 apps/phil/tagging.js, tagging/
                     auto-tagging: tagger.py (the Python helper: SigLIP 2) and tags.txt
 apps/imageview/     launch.js, server.js, ui/
+apps/videoplayer/   launch.js, server.js (ffprobe, ffmpeg), ui/
 apps/imageresize/   launch.js, server.js (vips), ui/
-engine/media.js     media kinds by name, vips previews of images WebKit can't show
+engine/media.js     media kinds by name, a folder's images or videos, vips previews of images WebKit can't show
 engine/files.js     reading and saving files for the editors
 data/, scripts/install.sh  desktop entries, D-Bus service file, installer
 ```
@@ -466,8 +478,9 @@ engine that can't run openssl.
   waiting for its thumbnail leaked 24,000 handles in 20 s), and the engine
   raises its open-files limit to the hard limit (524288 here, from 65536), which
   WebKit's processes inherit.
-- WebKit's player never loads Matroska files with embedded subtitles; after six
-  seconds the viewer says so. Double-click plays videos in mpv anyway.
+- WebKit's player never loads Matroska files with embedded subtitles;
+  videoplayer gives up on it after eight seconds and plays ffmpeg's conversion
+  (without the subtitles) instead.
 
 ## Terminal panel
 
@@ -524,7 +537,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 
 | | |
 |---|---|
-| double-click / Enter | open folder, view image in imageview, play video in mpv, edit a `.json` file in jsonedit or any other text file (notes, code, configs, logs; whatever reads as text) in textedit, both in this window (a Word, RTF or OpenDocument document: read in textedit, as Markdown), or open the file with its default app (right-click a video → "Play here" for the built-in player; any file → "Edit as text") |
+| double-click / Enter | open folder, view image in imageview, play video in videoplayer, edit a `.json` file in jsonedit or any other text file (notes, code, configs, logs; whatever reads as text) in textedit, all in this window (a Word, RTF or OpenDocument document: read in textedit, as Markdown), or open the file with its default app (right-click a video → "Play in mpv"; any file → "Edit as text") |
 | double-click a script (`#!`, `.sh`…) or program | run it in the terminal, covering the window; Esc stops it and puts the terminal back |
 | arrows, Home/End, PgUp/PgDn | move selection (with Shift: extend it) |
 | Ctrl+click / Shift+click, Ctrl+A | add to / extend / select all; click empty space to clear |
@@ -564,7 +577,6 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
 | Ctrl + / − / wheel | thumbnail size |
 | F5 | reload folder |
-| in the video player ("Play here"): ← → Esc, `f` | previous/next video, close, fullscreen |
 
 **On-change hooks.** A file's Properties can name a command for phil to run
 when the file changes — but only while a phil window shows its folder; with
@@ -721,6 +733,59 @@ Formats the webview can't show (HEIC, TIFF, JPEG XL...) are converted by vips.
 | Esc / Q | leave fullscreen, close |
 
 `deno task imageview [file]` runs it from the source.
+
+## videoplayer
+
+`videoplayer film.mkv` plays a video, with the other videos in its folder a
+Page Down away (in phil's order when phil opens it: double-click a video, or
+right-click → "Play here"; Esc goes back to the folder, with the video you
+were on selected). Typed in phil's terminal panel, it opens in that phil
+window. It asks ffprobe what the file is: MP4, WebM and Matroska with H.264,
+VP9 or AV1 (and AAC, MP3, Opus, Vorbis or FLAC sound) the browser plays
+itself, with seeking straight from the file. The rest (AVI, MPEG-TS, WMV,
+MPEG-2, AC-3 or DTS sound; HEVC when the browser shows no picture) ffmpeg
+makes into an MP4 as it plays, copying what the browser can play and
+converting the rest to H.264 and AAC; seeking past what's come starts it again
+from there ("converted as it plays" next to its size). It starts where you
+left a video (more than 5 seconds in, not near its end).
+
+| | |
+|---|---|
+| Space / K, click | play, pause |
+| ← → (Shift: further), J L | back, forward: 5 s (60 s), 10 s |
+| 0–9, Home | to that tenth, the start |
+| ↑ ↓, wheel, M | volume, mute |
+| [ ] Backspace | slower, faster, normal |
+| , . | a frame back, forward (paused) |
+| Page Up / Page Down | previous / next video in the folder |
+| R | repeat |
+| F, double-click | fullscreen |
+| Ctrl+C | copy the file's path |
+| Esc / Q | close the settings, leave fullscreen, close |
+
+The gear: start where you left off, then the next video, repeat.
+`~/.config/phil/videoplayer.json` has those and the rest (the player writes
+only what differs from these):
+
+```json
+{
+  "volume": 1, "muted": false,
+  "speed": 1,
+  "resume": true,
+  "playNext": false,
+  "loop": false,
+  "seekStep": 5, "seekStepLong": 60,
+  "hideControlsAfter": 2,
+  "transcode": { "preset": "veryfast", "crf": 22, "maxHeight": 1080 }
+}
+```
+
+`~/.config/phil/videoplayer.css`, if it's there, is loaded after its own styles
+(`apps/videoplayer/ui/style.css`): `#seek .played { background: hotpink }`.
+Where videos were left: `~/.local/state/phil/videoplayer-positions.json` (the
+last 500). mpv (the top bar's button) takes over from where it is.
+
+`deno task videoplayer file` runs it from the source.
 
 ## camview
 
