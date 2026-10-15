@@ -10,6 +10,8 @@ import { Hooks, metadataFile, runHook } from "./hooks.js";
 import * as cameras from "../camview/cameras.js";
 import { requireSudo, sudo, sudoPassword, sudoWanted } from "./sudo.js";
 import { Tagging, tagKind } from "./tagging.js";
+import * as imdb from "./imdb.js";
+import { library } from "./media.js";
 import { home, serverConfig } from "./launch.js";
 import { canWrite, driveInfo, driveSpeed, folderSize, me, properties } from "./properties.js";
 import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
@@ -276,6 +278,33 @@ export function createServer({ profile, controlSocket }) {
     const kinds = new Set(paths.map((p) => tagKind(p) ?? "pictures"));
     for (const kind of kinds) await tagging.addToVocabulary(tags, kind);
   };
+  // The Media view's library (media.js): the folders marked as media, matched
+  // by hand where it was put right (fixes), how far each video was watched
+  // (videoplayer's positions), and what was in the ones not there now (a drive
+  // unplugged) when they were last seen. Kept in ~/.local/state/phil/media.json.
+  const mediaStateFile = join(dirname(config.stateFile), "media.json");
+  const mediaState = async () => {
+    const state = await Deno.readTextFile(mediaStateFile).then(JSON.parse, () => ({}));
+    return { fixes: state.fixes ?? {}, remembered: state.remembered ?? {} };
+  };
+  const saveMediaState = async (state) => {
+    if (config.incognito) return;
+    await Deno.mkdir(dirname(mediaStateFile), { recursive: true });
+    const tmp = `${mediaStateFile}.${crypto.randomUUID().slice(0, 8)}.tmp`;
+    await Deno.writeTextFile(tmp, JSON.stringify(state));
+    await Deno.rename(tmp, mediaStateFile);
+  };
+  const positionsFile = join(dirname(config.stateFile), "videoplayer-positions.json");
+  async function mediaLibrary() {
+    const roots = Object.entries(await hooks.all()).filter(([, m]) => m.media === true).map(([p]) => p).sort();
+    const state = await mediaState();
+    const watched = await Deno.readTextFile(positionsFile).then(JSON.parse, () => ({}));
+    const lib = await library(roots, { fixes: state.fixes, watched, remembered: state.remembered });
+    const remembered = Object.fromEntries(roots.map((r) => [r, lib.scanned[r] ?? state.remembered[r]]).filter(([, files]) => files));
+    if (JSON.stringify(remembered) !== JSON.stringify(state.remembered)) await saveMediaState({ ...state, remembered });
+    delete lib.scanned;
+    return { imdb: imdb.status(), roots: roots.map((path) => ({ path, online: lib.online[path] })), ...lib };
+  }
   // A picture's thumbnail file, made if need be: what tagging looks at.
   const thumbnailFile = async (path, signal) => {
     const url = await thumbs.get(path, signal);
@@ -321,6 +350,7 @@ export function createServer({ profile, controlSocket }) {
           incognito: config.incognito,
           thumbDir: config.thumbsInMemory ? "in memory" : config.thumbDir,
           thumbSize: thumbs.name,
+          media: Object.values(await hooks.all()).some((m) => m.media === true), // folders marked as media: the sidebar's Media
           tagging: { available: await tagging.available() }, // auto-tagging is set up (scripts/install-tagging.sh): {pictures, documents}
           settings: { ...await readSettings(), theme: await currentTheme() }, // a theme that's gone: the default
         });
@@ -338,6 +368,14 @@ export function createServer({ profile, controlSocket }) {
         return imagePreview(requirePath(path), url.searchParams.get("size") ?? "2560");
       case "POST /api/open":
         return openExternal(await req.json(), config.incognito);
+      case "POST /api/open-url": { // {url}: a web page (the Media view's IMDb links), in the default browser
+        const { url: page } = await req.json();
+        if (!/^https:\/\/[^\s]+$/.test(String(page))) throw httpError(400, "A web address (https://…)");
+        const child = new Deno.Command("xdg-open", { args: [page], stdin: "null", stdout: "null", stderr: "null" }).spawn();
+        child.unref();
+        child.status.catch(() => {});
+        return json({ ok: true });
+      }
       case "POST /api/delete": {
         const paths = (await req.json()).paths ?? [];
         await downloads.deleting(paths); // a download writing them stops (with nothing left of it: it's removed)
@@ -466,7 +504,8 @@ export function createServer({ profile, controlSocket }) {
         const clean = (key) => key in changes ? { [key]: String(changes[key] ?? "").trim() } : {};
         const tags = "tags" in changes ? cleanTags(changes.tags) : null;
         const auto = "autoTags" in changes ? { autoTags: changes.autoTags ? true : "" } : {}; // a folder's: tag its pictures
-        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...clean("icon"), ...(tags ? { tags: tags.length ? tags : "" } : {}), ...auto });
+        const media = "media" in changes ? { media: changes.media ? true : "" } : {}; // a folder's: its videos in the Media view
+        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...clean("icon"), ...(tags ? { tags: tags.length ? tags : "" } : {}), ...auto, ...media });
         if (tags?.length) await addTagsToLists([path], tags);
         return json({ ok: true });
       }
@@ -499,6 +538,30 @@ export function createServer({ profile, controlSocket }) {
           throw httpError(409, err.message);
         }
         return json(await tagging.list(kind));
+      }
+      case "GET /api/media": // the Media view: the media folders' movies and shows (media.js)
+        return json(await mediaLibrary());
+      case "GET /api/media/status": // IMDb's datasets: there, being updated
+        return json(imdb.status());
+      case "POST /api/media/update": // download IMDb's datasets (again) and build the database
+        imdb.update(() => broadcast({ media: imdb.status() }));
+        return json(imdb.status());
+      case "GET /api/media/search": // ?q=: titles, picking one by hand
+        return json(imdb.search(url.searchParams.get("q") ?? "").map((t) => ({ ...t, imdb: imdb.tconst(t.id) })));
+      case "PUT /api/media/fix": { // {key, id}: what the files named so are (an IMDb id; 0: none, left out; null: matched again)
+        const { key, id } = await req.json();
+        if (typeof key !== "string" || !/^(movie|show)\|/.test(key)) throw httpError(400, "A key, from the library");
+        const state = await mediaState();
+        if (id === null) delete state.fixes[key];
+        else if (id === 0 || (Number.isInteger(id) && imdb.title(id))) state.fixes[key] = id;
+        else throw httpError(404, "No such title");
+        await saveMediaState(state);
+        return json({ ok: true });
+      }
+      case "GET /api/media/poster": { // ?path=: a video's thumbnail, for its poster
+        const file = requirePath(url.searchParams.get("path"));
+        const thumb = await thumbs.get(file).catch(() => null);
+        return thumb ? new Response(null, { status: 302, headers: { location: thumb, "cache-control": "max-age=3600" } }) : text(404, "No picture");
       }
       case "GET /api/themes": // the bottom bar's theme picker
         return json({ themes: await themeNames(), dir: themesDir(), theme: await currentTheme() });

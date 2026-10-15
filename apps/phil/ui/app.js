@@ -242,6 +242,7 @@ const thumbs = {
       if ("searched" in msg) return onSearched(msg);
       if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes);
       if (msg.downloads) return onDownloads(msg.downloads);
+      if (msg.media) return onMediaStatus(msg.media);
       if (msg.browserDownloads) return (state.browserDownloads = msg.browserDownloads), showTransfers();
       if (msg.made) return onMadeInBackground(msg.made, msg.url);
       if (msg.hook) return onHookRan(msg.hook);
@@ -702,14 +703,14 @@ new ResizeObserver(redrawTexts).observe(grid);
 // ---------------------------------------------------------------- navigation
 
 function navigate(path) {
-  closeTransfersView(), closePrefsView(); // a folder opened: shown
+  closeTransfersView(), closePrefsView(), closeMediaView(); // a folder opened: shown
   if (path === loading) return; // clicked again while it opens (a drive waking up)
   const hash = "#" + encodePath(path);
   if (location.hash === hash) load(path);
   else location.hash = hash;
 }
 
-addEventListener("hashchange", () => (closeTransfersView(), closePrefsView(), load(decodeURIComponent(location.hash.slice(1)))));
+addEventListener("hashchange", () => (closeTransfersView(), closePrefsView(), closeMediaView(), load(decodeURIComponent(location.hash.slice(1)))));
 
 // The folder being opened, while it's listed (a drive waking up can take seconds),
 // and which load is the newest (an older one finishing later is dropped).
@@ -1625,6 +1626,301 @@ function applySettings() {
   termPanel.style.height = `${s.termHeight}px`;
 }
 
+// ---------------------------------------------------------------- the Media view
+
+// The sidebar's Media: the movies and TV shows in the folders marked as media
+// (their Properties), from every one in one place, matched with IMDb's
+// titles and ratings on this computer (apps/phil/media.js, imdb.js). Over the
+// folder, as the Transfers view is; Esc or × closes it (a title's details
+// first), as does opening a folder.
+const mediaView = $("#media-view"), mediaGrid = mediaView.querySelector(".mv-grid"), mediaDetail = mediaView.querySelector(".mv-detail");
+const media = { lib: null, tab: "movies", open: null, loading: null };
+let mediaFocus = null;
+
+$("#btn-media").onclick = () => (mediaView.hidden ? openMediaView() : closeMediaView());
+mediaView.querySelector(".mv-head .close").onclick = () => closeMediaView();
+mediaDetail.querySelector(".close").onclick = () => closeMediaDetail();
+
+function showMediaPanel() {
+  $("#media-panel").hidden = !!choosing || !state.init.media;
+}
+
+function openMediaView() {
+  closeTransfersView(), closePrefsView();
+  mediaFocus = document.activeElement?.closest?.("#sidebar") ? grid : document.activeElement;
+  mediaView.hidden = false;
+  $("#btn-media").setAttribute("aria-pressed", "true");
+  mediaView.querySelector(".mv-filter").focus({ preventScroll: true });
+  loadMedia();
+}
+
+function closeMediaView() {
+  if (mediaView.hidden) return;
+  mediaView.hidden = true;
+  closeMediaDetail();
+  $("#btn-media").setAttribute("aria-pressed", "false");
+  const back = mediaFocus?.isConnected && mediaFocus !== document.body && !mediaView.contains(mediaFocus) ? mediaFocus : grid;
+  back.focus({ preventScroll: true });
+}
+
+async function loadMedia() {
+  if (!media.lib) mediaView.querySelector(".mv-status").textContent = "Looking through the media folders…";
+  const loading = (media.loading = api("/api/media").catch((err) => ({ error: err.message })));
+  const lib = await loading;
+  if (loading !== media.loading) return; // asked again since
+  if (lib.error) return void (mediaView.querySelector(".mv-status").textContent = `Couldn't read the media folders: ${lib.error}`);
+  media.lib = lib;
+  showMediaStatus(lib.imdb);
+  renderMedia();
+  if (media.open) {
+    const again = [...lib.movies, ...lib.shows].find((x) => mediaKey(x) === media.open || x.key === media.openKey);
+    again ? openMediaDetail(again) : closeMediaDetail();
+  }
+}
+
+const mediaKey = (x) => (x.id ? `tt${x.id}` : x.key);
+const isShow = (x) => "seasons" in x;
+
+// IMDb's data: there or not, being downloaded.
+function showMediaStatus(status) {
+  const line = mediaView.querySelector(".mv-status");
+  const roots = media.lib?.roots ?? [];
+  const away = roots.filter((r) => !r.online);
+  line.replaceChildren();
+  const button = (label, onclick) => Object.assign(document.createElement("button"), { type: "button", className: "mv-link", textContent: label, onclick });
+  const update = () => api("/api/media/update", { method: "POST" }).then(showMediaStatus, (err) => alert(err.message));
+  if (status.building) {
+    const { phase, done, total } = status.building;
+    line.append(`${phase}${total ? ` ${Math.round((done / total) * 100)}%` : "…"} (IMDb's titles and ratings, on this computer)`);
+  } else if (!status.ready) {
+    line.append("Titles, years and ratings come from IMDb's datasets, downloaded to this computer (about 290 MB; 900 MB once built), so what's in your library stays here. ", button("Download them", update));
+  } else {
+    line.append(`IMDb's titles and ratings of ${new Date(status.built).toLocaleDateString()}. `, button("Update", update));
+  }
+  if (status.error) line.append(` Couldn't update: ${status.error}`);
+  if (away.length) line.append(` Not there now (shown as when last seen): ${away.map((r) => r.path).join(", ")}.`);
+}
+
+function onMediaStatus(status) {
+  if (mediaView.hidden) return;
+  const was = media.lib?.imdb;
+  if (media.lib) media.lib.imdb = status;
+  showMediaStatus(status);
+  if (was?.building && !status.building) loadMedia(); // built: matched again
+}
+
+for (const tab of mediaView.querySelectorAll(".mv-tabs [data-tab]")) {
+  tab.onclick = () => {
+    media.tab = tab.dataset.tab;
+    closeMediaDetail();
+    renderMedia();
+  };
+}
+mediaView.querySelector(".mv-filter").oninput = () => renderMedia();
+mediaView.querySelector(".mv-genre").onchange = () => renderMedia();
+mediaView.querySelector(".mv-sort").onchange = () => renderMedia();
+
+function renderMedia() {
+  const lib = media.lib;
+  if (!lib) return;
+  for (const tab of mediaView.querySelectorAll(".mv-tabs [data-tab]")) {
+    tab.setAttribute("aria-selected", String(tab.dataset.tab === media.tab));
+    put(tab.querySelector(".n"), "textContent", String(lib[tab.dataset.tab].length));
+  }
+  const all = lib[media.tab];
+  // Genres: those of what's in this tab.
+  const genreSelect = mediaView.querySelector(".mv-genre");
+  const genres = [...new Set(all.flatMap((x) => x.genres ?? []))].sort(collator.compare);
+  const picked = genreSelect.value;
+  if (genreSelect.options.length - 1 !== genres.length || genres.some((g, i) => genreSelect.options[i + 1].value !== g)) {
+    genreSelect.replaceChildren(new Option("All genres", ""), ...genres.map((g) => new Option(g, g)));
+    genreSelect.value = genres.includes(picked) ? picked : "";
+  }
+  const q = mediaView.querySelector(".mv-filter").value.trim().toLowerCase();
+  const genre = genreSelect.value, sort = mediaView.querySelector(".mv-sort").value;
+  const list = all.filter((x) => (!q || x.title.toLowerCase().includes(q) || x.parsed.title.toLowerCase().includes(q)) && (!genre || x.genres?.includes(genre)));
+  const by = {
+    added: (a, b) => b.added - a.added,
+    rating: (a, b) => (b.rating ?? -1) - (a.rating ?? -1) || (b.votes ?? 0) - (a.votes ?? 0),
+    year: (a, b) => (b.year ?? 0) - (a.year ?? 0),
+    title: (a, b) => collator.compare(a.title, b.title),
+  }[sort];
+  list.sort((a, b) => by(a, b) || collator.compare(a.title, b.title));
+  keyed(mediaGrid, list, {
+    key: mediaKey,
+    make: () => {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "mv-card";
+      card.innerHTML = `<div class="mv-poster"><img loading="lazy" alt=""><span class="mv-badges"></span></div><span class="mv-title"></span><span class="mv-meta"></span>`;
+      card.onclick = () => openMediaDetail(card.item);
+      return card;
+    },
+    show: (card, x) => {
+      const file = firstFile(x);
+      const src = file && !file.offline ? `/api/media/poster?path=${encodeURIComponent(file.path)}` : "";
+      const img = card.querySelector("img");
+      if (img.getAttribute("src") !== src) src ? img.setAttribute("src", src) : img.removeAttribute("src");
+      put(card.querySelector(".mv-title"), "textContent", x.title);
+      put(card.querySelector(".mv-meta"), "textContent", mediaMeta(x, true));
+      put(card, "title", `${x.title}${x.year ? ` (${x.year})` : ""}\n${mediaMeta(x)}${x.match === "guess" ? "\nA guess: is it right? (click)" : x.match === "none" ? "\nNot found in IMDb's titles (click to pick it)" : ""}`);
+      const badges = [];
+      if (x.match === "guess") badges.push(["?", "guess", "A guess"]);
+      if (x.match === "none") badges.push(["!", "none", "Not matched"]);
+      const files = mediaFiles(x);
+      if (files.every((f) => f.offline)) badges.push(["⏏", "offline", "Its drive isn't there"]);
+      if (!isShow(x)) {
+        if (files.some((f) => f.watched === "done")) badges.push(["✓", "watched", "Watched"]);
+        else if (files.some((f) => typeof f.watched === "number")) badges.push(["◐", "started", "Started"]);
+        const q = files.map((f) => f.quality).filter(Boolean).sort().at(-1);
+        if (q) badges.push([q, "quality", files.length > 1 ? `${files.length} copies` : "Quality"]);
+      }
+      const box = card.querySelector(".mv-badges");
+      const html = badges.map(([t, c, title]) => `<span class="b ${c}" title="${title}">${t}</span>`).join("");
+      if (box.innerHTML !== html) box.innerHTML = html;
+    },
+  });
+  const empty = mediaView.querySelector(".mv-empty");
+  empty.hidden = list.length > 0;
+  empty.textContent = !lib.roots.length ? "No media folders yet: in a folder's Properties (right-click it), tick “A media folder”."
+    : all.length ? "Nothing matches." : media.tab === "movies" ? "No movies in the media folders." : "No TV shows in the media folders.";
+}
+
+const mediaFiles = (x) => (isShow(x) ? x.seasons.flatMap((s) => s.episodes.flatMap((e) => e.files)) : x.files);
+const firstFile = (x) => mediaFiles(x).find((f) => !f.offline) ?? mediaFiles(x)[0];
+
+function mediaMeta(x, short = false) {
+  const parts = [];
+  if (isShow(x)) {
+    if (x.year) parts.push(x.endYear && x.endYear !== x.year ? `${x.year}–${x.endYear}` : x.type === "tvSeries" && !x.endYear ? `${x.year}–` : String(x.year));
+  } else if (x.year) parts.push(String(x.year));
+  if (x.rating) parts.push(`★ ${x.rating.toFixed(1)}${short ? "" : ` (${votesText(x.votes)} votes)`}`);
+  if (isShow(x)) {
+    const have = x.seasons.reduce((n, s) => n + s.episodes.filter((e) => e.files.length).length, 0);
+    parts.push(`${have} episode${have === 1 ? "" : "s"}${short ? "" : ` here, of ${x.seasonCount} season${x.seasonCount === 1 ? "" : "s"}`}`);
+  } else if (x.minutes) parts.push(`${Math.floor(x.minutes / 60) ? `${Math.floor(x.minutes / 60)} h ` : ""}${x.minutes % 60} min`);
+  return parts.join(" · ");
+}
+
+const votesText = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n ?? 0));
+
+// One title's details: what it is, its files (a show's seasons and episodes), and its match.
+function openMediaDetail(x) {
+  media.open = mediaKey(x);
+  media.openKey = x.key;
+  mediaDetail.hidden = false;
+  mediaView.classList.add("detail");
+  const d = (sel) => mediaDetail.querySelector(sel);
+  const file = firstFile(x);
+  const poster = d(".mv-d-poster");
+  poster.hidden = !file || file.offline;
+  if (!poster.hidden) poster.src = `/api/media/poster?path=${encodeURIComponent(file.path)}`;
+  d(".mv-d-title").textContent = `${x.title}${x.year ? ` (${x.year})` : ""}`;
+  d(".mv-d-facts").textContent = mediaMeta(x);
+  d(".mv-d-genres").textContent = (x.genres ?? []).join(", ");
+  const link = d(".mv-d-imdb");
+  link.hidden = !x.imdb;
+  link.onclick = (e) => (e.preventDefault(), api("/api/open-url", { method: "POST", body: JSON.stringify({ url: `https://www.imdb.com/title/${x.imdb}/` }) }).catch((err) => alert(err.message)));
+
+  const files = d(".mv-d-files");
+  files.replaceChildren();
+  if (isShow(x)) {
+    for (const season of x.seasons) {
+      const have = season.episodes.filter((e) => e.files.length).length;
+      const h = document.createElement("h4");
+      h.textContent = `${season.season === null ? "Episodes" : `Season ${season.season}`}`;
+      h.append(Object.assign(document.createElement("span"), { className: "hint", textContent: ` ${have} of ${season.episodes.length} here` }));
+      files.append(h);
+      for (const e of season.episodes) {
+        const row = document.createElement("div");
+        row.className = "mv-ep" + (e.files.length ? "" : " missing");
+        const f = e.files[0];
+        row.innerHTML = `<span class="mv-ep-n"></span><span class="mv-ep-title"></span><span class="mv-ep-rating hint"></span><span class="mv-ep-state"></span>`;
+        row.querySelector(".mv-ep-n").textContent = e.episode ?? "";
+        row.querySelector(".mv-ep-title").textContent = e.title ?? (f ? f.path.split("/").pop() : "");
+        row.querySelector(".mv-ep-rating").textContent = e.rating ? `★ ${e.rating.toFixed(1)}` : "";
+        row.querySelector(".mv-ep-state").textContent = !f ? "" : f.offline ? "⏏" : f.watched === "done" ? "✓" : typeof f.watched === "number" ? "◐" : "";
+        if (f) {
+          row.title = `${f.path}${f.quality ? `\n${f.quality}` : ""} · ${formatSize(f.size)}${f.offline ? "\nIts drive isn't there" : "\nClick: play. Right-click: show in its folder"}`;
+          row.onclick = () => !f.offline && playMedia(f);
+          row.oncontextmenu = (ev) => (ev.preventDefault(), showMediaFile(f));
+        }
+        files.append(row);
+      }
+    }
+  } else {
+    for (const f of x.files) {
+      const row = document.createElement("div");
+      row.className = "mv-file" + (f.offline ? " offline" : "");
+      row.innerHTML = `<button type="button" class="mv-play" title="Play">▶</button><span class="mv-f-name"></span><span class="mv-f-facts hint"></span><button type="button" class="mv-f-show" title="Show it in its folder">Show</button>`;
+      row.querySelector(".mv-f-name").textContent = f.path.split("/").pop();
+      row.querySelector(".mv-f-name").title = f.path;
+      row.querySelector(".mv-f-facts").textContent = [f.quality, f.source, formatSize(f.size), f.watched === "done" ? "watched" : typeof f.watched === "number" ? "started" : "", f.offline ? "its drive isn't there" : ""].filter(Boolean).join(" · ");
+      row.querySelector(".mv-play").disabled = row.querySelector(".mv-f-show").disabled = f.offline;
+      row.querySelector(".mv-play").onclick = () => playMedia(f);
+      row.querySelector(".mv-f-show").onclick = () => showMediaFile(f);
+      files.append(row);
+    }
+  }
+
+  const from = `“${x.parsed.title}${x.parsed.year ? ` (${x.parsed.year})` : ""}”`;
+  d(".mv-d-matched").textContent = x.fixed ? "Picked by hand." : x.match === "sure" ? `Matched from ${from}.` : x.match === "guess" ? `A guess, from ${from}: is it right?` : `Not found in IMDb's titles, from ${from}.`;
+  d(".mv-d-again").hidden = !x.fixed;
+  d(".mv-d-again").onclick = () => fixMedia(x, null);
+  d(".mv-d-none").onclick = () => confirm(`Leave “${x.title}” out of the Media view? (Its files stay where they are.)`) && fixMedia(x, 0);
+  const search = d(".mv-d-search");
+  search.value = "";
+  d(".mv-d-results").replaceChildren();
+  search.oninput = () => {
+    clearTimeout(search.timer);
+    search.timer = setTimeout(() => findMediaTitles(x, search.value), 250);
+  };
+}
+
+function closeMediaDetail() {
+  media.open = media.openKey = null;
+  mediaDetail.hidden = true;
+  mediaView.classList.remove("detail");
+}
+
+async function findMediaTitles(x, text) {
+  const box = mediaDetail.querySelector(".mv-d-results");
+  if (!text.trim()) return box.replaceChildren();
+  const found = await api(`/api/media/search?q=${encodeURIComponent(text)}`).catch(() => []);
+  if (mediaDetail.querySelector(".mv-d-search").value !== text) return; // typed on
+  const kinds = { movie: "movie", tvMovie: "TV movie", tvSeries: "TV series", tvMiniSeries: "miniseries", tvSpecial: "TV special", video: "video" };
+  box.replaceChildren(...found.map((t) => {
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "mv-result" });
+    b.textContent = `${t.title}${t.year ? ` (${t.year})` : ""} — ${kinds[t.type] ?? t.type}${t.rating ? ` ★ ${t.rating.toFixed(1)}` : ""}${t.votes ? `, ${votesText(t.votes)} votes` : ""}`;
+    b.onclick = () => fixMedia(x, t.id);
+    return b;
+  }));
+  if (!found.length) box.append(Object.assign(document.createElement("p"), { className: "hint", textContent: "Nothing called that." }));
+}
+
+// What the files named as `x` was are, by hand: an IMDb id, 0 (none: left out), null (matched again).
+async function fixMedia(x, id) {
+  try {
+    await api("/api/media/fix", { method: "PUT", body: JSON.stringify({ key: x.key, id }) });
+  } catch (err) {
+    return alert(`Couldn't save it: ${err.message}`);
+  }
+  media.open = id ? `tt${id}` : null;
+  if (!id) closeMediaDetail();
+  loadMedia();
+}
+
+function playMedia(f) {
+  openInApp("videoplayer", { file: f.path, sort: state.settings.sort });
+}
+
+function showMediaFile(f) {
+  if (f.offline) return;
+  closeMediaView();
+  initialSelect = [f.path];
+  navigate(parentOf(f.path));
+}
+
 // ---------------------------------------------------------------- the Preferences view
 
 // The gear at the bottom of the sidebar: what the sidebar shows (Transfers, Cameras),
@@ -1639,7 +1935,7 @@ settingsButton.onclick = () => (prefsView.hidden ? openPrefsView() : closePrefsV
 prefsView.querySelector(".tv-head .close").onclick = () => closePrefsView();
 
 async function openPrefsView() {
-  closeTransfersView();
+  closeTransfersView(), closeMediaView();
   prefsFocus = document.activeElement?.closest?.("#sidebar") ? grid : document.activeElement;
   prefsView.hidden = false;
   settingsButton.setAttribute("aria-pressed", "true");
@@ -2390,6 +2686,10 @@ async function showProperties(entry) {
   $p("#props-found").textContent = [found.length && `Found by auto-tagging: ${found.join(", ")}`, ownText && `The file's own description: ${ownText}`].filter(Boolean).join("\n");
   $p("#props-found").hidden = !found.length && !ownText;
   $p(".hook").hidden = p.kind !== "file"; // hooks are for files
+  // A folder: a media folder (its videos in the Media view).
+  const mediaBox = $p("#props-media");
+  $p(".media-folder").hidden = p.kind !== "folder";
+  mediaBox.checked = !!p.meta?.media;
   // A folder: auto-tagging its pictures (tagging.js), if set up.
   const autoBox = $p("#props-autotag");
   $p(".autotag").hidden = p.kind !== "folder";
@@ -2451,6 +2751,7 @@ async function showProperties(entry) {
     if (tags.join("\n") !== (p.meta?.tags ?? []).join("\n")) changes.tags = tags;
     if (p.kind === "file" && onChange !== (p.meta?.onChange ?? "")) changes.onChange = onChange;
     if (p.kind === "folder" && autoBox.checked !== !!p.meta?.autoTags) changes.autoTags = autoBox.checked;
+    if (p.kind === "folder" && mediaBox.checked !== !!p.meta?.media) changes.media = mediaBox.checked;
     if (p.kind === "folder" && iconPick !== (p.meta?.icon ?? "")) changes.icon = iconPick;
     if (!Object.keys(changes).length) return;
     try {
@@ -2459,6 +2760,11 @@ async function showProperties(entry) {
       refresh();
       if ("description" in changes || "icon" in changes) refreshPlaces(); // a place's description is its label in the sidebar, its icon its icon
       if ((changes.tags?.length || "autoTags" in changes) && state.autoTagged) thumbs.tag(state.path); // the tag list may have grown
+      if ("media" in changes) {
+        state.init.media = (await api("/api/init")).media;
+        showMediaPanel();
+        if (changes.media) flashStatus(`${p.name}: a media folder (sidebar → Media)`);
+      }
     } catch (err) {
       alert(`Couldn't save: ${err.message}`);
     }
@@ -3819,7 +4125,7 @@ $("#btn-transfers").onclick = () => (transfersView.hidden ? openTransfersView() 
 transfersView.querySelector(".tv-head .close").onclick = () => closeTransfersView();
 
 function openTransfersView() {
-  closePrefsView();
+  closePrefsView(), closeMediaView();
   // Where the keyboard goes back to: the folder, or the terminal (not the heading clicked to open it).
   transfersFocus = document.activeElement?.closest?.("#sidebar") ? grid : document.activeElement;
   transfersView.hidden = false;
@@ -4420,6 +4726,7 @@ document.addEventListener("keydown", (e) => {
   // Esc closes the Transfers view, wherever the keyboard is (not a menu or dialog over it).
   if (!transfersView.hidden && e.key === "Escape" && contextMenu.hidden && !dialogOpen()) return closeTransfersView(), e.preventDefault(), e.stopPropagation();
   if (!prefsView.hidden && e.key === "Escape" && contextMenu.hidden && !dialogOpen()) return closePrefsView(), e.preventDefault(), e.stopPropagation();
+  if (!mediaView.hidden && e.key === "Escape" && contextMenu.hidden && !dialogOpen()) return (mediaDetail.hidden ? closeMediaView() : closeMediaDetail()), e.preventDefault(), e.stopPropagation();
   if (!appView.hidden || dialogOpen()) return;
   if (isToggleKey(e)) toggleTerminal();
   else if (isFocusKey(e) && e.key === "ArrowDown") setTerminalOpen(true);
@@ -4517,6 +4824,7 @@ applySettings();
 renderPlaces(); // once: after this, only when the places change (their space and speeds update in place)
 refreshSpeeds(); // the drives' last speed tests, for their tooltips
 loadCameras(); // the network cameras found so far (looked for again with the sidebar's refresh button)
+showMediaPanel(); // the sidebar's Media, once a folder's marked as media
 thumbs.connect();
 
 restoreTerminal = state.settings.termOpen && !choosing; // (a file chooser: just the folder)
