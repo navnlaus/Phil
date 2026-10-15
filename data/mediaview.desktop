@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=mediaview
+GenericName=Movies and TV Shows
+Comment=Your media folders' movies and TV shows, with IMDb's ratings
+Exec=@BIN@
+Icon=video-display
+Terminal=false
+Categories=AudioVideo;Video;
+Keywords=movies;tv;shows;media;library;imdb;
+StartupWMClass=mediaview

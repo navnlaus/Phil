@@ -52,6 +52,10 @@ export const APPS = {
     launch: () => import("../apps/imageresize/launch.js"),
     server: () => import("../apps/imageresize/server.js"),
   },
+  mediaview: {
+    launch: () => import("../apps/mediaview/launch.js"),
+    server: () => import("../apps/mediaview/server.js"),
+  },
   camview: {
     launch: () => import("../apps/camview/launch.js"),
     server: () => import("../apps/camview/server.js"),

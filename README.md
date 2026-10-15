@@ -330,31 +330,11 @@ auto-tagging found next to the tags given by hand.
 ### Media
 
 Mark a folder as a media folder (its Properties: "A media folder"), on any
-drive, and the sidebar's Media shows the movies and TV shows in all of them in
-one place, over the folder, as pictures (a frame of each video, its IMDb
-rating and quality on it) or a list (title, year, rating, votes, length,
-genres, quality, when it was added: a click on a column sorts by it), by
-genre, and found by name. What's been started comes first, under "Continue
-watching": a movie where videoplayer left it, a show's episode not finished or
-the one after the last watched, played with a click. A show's seasons list
-every episode, with its title and rating, the ones that are there and the
-ones that aren't, watched (✓) and started (◐). Two copies of a movie are one
-movie. Click one for its details: Play (or Resume, or a show's next episode),
-its copies (play one, or show it in its folder), its IMDb page; a play button
-on each picture plays it straight away. A drive that isn't
-plugged in keeps its titles, greyed out, as they were when it was last there.
-
-What a video is comes from its name, the way they're usually named ("Bugonia
-(2025) [1080p] [WEBRip]", a folder or the file; "Bering.Sea.Gold.S19E10.1080p",
-an episode; a season's folder, for files that don't say their show), matched
-with [IMDb's datasets](https://developer.imdb.com/non-commercial-datasets/)
-(for personal, non-commercial use) on this computer: downloaded when you ask
-(the Media view's "Download them"; about 290 MB, then a 900 MB database in
-`~/.cache/phil/imdb`, the downloads deleted; "Update" fetches them again when
-IMDb has newer ones), so what's in your library never leaves it. Matches it
-isn't sure of are marked ?, those it couldn't find !; any can be put right in
-its details (find the title, pick it; or "Not a movie or show"), and that's kept
-for every file named so (`~/.local/state/phil/media.json`).
+drive, and the sidebar's Media (after its folders: dropping a folder before or
+after it puts it there) opens mediaview over the whole window: the movies and
+TV shows in all of them in one place (see [mediaview](#mediaview)). Esc or ×
+comes back; "Show it in its folder" there opens that folder here.
+Preferences hides it ("Media view"), as does its right-click menu.
 
 ### PDFs
 
@@ -487,14 +467,14 @@ apps/phil/          launch.js (options, window URL), server.js (listing, files,
                     (FileManager1), shell-init.bash, ui/ (ui/vendor: xterm.js 6, MIT; Lucide's icons, ISC; Day.js, MIT, for "5 minutes ago")
 apps/jsonedit/      launch.js, server.js, ui/ (json.js: a parser that keeps positions)
 apps/textedit/      launch.js, server.js, ui/ (markdown.js: Markdown to HTML and back)
-apps/phil/media.js, imdb.js, imdb-build.js
-                    the Media view: names to titles, IMDb's datasets as an SQLite database
 apps/phil/tagging.js, tagging/
                     auto-tagging: tagger.py (the Python helper: SigLIP 2, EmbeddingGemma 2),
                     tags.txt and document-tags.txt (phil's lists)
 apps/imageview/     launch.js, server.js, ui/
 apps/videoplayer/   launch.js, server.js (ffprobe, ffmpeg), ui/
 apps/imageresize/   launch.js, server.js (vips), ui/
+apps/mediaview/     launch.js, server.js, ui/; media.js (names to titles), imdb.js and
+                    imdb-build.js (IMDb's datasets as an SQLite database)
 engine/media.js     media kinds by name, a folder's images or videos, vips previews of images WebKit can't show
 engine/files.js     reading and saving files for the editors
 data/, scripts/install.sh  desktop entries, D-Bus service file, installer
@@ -884,6 +864,37 @@ last 500). A video that can't be played here offers mpv instead, from where
 it got to.
 
 `deno task videoplayer file` runs it from the source.
+
+## mediaview
+
+`mediaview` (phil's sidebar's Media) shows the movies and TV shows in the
+folders marked as media folders (a folder's Properties in phil: "A media
+folder"), on any drive, in one place, as pictures (a frame of each video, its IMDb
+rating and quality on it) or a list (title, year, rating, votes, length,
+genres, quality, when it was added: a click on a column sorts by it), by
+genre, and found by name. What's been started comes first, under "Continue
+watching": a movie where videoplayer left it, a show's episode not finished or
+the one after the last watched, played with a click. A show's seasons list
+every episode, with its title and rating, the ones that are there and the
+ones that aren't, watched (✓) and started (◐). Two copies of a movie are one
+movie. Click one for its details: Play (or Resume, or a show's next episode),
+its copies (play one, or show it in its folder), its IMDb page; a play button
+on each picture plays it straight away. Videos play in videoplayer, shown in
+mediaview (Esc comes back to it). The tab, the sort and pictures or list are
+remembered. A drive that isn't
+plugged in keeps its titles, greyed out, as they were when it was last there.
+
+What a video is comes from its name, the way they're usually named ("Bugonia
+(2025) [1080p] [WEBRip]", a folder or the file; "Bering.Sea.Gold.S19E10.1080p",
+an episode; a season's folder, for files that don't say their show), matched
+with [IMDb's datasets](https://developer.imdb.com/non-commercial-datasets/)
+(for personal, non-commercial use) on this computer: downloaded when you ask
+(mediaview's "Download them"; about 290 MB, then a 900 MB database in
+`~/.cache/phil/imdb`, the downloads deleted; "Update" fetches them again when
+IMDb has newer ones), so what's in your library never leaves it. Matches it
+isn't sure of are marked ?, those it couldn't find !; any can be put right in
+its details (find the title, pick it; or "Not a movie or show"), and that's kept
+for every file named so (`~/.local/state/phil/media.json`).
 
 ## camview
 

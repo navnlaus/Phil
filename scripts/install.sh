@@ -26,14 +26,14 @@ install -Dm755 phil-engine "$engine"
 # The themes, where they can be edited (~/.config/phil/themes).
 "$engine" --install-themes
 # An app's command runs the engine with the app's name.
-for app in phil jsonedit textedit imageview videoplayer imageresize camview phil-editor; do
+for app in phil jsonedit textedit imageview videoplayer imageresize camview mediaview phil-editor; do
   printf '#!/bin/sh\nexec "%s" %s "$@"\n' "$engine" "$app" > "$bindir/$app.tmp"
   chmod 755 "$bindir/$app.tmp"
   mv -f "$bindir/$app.tmp" "$bindir/$app"
 done
 
 install -d "$data/applications" "$data/dbus-1/services"
-for entry in phil jsonedit textedit imageview videoplayer imageresize camview; do
+for entry in phil jsonedit textedit imageview videoplayer imageresize camview mediaview; do
   sed "s|@BIN@|$bindir/$entry|g" "data/$entry.desktop" > "$data/applications/$entry.desktop"
 done
 sed "s|@BIN@|$bindir/phil|g" data/org.freedesktop.FileManager1.service > "$data/dbus-1/services/org.freedesktop.FileManager1.service"
@@ -66,7 +66,7 @@ if [[ $(sed -n 's/^Comm=//p' <<<"$service") =~ ^phil(-engine)?$ ]]; then
   kill "$(sed -n 's/^PID=//p' <<<"$service")" 2>/dev/null || true
 fi
 
-echo "Installed $engine with phil, jsonedit, textedit, imageview, videoplayer, imageresize, camview and phil-editor in $bindir"
+echo "Installed $engine with phil, jsonedit, textedit, imageview, videoplayer, imageresize, camview, mediaview and phil-editor in $bindir"
 echo "Folders open with: $(xdg-mime query default inode/directory); JSON with $(xdg-mime query default application/json); text with $(xdg-mime query default text/plain); images with $(xdg-mime query default image/jpeg)"
 owner=$(busctl --user status org.freedesktop.FileManager1 2>/dev/null | sed -n 's/^Comm=//p' || true)
 if [[ -n $owner && ! $owner =~ ^phil(-engine)?$ ]]; then
