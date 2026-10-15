@@ -225,7 +225,9 @@ function renderMedia() {
   list.sort((a, b) => (media.reverse ? -1 : 1) * (MEDIA_SORTS[sort](a, b) || collator.compare(a.title, b.title)));
 
   // What's been started, latest first (not while looking for something).
-  const going = q || genre ? [] : all.map((x) => ({ x, next: nextToPlay(x) })).filter((c) => c.next?.resume).sort((a, b) => b.next.at - a.next.at).slice(0, 12);
+  const going = q || genre ? [] : all.map((x) => ({ x, next: nextToPlay(x) }))
+    .filter((c) => c.next?.resume && !((lib.dismissed?.[mediaKey(c.x)] ?? -1) >= c.next.at)) // (× on it: off, till it's watched again)
+    .sort((a, b) => b.next.at - a.next.at).slice(0, 12);
   mediaView.querySelector(".mv-continue-wrap").hidden = !going.length;
   keyed(mediaContinue, going, { key: (c) => mediaKey(c.x), make: makeContinueCard, show: showContinueCard });
 
@@ -440,10 +442,17 @@ function makeContinueCard() {
   const card = document.createElement("button");
   card.type = "button";
   card.className = "mv-card mv-going";
-  card.innerHTML = `<div class="mv-poster"><img alt=""><span class="mv-bar"><span></span></span><span class="mv-play-over">${icon("play")}</span></div><span class="mv-title"></span><span class="mv-meta"></span>`;
-  card.onclick = () => playMedia(card.item.next.file);
+  card.innerHTML = `<div class="mv-poster"><img alt=""><span class="mv-bar"><span></span></span><span class="mv-play-over">${icon("play")}</span><span class="mv-dismiss" role="button" title="Take it off Continue watching (it's back once it's watched again)">${icon("close")}</span></div><span class="mv-title"></span><span class="mv-meta"></span>`;
+  card.onclick = (e) => (e.target.closest(".mv-dismiss") ? dismissContinue(card.item) : playMedia(card.item.next.file));
   card.oncontextmenu = (e) => (e.preventDefault(), openMediaDetail(card.item.x));
   return card;
+}
+
+// × on a Continue watching card: off the row, till it's watched again (its time, then, is newer).
+function dismissContinue({ x, next }) {
+  (media.lib.dismissed ??= {})[mediaKey(x)] = next.at;
+  renderMedia();
+  api("api/media/dismiss", { method: "POST", body: JSON.stringify({ key: mediaKey(x), at: next.at }) }).catch((err) => alert(`Couldn't take it off: ${err.message}`));
 }
 
 function showContinueCard(card, { x, next }) {

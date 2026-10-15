@@ -16,6 +16,7 @@
 //   POST /api/show-transfer      {transfer}: a download in phil's Transfers view, in a phil window (likewise)
 //   POST /api/media/prepare      {path}: a folder just marked as media, made ready (prepare()): its
 //                                progress as lines of JSON ({phase, done, total, title}), then {finished, total} or {error}
+//   POST /api/media/dismiss      {key, at}: a title off Continue watching (till it's watched after `at`)
 //   POST /api/media/forget       {path}: a media folder not there now (moved outside phil, or gone) no longer one
 //
 // mediaview's own data is in an SQLite database (store.js). Incognito (the
@@ -140,7 +141,7 @@ export function createServer({ profile = {}, controlSocket = null }) {
     for (const [root, files] of Object.entries(lib.scanned)) store.remember(root, files);
     for (const root of Object.keys(remembered)) if (!roots.includes(root)) store.forget(root); // (no longer a media folder, or inside one)
     delete lib.scanned;
-    const out = { roots: roots.map((path) => ({ path, online: lib.online[path] })), ...lib, downloads: downloads.map((d) => d.path) };
+    const out = { roots: roots.map((path) => ({ path, online: lib.online[path] })), ...lib, downloads: downloads.map((d) => d.path), dismissed: store.dismissed() };
     store.setLast(out);
     return { imdb: imdb.status(), ...out };
   }
@@ -214,6 +215,12 @@ export function createServer({ profile = {}, controlSocket = null }) {
             cancel: () => void job.listeners.delete(me),
           });
           return new Response(body, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-cache" } });
+        }
+        case "POST /api/media/dismiss": {
+          const { key, at } = await req.json();
+          if (typeof key !== "string" || !key || !Number.isFinite(at)) throw httpError(400, "A title's key, and when it was watched");
+          store.dismiss(key, at);
+          return json({ ok: true });
         }
         case "POST /api/media/forget": {
           const path = absolute((await req.json()).path);

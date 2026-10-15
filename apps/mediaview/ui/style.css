@@ -97,6 +97,10 @@ body.detail .mv-page { right: var(--mv-detail); }
 .mv-continue { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 260px); gap: 16px; overflow-x: auto; padding: 2px 2px 8px; }
 .mv-going .mv-play-over { opacity: 0.85; transform: none; }
 .mv-going .mv-poster { background-size: cover; background-position: center; }
+.mv-dismiss { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff; opacity: 0.6; transition: opacity 0.15s; }
+.mv-dismiss svg { width: 14px; height: 14px; }
+.mv-going:hover .mv-dismiss, .mv-going:focus-visible .mv-dismiss { opacity: 1; }
+.mv-dismiss:hover { background: rgba(0, 0, 0, 0.85); }
 
 /* The list: columns, sorted by a click on one. */
 .mv-cols, .mv-row { display: grid; grid-template-columns: 72px minmax(160px, 3fr) 76px 60px 56px 76px minmax(110px, 2fr) 56px 96px; gap: 12px; align-items: center; }

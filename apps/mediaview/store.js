@@ -1,8 +1,8 @@
 // mediaview's own data, in an SQLite database (~/.local/state/phil/media.sqlite;
 // node:sqlite, as IMDb's in imdb.js): what's been put right by hand (fixes),
 // the media folders' files when last seen (for a drive unplugged), the titles
-// matched (media.js), and the library as last shown (opened again, it shows at
-// once). Each change writes what changed, not the whole. The JSON files it
+// matched (media.js), the library as last shown (opened again, it shows at
+// once), and the titles taken off Continue watching. Each change writes what changed, not the whole. The JSON files it
 // replaces (media.json, media-matches.json, media-library.json, next to it)
 // are read in once and removed. Incognito: read, never written.
 import { DatabaseSync } from "node:sqlite";
@@ -13,6 +13,7 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS files (root TEXT NOT NULL, path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER);
   CREATE INDEX IF NOT EXISTS files_root ON files (root);
   CREATE TABLE IF NOT EXISTS matches (key TEXT PRIMARY KEY, id INTEGER, sure INTEGER); -- id null: none found
+  CREATE TABLE IF NOT EXISTS dismissed (key TEXT PRIMARY KEY, at INTEGER NOT NULL); -- off Continue watching, as of when it was last watched
   CREATE TABLE IF NOT EXISTS kv (name TEXT PRIMARY KEY, value TEXT); -- built (the IMDb database matches are from), last (the library)
 `;
 
@@ -94,6 +95,15 @@ export class Store {
         put.run(key, m ? m[0] : null, m ? (m[1] ? 1 : 0) : null);
       }
     });
+  }
+
+  /** Titles taken off Continue watching: key -> when they'd last been watched then (watched again since: back on it). */
+  dismissed() {
+    return Object.fromEntries(this.#db.prepare("SELECT key, at FROM dismissed").all().map((r) => [r.key, r.at]));
+  }
+
+  dismiss(key, at) {
+    if (this.#write) this.#db.prepare("INSERT OR REPLACE INTO dismissed VALUES (?, ?)").run(key, at);
   }
 
   /** The library as last shown, or null. */

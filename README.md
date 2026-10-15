@@ -888,7 +888,8 @@ rating and quality on it) or a list (title, year, rating, votes, length,
 genres, quality, when it was added: a click on a column sorts by it), by
 genre, and found by name. What's been started comes first, under "Continue
 watching": a movie where videoplayer left it, a show's episode not finished or
-the one after the last watched, played with a click. A show's seasons list
+the one after the last watched, played with a click (× takes one off till
+it's watched again). A show's seasons list
 every episode, with its title and rating, the ones that are there and the
 ones that aren't, watched (✓) and started (◐). With a "Media download search
 engine URL" in phil's Preferences (`mediaSearchUrl`; `%s` where the search
