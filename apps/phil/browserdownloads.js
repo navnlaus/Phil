@@ -20,7 +20,7 @@
 // when it's done: {id, app, name, target (where it goes), path (the file being
 // written), bytes, total, percent, speed (bytes/s), eta (s), state
 // ("downloading", "paused", "preparing"...), started (ms), pid, incognito,
-// stoppable (phil's × sends pid SIGTERM)}. A report whose process is gone is
+// stoppable (phil's × sends pid SIGTERM), stopKeeps (stopped, what it has is kept: a stream)}. A report whose process is gone is
 // dropped (and its file). An incognito phil shows the incognito ones (a private
 // window's downloads), the other phil the others; an incognito phil keeps no
 // list of what was saved.
@@ -251,7 +251,7 @@ export function watchBrowserDownloads(onChange, { incognito = false } = {}) {
         path: r.path ?? r.target ?? null, dir: r.target ? dirname(r.target) : r.path ? dirname(r.path) : null,
         bytes, total, percent: Number.isFinite(r.percent) ? Math.floor(r.percent * 10) / 10 : total ? Math.floor((bytes / total) * 1000) / 10 : null,
         speed: Number(r.speed) || 0, eta: Number.isFinite(r.eta) ? r.eta : null, started: r.started ?? null,
-        state: r.state === "downloading" || r.state == null ? "downloading" : String(r.state), stoppable: !!r.stoppable && !!r.pid,
+        state: r.state === "downloading" || r.state == null ? "downloading" : String(r.state), stoppable: !!r.stoppable && !!r.pid, stopKeeps: !!r.stopKeeps,
       };
     });
     // (One saved through phil's chooser whose program reports it itself: its report, not both.)

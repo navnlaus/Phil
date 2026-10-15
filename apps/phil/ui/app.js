@@ -4088,6 +4088,8 @@ const copySpeed = (t, sep) => (t.speed ? `${sep}${formatSize(t.speed)}/s` : "") 
 // Another program's download (a browser's): how far (its size known: from the browser's
 // History), how fast; a size unknown, a moving stripe.
 function showWebBar(bar, w) {
+  const stop = bar.querySelector(".cancel");
+  if (stop) put(stop, "title", w.stopKeeps ? "Stop it (what's downloaded so far is saved)" : "Stop it (what's downloaded so far is deleted)");
   // A program's own state (a report's: "preparing", "converting"...), said as it is.
   if (w.state !== "downloading" && w.state !== "stalled") {
     const words = w.state.charAt(0).toUpperCase() + w.state.slice(1);
