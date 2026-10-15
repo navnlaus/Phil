@@ -170,6 +170,7 @@ export function createServer({ profile, controlSocket }) {
   // by hand), taken off again when it's done.
   const describedPartials = new Map(); // partial file -> the description given it
   let pandaWriting = [], browserWriting = []; // files downloads are writing (for thumbs.downloading)
+  let barDownloadsChanged = () => {}; // (set with the bar's file, below)
   const browserDownloads = watchBrowserDownloads(async (list) => {
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ browserDownloads: list }));
     browserWriting = list.map((d) => d.path);
@@ -191,13 +192,15 @@ export function createServer({ profile, controlSocket }) {
   });
   const downloads = watchDownloads((list) => {
     pandaWriting = list.flatMap(unfinished);
+    barDownloadsChanged();
     thumbs.downloading([...pandaWriting, ...browserWriting]);
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ downloads: list }));
   });
-  // Copies, moves and deletes under way, for the bar (the phil widget for
+  // Copies, moves and deletes under way (and panda-dl's downloads), for the bar (the phil widget for
   // Omarchy's bar, extras/omarchy-bar): $XDG_RUNTIME_DIR/phil/progress.json,
-  // {pid, updated, jobs: [{id, op, name, items, dest, percent, bytes, total,
-  // speed, eta, paused, counting, found, started}]}, written at most once a
+  // {pid, updated, jobs: [{id, op (copy, move, delete, download), name, items,
+  // dest, percent, bytes, total, speed (bytes/s), eta (s), paused, counting,
+  // found, started}]}, written at most once a
   // second as they go, and every 5 seconds while there are any (a paused one
   // reports nothing): `updated` going stale means this phil is gone. The bar
   // shows the ones that have taken more than 10 seconds. Not incognito ones.
@@ -212,6 +215,14 @@ export function createServer({ profile, controlSocket }) {
       percent: p.percent ?? 0, bytes: p.bytes ?? 0, total: p.total ?? 0, speed: p.speed ?? null, eta: p.eta ?? null,
       paused: !!p.paused, counting: !!p.counting, found: p.found ?? 0, started: p.started,
     }));
+    // panda-dl's downloads under way (torrents, web downloads), as "download" jobs.
+    for (const d of downloads.list) {
+      if (d.state !== "downloading") continue;
+      jobs.push({
+        id: `download-${d.id}`, op: "download", name: d.name, items: 1, dest: d.dir, percent: Math.floor(d.percent ?? 0), bytes: d.bytes ?? 0,
+        total: d.total ?? 0, speed: d.speed ?? null, eta: d.eta ?? null, paused: false, counting: false, found: 0, started: (d.created ?? 0) * 1000,
+      });
+    }
     try {
       await Deno.mkdir(dirname(barFile), { recursive: true });
       const tmp = `${barFile}.${crypto.randomUUID().slice(0, 8)}.tmp`;
@@ -227,7 +238,12 @@ export function createServer({ profile, controlSocket }) {
     else barJobs.set(p.id, { ...p, started: barJobs.get(p.id)?.started ?? Date.now() });
     if (!barTimer) barTimer = setTimeout(writeBar, p.finished ? 0 : Math.max(0, 1000 - (Date.now() - barWritten)));
   };
-  if (barFile) writeBar(); // none: a phil that was stopped mid-copy left its own
+  if (barFile) {
+    writeBar(); // none: a phil that was stopped mid-copy left its own
+    downloads.use(); // asked about with no window open too (for the bar), every few seconds at most
+  }
+  // (downloads.js's list changed: the bar's file soon.)
+  barDownloadsChanged = () => barFile && !barTimer && (barTimer = setTimeout(writeBar, Math.max(0, 1000 - (Date.now() - barWritten))));
 
   // The network cameras, at the bottom of the sidebar (camview shows them): looked
   // for only when asked (the sidebar's ↻, or its menu's "Look for cameras"), as
