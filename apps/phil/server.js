@@ -468,9 +468,13 @@ export function createServer({ profile, controlSocket }) {
       case "POST /api/debug-log": // {lines}: what the page recorded (ui/app.js, DEBUG_CLICKS), into phil's log
         for (const line of ((await req.json()).lines ?? []).slice(0, 200)) console.error(`phil page: ${String(line).slice(0, 300)}`);
         return json({ ok: true });
-      case "PUT /api/settings":
-        if (!config.incognito) await writeSettings(await req.json()); // incognito: this session only
+      case "PUT /api/settings": { // a window's settings; ?chooser=1: a file chooser's own (its "chooser" key), the rest kept
+        if (config.incognito) return json({ ok: true }); // incognito: this session only
+        const body = await req.json(), saved = await readSettings();
+        if (url.searchParams.get("chooser") === "1") await writeSettings({ ...saved, chooser: body });
+        else await writeSettings({ ...body, chooser: saved.chooser }); // (not over the chooser's)
         return json({ ok: true });
+      }
       case "GET /ws":
         return thumbSocket(req);
       case "GET /term":

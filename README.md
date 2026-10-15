@@ -85,7 +85,7 @@ are in FILE, one per line (nothing: cancelled). This is the wrapper interface
 of `xdg-desktop-portal-termfilechooser`, which makes it the desktop's file
 chooser: apps' Open and Save dialogs (Brave's, Firefox's...) are phil windows. Its windows' class is `phil-choose` (in a browser's windows,
 `<browser>-127.0.0.1__phil-choose-Default`), for a window rule that floats
-them; they don't open the terminal panel or change the folder phil reopens.
+them; they don't open the terminal panel or change the folder phil reopens. They start with hidden files hidden and without the sidebar's Transfers and Cameras, and keep their own sort, tile size and sidebar (the settings' `chooser`), apart from phil's windows'.
 
 ### Windows in Chromium instead of WebKitGTK
 
@@ -306,9 +306,15 @@ up to 400 lines), when its tile comes into view. Documents (Word, RTF,
 OpenDocument) show their text too, from the Markdown textedit reads them as
 (below; converted once, then kept with the thumbnails).
 
+### Settings
+
+The gear at the bottom of the sidebar: whether the sidebar shows Transfers and
+Cameras (`showTransfers`, `showCameras` in `~/.config/phil/settings.json`), and
+the theme (every window follows).
+
 ### Themes
 
-The theme, set by hand in
+The theme, picked under the sidebar's gear or set by hand in
 `~/.config/phil/settings.json`, is how names and details sit on the tiles,
 and can recolor every app (all their windows follow):
 

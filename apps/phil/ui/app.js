@@ -41,7 +41,7 @@ const state = {
   browserDownloads: [], // others' (a browser's partial file growing; browserdownloads.js)
   stopped: [], // copies and moves cut off, anywhere: [{path, copying}] (the server's records of them)
   clip: null, // files copied or cut, in any phil window: {op, paths, text}
-  settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, theme: "overlay" },
+  settings: { sort: "name", showHidden: false, zoom: 224, sidebar: false, termHeight: 260, termOpen: false, theme: "overlay", showTransfers: true, showCameras: true },
 };
 const tiles = new Map(); // path -> tile element
 const scrollPositions = new Map(); // path -> scrollTop, restored on back/up
@@ -191,10 +191,18 @@ const openExternal = (path, app) =>
   api("/api/open", { method: "POST", body: JSON.stringify({ path, app }) }).catch((err) => alert(err.message));
 
 let saveTimer;
+// A file chooser's window keeps its own (CHOOSER_SETTINGS: sort, tile size, sidebar, the
+// terminal's height), apart from phil's windows'; it starts with hidden files hidden.
+const CHOOSER_SETTINGS = ["sort", "zoom", "sidebar", "termHeight"];
 function saveSettings(delay = 400) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    fetch("/api/settings", { method: "PUT", body: JSON.stringify(state.settings) });
+    if (choosing) {
+      const own = Object.fromEntries(CHOOSER_SETTINGS.map((k) => [k, state.settings[k]]));
+      return void fetch("/api/settings?chooser=1", { method: "PUT", body: JSON.stringify(own) });
+    }
+    const { chooser: _, ...settings } = state.settings; // (the chooser's: the server keeps them)
+    fetch("/api/settings", { method: "PUT", body: JSON.stringify(settings) });
   }, delay);
 }
 
@@ -1621,6 +1629,9 @@ function updateProgress() {
 
 function applySettings() {
   const s = state.settings;
+  // What the sidebar shows (the settings; a file chooser's window: neither).
+  document.body.classList.toggle("no-transfers", !!choosing || s.showTransfers === false);
+  document.body.classList.toggle("no-cameras", !!choosing || s.showCameras === false);
   document.documentElement.style.setProperty("--tile", `${s.zoom}px`);
   zoomInput.value = s.zoom;
   sortSelect.value = s.sort;
@@ -1634,6 +1645,39 @@ function applySettings() {
   redrawTexts();
   termPanel.style.height = `${s.termHeight}px`;
 }
+
+// ---------------------------------------------------------------- settings (the sidebar's foot)
+
+// The gear at the bottom of the sidebar: what the sidebar shows (Transfers, Cameras), and
+// the theme (the stylesheets in ~/.config/phil/themes; every window follows).
+const settingsButton = $("#btn-settings"), settingsPop = $("#settings-pop"), themeSelect = $("#settings-theme");
+settingsButton.innerHTML = icon("l:settings");
+
+async function openSettings(open = settingsPop.hidden) {
+  settingsPop.hidden = !open;
+  settingsButton.setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  for (const input of settingsPop.querySelectorAll("[data-setting]")) input.checked = state.settings[input.dataset.setting] !== false;
+  const r = await api("/api/themes").catch(() => null);
+  if (r) {
+    const names = r.themes.includes(state.settings.theme) ? r.themes : [...r.themes, state.settings.theme];
+    themeSelect.replaceChildren(...names.map((t) => new Option(t, t)));
+    themeSelect.value = state.settings.theme;
+  }
+}
+
+settingsButton.onclick = (e) => (e.stopPropagation(), openSettings());
+settingsPop.addEventListener("click", (e) => e.stopPropagation());
+addEventListener("click", () => settingsPop.hidden || openSettings(false));
+addEventListener("keydown", (e) => e.key === "Escape" && !settingsPop.hidden && (e.preventDefault(), e.stopPropagation(), openSettings(false)), true);
+for (const input of settingsPop.querySelectorAll("[data-setting]")) {
+  input.onchange = () => {
+    state.settings[input.dataset.setting] = input.checked;
+    applySettings();
+    saveSettings();
+  };
+}
+themeSelect.onchange = () => api("/api/theme", { method: "PUT", body: JSON.stringify({ theme: themeSelect.value }) }).catch((err) => alert(err.message));
 
 function setTheme(theme) {
   state.settings.theme = theme;
@@ -4425,6 +4469,8 @@ document.addEventListener("keydown", (e) => {
 ready(JSON.stringify({ script: Math.round(performance.now()) }));
 state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);
+// A file chooser: its own settings over phil's, hidden files hidden (whatever phil shows).
+if (choosing) Object.assign(state.settings, Object.fromEntries(CHOOSER_SETTINGS.filter((k) => k in (state.init.settings.chooser ?? {})).map((k) => [k, state.init.settings.chooser[k]])), { showHidden: false });
 applySettings();
 renderPlaces(); // once: after this, only when the places change (their space and speeds update in place)
 refreshSpeeds(); // the drives' last speed tests, for their tooltips
