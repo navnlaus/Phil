@@ -69,6 +69,23 @@ const browserWindow = (() => {
     return null;
   }
 })();
+// The browser's keys that would close the window (Ctrl+W, Ctrl+Shift+W) or quit it
+// (Ctrl+Shift+Q) are the page's: cancelled first thing, so the browser leaves them
+// alone, while the page still sees them (the terminal's Ctrl+W deletes a word;
+// camview's closes it). In pages shown inside such a window too (same origin: the
+// window's id is in the tab's storage).
+if (browserWindow || (globalThis.parent !== globalThis && (() => {
+  try {
+    return !!sessionStorage.getItem("philWindow");
+  } catch {
+    return false;
+  }
+})())) {
+  addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === "w" || (e.shiftKey && key === "q"))) e.preventDefault();
+  }, true);
+}
 const toEngine = (message) => fetch("/engine/window", { method: "POST", body: JSON.stringify({ id: browserWindow, message }) }).catch(() => {});
 
 /**
