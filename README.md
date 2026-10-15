@@ -906,8 +906,8 @@ mediaview set aside behind it: Esc there comes back to it as it was);
 done, it's an ordinary file to play. Click one for its details: Play (or Resume, or a show's next episode),
 its copies (play one, or show it in its folder), its IMDb page; a play button
 on each picture plays it straight away. Videos play in videoplayer, shown in
-mediaview (Esc comes back to it). The tab, the sort and pictures or list are
-remembered. A drive that isn't
+mediaview (Esc comes back to it). It opens as it was left: the tab, each
+tab's genre, the sort and which way, pictures or list. A drive that isn't
 plugged in keeps its titles, greyed out, as they were when it was last there.
 
 What a video is comes from its name, the way they're usually named ("Bugonia

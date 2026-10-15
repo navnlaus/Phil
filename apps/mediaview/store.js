@@ -14,7 +14,7 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS files_root ON files (root);
   CREATE TABLE IF NOT EXISTS matches (key TEXT PRIMARY KEY, id INTEGER, sure INTEGER); -- id null: none found
   CREATE TABLE IF NOT EXISTS dismissed (key TEXT PRIMARY KEY, at INTEGER NOT NULL); -- off Continue watching, as of when it was last watched
-  CREATE TABLE IF NOT EXISTS kv (name TEXT PRIMARY KEY, value TEXT); -- built (the IMDb database matches are from), last (the library)
+  CREATE TABLE IF NOT EXISTS kv (name TEXT PRIMARY KEY, value TEXT); -- built (the IMDb database matches are from), last (the library), view (how it was left)
 `;
 
 export class Store {
@@ -104,6 +104,19 @@ export class Store {
 
   dismiss(key, at) {
     if (this.#write) this.#db.prepare("INSERT OR REPLACE INTO dismissed VALUES (?, ?)").run(key, at);
+  }
+
+  /** How mediaview was left: {tab, genre: {movies, shows}, sort, reverse, layout}. */
+  view() {
+    try {
+      return JSON.parse(this.#get("view") ?? "{}");
+    } catch {
+      return {};
+    }
+  }
+
+  setView(view) {
+    if (this.#write) this.#set("view", JSON.stringify(view));
   }
 
   /** The library as last shown, or null. */

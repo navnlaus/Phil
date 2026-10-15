@@ -69,24 +69,21 @@ function keyed(container, items, { key, kind = () => "", make, show }) {
   }
 }
 
-// What's picked here (the tab, the sort, pictures or a list), for next time: this browser's.
-const remembered = (() => {
-  try {
-    return JSON.parse(localStorage.getItem("mediaview") ?? "{}");
-  } catch {
-    return {};
-  }
-})();
+// How it was left (the tab, each tab's genre, the sort and which way, pictures or a list),
+// to open the same way: kept by the server (store.js; not the browser's storage, which goes
+// with the address, a new port at each start).
+const remembered = await api("api/media/view").catch(() => ({}));
+remembered.genre ??= {};
+let rememberTimer = 0;
 const remember = (key, value) => {
   remembered[key] = value;
-  try {
-    localStorage.setItem("mediaview", JSON.stringify(remembered));
-  } catch { /* not kept */ }
+  clearTimeout(rememberTimer);
+  rememberTimer = setTimeout(() => api("api/media/view", { method: "PUT", body: JSON.stringify(remembered) }).catch(() => {}), 300);
 };
 
 const mediaView = document.body, mediaGrid = $(".mv-grid"), mediaDetail = $(".mv-detail");
 const mediaContinue = $(".mv-continue"), mediaCols = $(".mv-cols");
-const media = { dl: new Map(), lib: null, tab: remembered.tab === "shows" ? "shows" : "movies", open: null, openKey: null, loading: null, reverse: false };
+const media = { dl: new Map(), lib: null, tab: remembered.tab === "shows" ? "shows" : "movies", open: null, openKey: null, loading: null, reverse: !!remembered.reverse };
 if (remembered.sort) $(".mv-sort").value = remembered.sort;
 const layoutNow = () => (remembered.layout === "list" ? "list" : "grid");
 
@@ -175,8 +172,8 @@ for (const tab of mediaView.querySelectorAll(".mv-tabs [data-tab]")) {
   };
 }
 mediaView.querySelector(".mv-filter").oninput = () => renderMedia();
-mediaView.querySelector(".mv-genre").onchange = () => renderMedia();
-mediaView.querySelector(".mv-sort").onchange = () => ((media.reverse = false), remember("sort", mediaView.querySelector(".mv-sort").value), renderMedia());
+mediaView.querySelector(".mv-genre").onchange = (e) => (remember("genre", { ...remembered.genre, [media.tab]: e.target.value }), renderMedia());
+mediaView.querySelector(".mv-sort").onchange = () => ((media.reverse = false), remember("reverse", false), remember("sort", mediaView.querySelector(".mv-sort").value), renderMedia());
 for (const b of mediaView.querySelectorAll(".mv-layout [data-layout]")) {
   b.onclick = () => {
     remember("layout", b.dataset.layout);
@@ -189,6 +186,7 @@ for (const h of mediaCols.querySelectorAll("[data-sort]")) {
     const select = mediaView.querySelector(".mv-sort");
     media.reverse = select.value === h.dataset.sort ? !media.reverse : false;
     select.value = h.dataset.sort;
+    remember("reverse", media.reverse);
     remember("sort", select.value);
     renderMedia();
   };
@@ -214,11 +212,11 @@ function renderMedia() {
   // Genres: those of what's in this tab.
   const genreSelect = mediaView.querySelector(".mv-genre");
   const genres = [...new Set(all.flatMap((x) => x.genres ?? []))].sort(collator.compare);
-  const picked = genreSelect.value;
   if (genreSelect.options.length - 1 !== genres.length || genres.some((g, i) => genreSelect.options[i + 1].value !== g)) {
     genreSelect.replaceChildren(new Option("All genres", ""), ...genres.map((g) => new Option(g, g)));
-    genreSelect.value = genres.includes(picked) ? picked : "";
   }
+  const picked = remembered.genre[media.tab] ?? ""; // (this tab's; one none of its titles has now: all of them, still kept)
+  put(genreSelect, "value", genres.includes(picked) ? picked : "");
   const q = mediaView.querySelector(".mv-filter").value.trim().toLowerCase();
   const genre = genreSelect.value, sort = mediaView.querySelector(".mv-sort").value;
   const list = all.filter((x) => (!q || x.title.toLowerCase().includes(q) || x.parsed.title.toLowerCase().includes(q)) && (!genre || x.genres?.includes(genre)));

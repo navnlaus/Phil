@@ -16,6 +16,7 @@
 //   POST /api/show-transfer      {transfer}: a download in phil's Transfers view, in a phil window (likewise)
 //   POST /api/media/prepare      {path}: a folder just marked as media, made ready (prepare()): its
 //                                progress as lines of JSON ({phase, done, total, title}), then {finished, total} or {error}
+//   GET  /api/media/view         how mediaview was left (tab, genre, sort, pictures or list); PUT: changed
 //   POST /api/media/dismiss      {key, at}: a title off Continue watching (till it's watched after `at`)
 //   POST /api/media/forget       {path}: a media folder not there now (moved outside phil, or gone) no longer one
 //
@@ -215,6 +216,18 @@ export function createServer({ profile = {}, controlSocket = null }) {
             cancel: () => void job.listeners.delete(me),
           });
           return new Response(body, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-cache" } });
+        }
+        case "GET /api/media/view":
+          return json(store.view());
+        case "PUT /api/media/view": {
+          const v = await req.json();
+          const str = (x, ok) => (ok.includes(x) ? x : undefined);
+          const genre = (g) => (typeof g === "string" && g.length < 64 ? g : "");
+          store.setView({
+            tab: str(v.tab, ["movies", "shows"]), sort: str(v.sort, ["added", "rating", "votes", "year", "title", "length"]),
+            reverse: !!v.reverse, layout: str(v.layout, ["grid", "list"]), genre: { movies: genre(v.genre?.movies), shows: genre(v.genre?.shows) },
+          });
+          return json({ ok: true });
         }
         case "POST /api/media/dismiss": {
           const { key, at } = await req.json();
