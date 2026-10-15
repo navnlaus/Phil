@@ -702,14 +702,14 @@ new ResizeObserver(redrawTexts).observe(grid);
 // ---------------------------------------------------------------- navigation
 
 function navigate(path) {
-  closeTransfersView(); // a folder opened: shown
+  closeTransfersView(), closePrefsView(); // a folder opened: shown
   if (path === loading) return; // clicked again while it opens (a drive waking up)
   const hash = "#" + encodePath(path);
   if (location.hash === hash) load(path);
   else location.hash = hash;
 }
 
-addEventListener("hashchange", () => (closeTransfersView(), load(decodeURIComponent(location.hash.slice(1)))));
+addEventListener("hashchange", () => (closeTransfersView(), closePrefsView(), load(decodeURIComponent(location.hash.slice(1)))));
 
 // The folder being opened, while it's listed (a drive waking up can take seconds),
 // and which load is the newest (an older one finishing later is dropped).
@@ -1623,39 +1623,63 @@ function applySettings() {
   termPanel.style.height = `${s.termHeight}px`;
 }
 
-// ---------------------------------------------------------------- settings (the sidebar's foot)
+// ---------------------------------------------------------------- the Preferences view
 
-// The gear at the bottom of the sidebar: what the sidebar shows (Transfers, Cameras), and
-// the theme (the stylesheets in ~/.config/phil/themes; every window follows).
-const settingsButton = $("#btn-settings"), settingsPop = $("#settings-pop"), themeSelect = $("#settings-theme");
+// The gear at the bottom of the sidebar: what the sidebar shows (Transfers, Cameras),
+// the theme (the stylesheets in ~/.config/phil/themes; every window follows), the
+// windows' engine and the log (the engine's, read when it starts). Over the folder,
+// as the Transfers view is; Esc or × closes it, as does opening a folder.
+const prefsView = $("#prefs-view"), settingsButton = $("#btn-settings"), themeSelect = $("#prefs-theme"), browserSelect = $("#prefs-browser");
 settingsButton.innerHTML = icon("l:settings");
+let prefsFocus = null;
 
-async function openSettings(open = settingsPop.hidden) {
-  settingsPop.hidden = !open;
-  settingsButton.setAttribute("aria-expanded", String(open));
-  if (!open) return;
-  for (const input of settingsPop.querySelectorAll("[data-setting]")) input.checked = state.settings[input.dataset.setting] !== false;
+settingsButton.onclick = () => (prefsView.hidden ? openPrefsView() : closePrefsView());
+prefsView.querySelector(".tv-head .close").onclick = () => closePrefsView();
+
+async function openPrefsView() {
+  closeTransfersView();
+  prefsFocus = document.activeElement?.closest?.("#sidebar") ? grid : document.activeElement;
+  prefsView.hidden = false;
+  settingsButton.setAttribute("aria-pressed", "true");
+  prefsView.querySelector(".tv-head .close").focus({ preventScroll: true });
+  const s = state.settings;
+  for (const input of prefsView.querySelectorAll("[data-pref]")) input.checked = input.dataset.pref === "log" ? s.log === true : s[input.dataset.pref] !== false;
+  // Another browser named in the settings file (a name or a path): kept, and shown.
+  browserSelect.querySelector(".other")?.remove();
+  if (s.browser && s.browser !== "webkit" && s.browser !== "default") browserSelect.add(Object.assign(new Option(s.browser, s.browser), { className: "other" }));
+  browserSelect.value = s.browser === "default" ? "" : s.browser ?? "";
   const r = await api("/api/themes").catch(() => null);
   if (r) {
-    const names = r.themes.includes(state.settings.theme) ? r.themes : [...r.themes, state.settings.theme];
+    const names = r.themes.includes(s.theme) ? r.themes : [...r.themes, s.theme];
     themeSelect.replaceChildren(...names.map((t) => new Option(t, t)));
-    themeSelect.value = state.settings.theme;
+    themeSelect.value = s.theme;
+    prefsView.querySelector(".prefs-theme-dir").textContent = `The stylesheets in ${r.dir}. Every window follows.`;
   }
 }
 
-settingsButton.onclick = (e) => (e.stopPropagation(), openSettings());
-settingsPop.addEventListener("click", (e) => e.stopPropagation());
-addEventListener("click", () => settingsPop.hidden || openSettings(false));
-addEventListener("keydown", (e) => e.key === "Escape" && !settingsPop.hidden && (e.preventDefault(), e.stopPropagation(), openSettings(false)), true);
-for (const input of settingsPop.querySelectorAll("[data-setting]")) {
+function closePrefsView() {
+  if (prefsView.hidden) return;
+  prefsView.hidden = true;
+  settingsButton.setAttribute("aria-pressed", "false");
+  const back = prefsFocus?.isConnected && prefsFocus !== document.body && !prefsView.contains(prefsFocus) ? prefsFocus : grid;
+  back.focus({ preventScroll: true });
+}
+
+for (const input of prefsView.querySelectorAll("[data-pref]")) {
   input.onchange = () => {
-    state.settings[input.dataset.setting] = input.checked;
+    if (input.dataset.pref === "log") input.checked ? (state.settings.log = true) : delete state.settings.log;
+    else state.settings[input.dataset.pref] = input.checked;
     applySettings();
-    saveSettings();
+    saveSettings(0);
   };
 }
-$("#settings-transfers").onclick = () => (openSettings(false), openTransfersView());
+browserSelect.onchange = () => {
+  if (browserSelect.value) state.settings.browser = browserSelect.value;
+  else delete state.settings.browser;
+  saveSettings(0);
+};
 themeSelect.onchange = () => api("/api/theme", { method: "PUT", body: JSON.stringify({ theme: themeSelect.value }) }).catch((err) => alert(err.message));
+$("#prefs-transfers").onclick = () => openTransfersView();
 
 function setTheme(theme) {
   state.settings.theme = theme;
@@ -3718,6 +3742,7 @@ $("#btn-transfers").onclick = () => (transfersView.hidden ? openTransfersView() 
 transfersView.querySelector(".tv-head .close").onclick = () => closeTransfersView();
 
 function openTransfersView() {
+  closePrefsView();
   // Where the keyboard goes back to: the folder, or the terminal (not the heading clicked to open it).
   transfersFocus = document.activeElement?.closest?.("#sidebar") ? grid : document.activeElement;
   transfersView.hidden = false;
@@ -4317,6 +4342,7 @@ document.addEventListener("keydown", (e) => {
   if (!appView.hidden && e.key === "Escape") return askAppToClose(), e.preventDefault(), e.stopPropagation();
   // Esc closes the Transfers view, wherever the keyboard is (not a menu or dialog over it).
   if (!transfersView.hidden && e.key === "Escape" && contextMenu.hidden && !dialogOpen()) return closeTransfersView(), e.preventDefault(), e.stopPropagation();
+  if (!prefsView.hidden && e.key === "Escape" && contextMenu.hidden && !dialogOpen()) return closePrefsView(), e.preventDefault(), e.stopPropagation();
   if (!appView.hidden || dialogOpen()) return;
   if (isToggleKey(e)) toggleTerminal();
   else if (isFocusKey(e) && e.key === "ArrowDown") setTerminalOpen(true);
