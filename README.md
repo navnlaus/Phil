@@ -15,6 +15,8 @@ Developed and tested on Omarchy, the install scripts assumes a similar setup.
 | The terminal panel follows the folder you're in, and the other way round | Markdown, edited as it reads (textedit) |
 | ![textedit with syntax highlighting](docs/screenshots/code.webp) | ![imageresize cropping a photo to an ultrawide wallpaper](docs/screenshots/resize.webp) |
 | Code, highlighted (textedit) | Resize, crop, turn and compress (imageresize) |
+| ![Copying the Videos folder to a backup drive: its tile and the sidebar's Transfers show the percentage and speed, with pause and stop](docs/screenshots/transfer.webp) | ![videoplayer playing a letterboxed video, its Crop menu open at 2.39:1](docs/screenshots/video.webp) |
+| Copying to another drive with rsync: progress on the folder and in the sidebar, pause, stop and resume | Videos play in the window (videoplayer); Crop cuts off the bars in the picture |
 | ![The chips theme](docs/screenshots/chips.webp) | |
 | Themes: here, chips | |
 
@@ -58,8 +60,11 @@ them works the same: Ctrl+C / Ctrl+V, Super+C / Super+V, Ctrl+Insert /
 Shift+Insert (what Omarchy's Super+C / Super+V send to windows tagged as
 terminals, like phil's).
 
-- The engine finds the running one through `$XDG_RUNTIME_DIR/phil/main.sock`;
-  its output goes to `main.log` next to it.
+- The engine finds the running one through `$XDG_RUNTIME_DIR/phil/main.sock`.
+  It keeps no log: its output goes nowhere unless `"log": true` is in
+  `~/.config/phil/settings.json` (or it's started with `PHIL_LOG=1`); then
+  to `main.log` next to it (an incognito engine's only with `PHIL_LOG=1`,
+  deleted when it exits). It applies from the engine's next start (`phil --quit`).
 - An app's options can pick a separate engine (a profile): incognito phil
   windows get their own (`incognito.sock`): separate servers, token and private
   WebKit session, app id `phil-incognito` and a purple stripe along the top. It
@@ -223,8 +228,8 @@ how phil was closed). A folder argument always wins.
   are incognito too: imageview's fit mode and videoplayer's settings changes
   last for the session, and where videos were left isn't kept (nor by mpv,
   "Play in mpv": `--save-position-on-quit=no --no-resume-playback`);
-- the engine's log (`$XDG_RUNTIME_DIR/phil/incognito.log`) is deleted when it
-  exits.
+- it keeps no log, even with `"log": true` (with `PHIL_LOG=1`,
+  `$XDG_RUNTIME_DIR/phil/incognito.log`, deleted when it exits).
 
 Files inside `.thumbnails` folders are shown as their own thumbnails.
 
@@ -582,7 +587,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 when the file changes — but only while a phil window shows its folder; with
 the folder not shown, nothing runs. It runs in bash, in the folder, with the
 file as `$1` (and `$PHIL_FILE`), and the status bar says it ran or why it
-failed (the engine's log has the output). Through a link, it's the file the
+failed (the engine's log has the output, when logging's on). Through a link, it's the file the
 link points to that's watched, so a link in `Documents/Config` with
 `sudo systemctl restart keyd` restarts keyd whenever `/etc/keyd/default.conf`
 is saved. A plain command like that runs as phil's own child, so sudo goes

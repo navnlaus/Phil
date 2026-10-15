@@ -125,14 +125,17 @@ async function launch(argv) {
 }
 
 // Starts the engine in the background, detached, with the request for its
-// first window; its output goes to <socket>.log. Returns once it answers, so a
-// failure to start is reported here.
+// first window. Its output goes nowhere unless logging's on ("log": true in
+// the settings, or PHIL_LOG=1): then to <socket>.log. Returns once it answers,
+// so a failure to start is reported here.
 async function startEngine(job, socket) {
   await Deno.mkdir(socketDir(), { recursive: true, mode: 0o700 });
   const log = socket.replace(/\.sock$/, ".log");
+  const logging = !!Deno.env.get("PHIL_LOG") || (await setting("log") === true && !job.profile?.incognito);
+  if (!logging) await Deno.remove(log).catch(() => {}); // an earlier one's
   const command = [...engineCommand(), "--serve", JSON.stringify(job)];
   const child = new Deno.Command("sh", {
-    args: ["-c", 'exec "$@" >"$0" 2>&1', log, ...command],
+    args: ["-c", 'exec "$@" >"$0" 2>&1', logging ? log : "/dev/null", ...command],
     stdin: "null",
     stdout: "null",
     stderr: "null",
@@ -146,23 +149,27 @@ async function startEngine(job, socket) {
     if (await ask(socket, { ping: true }).catch(() => null)) return trace("engine answered");
     if (exited?.success) return; // another engine started at the same moment and took the request
     if (exited) {
-      const output = await Deno.readTextFile(log).catch(() => "");
-      console.error(`${NAME}: the engine stopped while starting (${log}):\n${output.trim().split("\n").slice(-15).join("\n")}`);
+      if (!logging) console.error(`${NAME}: the engine stopped while starting; run with PHIL_LOG=1 to see why (${log})`);
+      else {
+        const output = await Deno.readTextFile(log).catch(() => "");
+        console.error(`${NAME}: the engine stopped while starting (${log}):\n${output.trim().split("\n").slice(-15).join("\n")}`);
+      }
       Deno.exit(1);
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  console.error(`${NAME}: the engine didn't answer within 15 seconds; see ${log}`);
+  console.error(`${NAME}: the engine didn't answer within 15 seconds; ${logging ? `see ${log}` : "run with PHIL_LOG=1 to see why"}`);
   Deno.exit(1);
 }
 
 // The engine: GTK/WebKit windows on this thread, the servers in a worker.
 // Without --standalone or --browser it takes the profile's control socket and
 // keeps running after its last window closes (incognito ones don't).
-// The settings' "browser" (~/.config/phil/settings.json): which windows (see serve).
-async function browserSetting() {
+// One of the settings (~/.config/phil/settings.json): "browser", which windows
+// (see serve); "log", the engine's output kept (startEngine).
+async function setting(key) {
   const config = Deno.env.get("XDG_CONFIG_HOME") || join(Deno.env.get("HOME") ?? "/", ".config");
-  return await Deno.readTextFile(join(config, "phil", "settings.json")).then((t) => JSON.parse(t).browser ?? null, () => null);
+  return await Deno.readTextFile(join(config, "phil", "settings.json")).then((t) => JSON.parse(t)[key] ?? null, () => null);
 }
 
 async function serve({ profile = {}, request = null, browser = false, standalone = false }) {
@@ -194,7 +201,7 @@ async function serve({ profile = {}, request = null, browser = false, standalone
   // "browser" (or PHIL_BROWSER) asks for one ("default": the default browser,
   // or another installed; a path) and there is one; otherwise WebKitGTK's (window.js).
   const chromium = browser ? null : await import("./chromium.js").then(async (m) => {
-    const path = await m.findBrowser(Deno.env.get("PHIL_BROWSER") ?? await browserSetting());
+    const path = await m.findBrowser(Deno.env.get("PHIL_BROWSER") ?? await setting("browser"));
     return path && { module: m, path };
   });
   if (!browser) trace(chromium ? `windows: ${chromium.path}` : "windows: WebKitGTK");
