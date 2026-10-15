@@ -238,6 +238,13 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 .transfer-bar.stopped .fill { background: var(--text-dim); opacity: 0.6; }
 .transfer-bar.download .fill { transition: width 1s linear; } /* a download's: told once a second, it glides between */
 .transfer-bar.failed .fill { background: #c94b4b; }
+/* Another program's download, its size unknown: stripes going by. */
+.transfer-bar.unknown .fill {
+  background: repeating-linear-gradient(-45deg, var(--accent) 0 8px, color-mix(in srgb, var(--accent) 60%, black) 8px 16px);
+  background-size: 22.6px 100%;
+  opacity: 0.6;
+  animation: counting 0.8s linear infinite;
+}
 .transfer-bar.downloaded { width: auto; right: auto; max-width: calc(100% - 16px); background: rgba(0, 0, 0, 0.55); } /* finished, still in panda-dl's list: a small mark, not a bar */
 .transfer-bar.downloaded .fill { display: none; }
 .transfer-bar.downloaded .pct { display: flex; align-items: center; gap: 6px; padding: 0 5px 0 8px; }

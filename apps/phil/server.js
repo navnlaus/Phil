@@ -16,6 +16,7 @@ import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 import { unfinished, watchDownloads } from "./downloads.js";
+import { watchBrowserDownloads } from "./browserdownloads.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 const DEFAULT_THEME = "overlay"; // see ~/.config/phil/themes (engine/themes.js)
@@ -163,6 +164,10 @@ export function createServer({ profile, controlSocket }) {
   };
   // Downloads under way (panda-dl's; downloads.js), for every window as
   // {downloads}; what they're writing isn't thumbnailed till they're done.
+  // Others' downloads (a browser's: its partial file growing), for the Transfers list too.
+  const browserDownloads = watchBrowserDownloads((list) => {
+    for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ browserDownloads: list }));
+  });
   const downloads = watchDownloads((list) => {
     thumbs.downloading(list.flatMap(unfinished));
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ downloads: list }));
@@ -650,9 +655,14 @@ export function createServer({ profile, controlSocket }) {
     };
     sockets.add(socket);
     const stopDownloads = downloads.use(); // asked about while a window is open
-    socket.addEventListener("open", () => downloads.list.length && send({ downloads: downloads.list }));
+    const stopBrowserDownloads = browserDownloads.use();
+    socket.addEventListener("open", () => {
+      if (downloads.list.length) send({ downloads: downloads.list });
+      if (browserDownloads.list.length) send({ browserDownloads: browserDownloads.list });
+    });
     socket.onclose = () => {
       stopDownloads();
+      stopBrowserDownloads();
       sockets.delete(socket);
       shown.delete(socket);
       hookWatch?.close();
