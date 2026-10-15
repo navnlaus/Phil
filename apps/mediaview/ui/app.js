@@ -86,7 +86,7 @@ const remember = (key, value) => {
 
 const mediaView = document.body, mediaGrid = $(".mv-grid"), mediaDetail = $(".mv-detail");
 const mediaContinue = $(".mv-continue"), mediaCols = $(".mv-cols");
-const media = { lib: null, tab: remembered.tab === "shows" ? "shows" : "movies", open: null, openKey: null, loading: null, reverse: false };
+const media = { dl: new Map(), lib: null, tab: remembered.tab === "shows" ? "shows" : "movies", open: null, openKey: null, loading: null, reverse: false };
 if (remembered.sort) $(".mv-sort").value = remembered.sort;
 const layoutNow = () => (remembered.layout === "list" ? "list" : "grid");
 
@@ -251,12 +251,42 @@ function renderMedia() {
 }
 
 const mediaFiles = (x) => (isShow(x) ? x.seasons.flatMap((s) => s.episodes.flatMap((e) => e.files)) : x.files);
-const firstFile = (x) => mediaFiles(x).find((f) => !f.offline) ?? mediaFiles(x)[0];
+// A file being downloaded (into a media folder: the server says, see onDownloads):
+// {progress, speed, eta, state}, or null. Not played, and no picture of it, till it's done.
+const downloadOf = (f) => (media.dl.has(f.path) ? media.dl.get(f.path) : f.downloading);
+const playable = (f) => !f.offline && !downloadOf(f);
+// A title's files being downloaded, together: {progress, speed, eta, count}, or null.
+function titleDownload(x) {
+  const dls = mediaFiles(x).map(downloadOf).filter(Boolean);
+  if (!dls.length) return null;
+  return {
+    progress: dls.reduce((n, d) => n + (d.progress ?? 0), 0) / dls.length,
+    speed: dls.reduce((n, d) => n + (d.speed ?? 0), 0) || null,
+    eta: Math.max(...dls.map((d) => d.eta ?? 0)) || null,
+    count: dls.length,
+  };
+}
+const etaText = (s) => (!s ? "" : s < 90 ? `${Math.round(s)} s left` : s < 5400 ? `${Math.round(s / 60)} min left` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min left`);
+const downloadText = (d) => [`Downloading ${Math.floor((d.progress ?? 0) * 100)}%`, d.speed ? `${formatSize(d.speed)}/s` : "", etaText(d.eta), d.state && d.state !== "downloading" ? d.state : ""].filter(Boolean).join(" \u00b7 ");
+
+const firstFile = (x) => mediaFiles(x).find(playable) ?? mediaFiles(x).find((f) => !f.offline) ?? mediaFiles(x)[0];
 const posterUrl = (x) => {
   const f = firstFile(x);
-  return f && !f.offline ? `api/media/poster?path=${encodeURIComponent(f.path)}` : "";
+  return f && playable(f) ? `api/media/poster?path=${encodeURIComponent(f.path)}` : "";
 };
-const putSrc = (img, src) => img.getAttribute("src") !== src && (src ? img.setAttribute("src", src) : img.removeAttribute("src"));
+// Pictures that couldn't be made (a video phil can't read): blank, not asked for again.
+const noPicture = new Set();
+const putSrc = (img, src) => {
+  if (noPicture.has(src)) src = "";
+  if (img.getAttribute("src") === (src || null)) return;
+  if (src) img.setAttribute("src", src);
+  else img.removeAttribute("src");
+  img.onerror = () => {
+    noPicture.add(img.getAttribute("src"));
+    img.removeAttribute("src");
+    img.closest(".mv-d-hero")?.classList.add("empty");
+  };
+};
 const QUALITY_RANK = { "2160p": 4, "1080p": 3, "720p": 2, "576p": 1, "480p": 1 };
 const SOURCE_RANK = { BluRay: 3, "WEB-DL": 2, WEBRip: 2, WEB: 2, HDTV: 1, DVD: 0 };
 const bestQuality = (files) => files.map((f) => f.quality).filter(Boolean).sort((a, b) => (QUALITY_RANK[b] ?? 0) - (QUALITY_RANK[a] ?? 0))[0] ?? "";
@@ -273,7 +303,7 @@ const votesText = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${
  */
 function nextToPlay(x) {
   if (!isShow(x)) {
-    const files = x.files.filter((f) => !f.offline);
+    const files = x.files.filter(playable);
     const started = files.filter((f) => typeof f.watched === "number").sort((a, b) => (b.watchedAt ?? 0) - (a.watchedAt ?? 0))[0];
     if (started) return { file: started, resume: true, at: started.watchedAt ?? 0 };
     const best = [...files].sort((a, b) => (QUALITY_RANK[b.quality] ?? 0) - (QUALITY_RANK[a.quality] ?? 0) || (SOURCE_RANK[b.source] ?? 0) - (SOURCE_RANK[a.source] ?? 0))[0];
@@ -284,10 +314,10 @@ function nextToPlay(x) {
   eps.forEach((e, i) => {
     for (const f of e.files) if (f.watched !== null && (f.watchedAt ?? 0) >= at) (last = i), (at = f.watchedAt ?? 0);
   });
-  const online = (e) => e?.files.find((f) => !f.offline);
+  const online = (e) => e?.files.find(playable);
   if (last === -1) return online(eps[0]) ? { file: online(eps[0]), episode: eps[0], resume: false } : null;
   const lastEp = eps[last], lastFile = lastEp.files.find((f) => f.watched !== null);
-  if (typeof lastFile.watched === "number" && !lastFile.offline) return { file: lastFile, episode: lastEp, resume: true, at };
+  if (typeof lastFile.watched === "number" && playable(lastFile)) return { file: lastFile, episode: lastEp, resume: true, at };
   const after = eps.slice(last + 1).find((e) => online(e));
   return after ? { file: online(after), episode: after, resume: true, at } : null;
 }
@@ -324,6 +354,8 @@ function mediaMeta(x, short = false) {
 
 function mediaBadges(x) {
   const files = mediaFiles(x), badges = [];
+  const dl = titleDownload(x);
+  if (dl) badges.push([`\u2193 ${Math.floor(dl.progress * 100)}%`, "downloading", `${dl.count > 1 ? `${dl.count} files: ` : ""}${downloadText(dl)}`]);
   if (x.match === "guess") badges.push(["?", "guess", "A guess: is it right?"]);
   if (x.match === "none") badges.push(["!", "none", "Not found in IMDb's titles"]);
   if (files.every((f) => f.offline)) badges.push(["⏏", "offline", "Its drive isn't there"]);
@@ -348,6 +380,15 @@ function makeMediaCard() {
   return card;
 }
 
+// The bar under a title's picture: how far it's downloaded, while it is; else how far it's been watched.
+function showBar(bar, x) {
+  const dl = titleDownload(x), p = dl ? dl.progress : progressOf(x);
+  bar.hidden = p === null;
+  put(bar.firstElementChild.style, "width", `${Math.round((p ?? 0) * 100)}%`);
+  bar.classList.toggle("done", !dl && p === 1);
+  bar.classList.toggle("dl", !!dl);
+}
+
 function showMediaCard(card, x) {
   putSrc(card.querySelector("img"), posterUrl(x));
   put(card.querySelector(".mv-title"), "textContent", x.title);
@@ -356,10 +397,7 @@ function showMediaCard(card, x) {
   put(card.querySelector(".mv-rating"), "textContent", x.rating ? `★ ${x.rating.toFixed(1)}` : "");
   put(card.querySelector(".mv-q"), "textContent", isShow(x) ? "" : bestQuality(x.files));
   putBadges(card.querySelector(".mv-badges"), mediaBadges(x));
-  const p = progressOf(x);
-  card.querySelector(".mv-bar").hidden = p === null;
-  put(card.querySelector(".mv-bar > span").style, "width", `${Math.round((p ?? 0) * 100)}%`);
-  card.querySelector(".mv-bar").classList.toggle("done", p === 1);
+  showBar(card.querySelector(".mv-bar"), x);
   card.querySelector(".mv-play-over").hidden = !nextToPlay(x);
   card.classList.toggle("selected", mediaKey(x) === media.open);
 }
@@ -389,10 +427,7 @@ function showMediaRow(row, x) {
   put(row.querySelector(".c-quality"), "textContent", bestQuality(mediaFiles(x)));
   put(row.querySelector(".c-added"), "textContent", x.added ? fromNow(x.added) : "");
   put(row.querySelector(".c-added"), "title", x.added ? new Date(x.added).toLocaleString() : "");
-  const p = progressOf(x);
-  row.querySelector(".mv-bar").hidden = p === null;
-  put(row.querySelector(".mv-bar > span").style, "width", `${Math.round((p ?? 0) * 100)}%`);
-  row.querySelector(".mv-bar").classList.toggle("done", p === 1);
+  showBar(row.querySelector(".mv-bar"), x);
   row.classList.toggle("selected", mediaKey(x) === media.open);
 }
 
@@ -431,7 +466,7 @@ function openMediaDetail(x) {
   for (const el of mediaView.querySelectorAll(".mv-card, .mv-row")) el.classList.toggle("selected", el.item && mediaKey(el.item) === media.open);
   const d = (sel) => mediaDetail.querySelector(sel);
   const poster = d(".mv-d-poster"), src = posterUrl(x);
-  d(".mv-d-hero").classList.toggle("empty", !src);
+  d(".mv-d-hero").classList.toggle("empty", !src || noPicture.has(src));
   putSrc(poster, src);
   d(".mv-d-title").textContent = x.title;
   d(".mv-d-facts").textContent = mediaMeta(x);
@@ -460,7 +495,7 @@ function openMediaDetail(x) {
       h.append(season.season === null ? "Episodes" : `Season ${season.season}`, Object.assign(document.createElement("span"), { className: "hint", textContent: `${have} of ${season.episodes.length} here` }));
       files.append(h);
       for (const e of season.episodes) {
-        const f = e.files.find((g) => !g.offline) ?? e.files[0];
+        const f = e.files.find(playable) ?? e.files.find((g) => !g.offline) ?? e.files[0];
         const row = document.createElement("div");
         row.className = "mv-ep" + (f ? "" : " missing") + (f?.offline ? " offline" : "");
         row.innerHTML = `<span class="mv-ep-n"><span class="n"></span>${icon("play", "p")}</span><span class="mv-ep-title"></span><span class="mv-ep-rating"></span><span class="mv-ep-state"></span>`;
@@ -470,7 +505,12 @@ function openMediaDetail(x) {
         const state = !f ? "" : f.offline ? "⏏" : f.watched === "done" ? "✓" : typeof f.watched === "number" ? "◐" : "";
         row.querySelector(".mv-ep-state").textContent = state;
         row.querySelector(".mv-ep-state").title = { "⏏": "Its drive isn't there", "✓": "Watched", "◐": "Started" }[state] ?? "";
-        if (f) {
+        if (f && downloadOf(f)) { // being downloaded: how far, not played yet
+          row.classList.add("downloading");
+          row.dataset.dl = f.path;
+          showEpisodeDownload(row, f);
+          row.oncontextmenu = (ev) => (ev.preventDefault(), showMediaFile(f));
+        } else if (f) {
           row.title = `${f.path}\n${[f.quality, f.source, formatSize(f.size)].filter(Boolean).join(" · ")}${f.offline ? "\nIts drive isn't there" : "\nClick: play. Right-click: show it in its folder"}`;
           row.onclick = () => !f.offline && playMedia(f);
           row.oncontextmenu = (ev) => (ev.preventDefault(), showMediaFile(f));
@@ -494,6 +534,12 @@ function openMediaDetail(x) {
       row.querySelector(".mv-f-name").textContent = f.path.split("/").pop();
       row.querySelector(".mv-f-name").title = f.path;
       row.querySelector(".mv-f-play").disabled = row.querySelector(".mv-f-show").disabled = f.offline;
+      if (downloadOf(f)) { // being downloaded: how far, not played yet
+        row.classList.add("downloading");
+        row.dataset.dl = f.path;
+        row.querySelector(".mv-f-main").insertAdjacentHTML("beforeend", `<span class="mv-f-dl"><span class="mv-bar dl"><span></span></span><span class="t"></span></span>`);
+        showFileDownload(row, f);
+      }
       row.querySelector(".mv-f-play").onclick = () => playMedia(f);
       row.querySelector(".mv-f-show").onclick = () => showMediaFile(f);
       row.querySelector(".mv-f-show").title = `Show it in its folder:\n${f.path.slice(0, f.path.lastIndexOf("/")) || "/"}${f.offline ? "\n(its drive isn't there)" : ""}`;
@@ -533,6 +579,38 @@ function searchLink(x, e) {
     api("api/open-url", { method: "POST", body: JSON.stringify({ url: page }) }).catch((err) => alert(err.message));
   };
   return b;
+}
+
+function showEpisodeDownload(row, f) {
+  const d = downloadOf(f);
+  if (!d) return;
+  put(row.querySelector(".mv-ep-state"), "textContent", `${Math.floor((d.progress ?? 0) * 100)}%`);
+  put(row, "title", `${f.path}\n${downloadText(d)}\nRight-click: show it in its folder`);
+}
+
+function showFileDownload(row, f) {
+  const d = downloadOf(f);
+  if (!d) return;
+  row.querySelector(".mv-f-play").disabled = true;
+  row.querySelector(".mv-f-play").title = "Not till it's downloaded";
+  put(row.querySelector(".mv-f-dl .mv-bar > span").style, "width", `${Math.round((d.progress ?? 0) * 100)}%`);
+  put(row.querySelector(".mv-f-dl .t"), "textContent", downloadText(d));
+}
+
+// How far each video being downloaded into the media folders is, as it goes
+// (the server, every second or so): bars updated where they are; one started
+// or finished: the library again (a new title, or its picture now it's done).
+function onDownloads(items) {
+  const next = new Map(items.map((i) => [i.path, i]));
+  const before = new Set(media.lib?.downloads ?? []);
+  media.dl = next;
+  if (!media.lib) return;
+  if (before.size !== next.size || [...next.keys()].some((p) => !before.has(p))) return void loadMedia();
+  renderMedia();
+  for (const row of mediaDetail.querySelectorAll("[data-dl]")) {
+    const f = { path: row.dataset.dl };
+    row.classList.contains("mv-ep") ? showEpisodeDownload(row, f) : showFileDownload(row, f);
+  }
 }
 
 function closeMediaDetail() {
@@ -628,7 +706,9 @@ onCloseRequest(() => {
 });
 
 // IMDb's datasets being downloaded: how far, as it goes.
-new EventSource("api/media/events").onmessage = (e) => onMediaStatus(JSON.parse(e.data));
+const events = new EventSource("api/media/events");
+events.onmessage = (e) => onMediaStatus(JSON.parse(e.data));
+events.addEventListener("downloads", (e) => onDownloads(JSON.parse(e.data).items));
 
 await loadMedia();
 shown();
