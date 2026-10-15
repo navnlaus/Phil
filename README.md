@@ -330,11 +330,17 @@ auto-tagging found next to the tags given by hand.
 ### Media
 
 Mark a folder as a media folder (its Properties: "A media folder"), on any
-drive, and the sidebar's Media (after its folders: dropping a folder before or
+drive (it gets a clapperboard for its icon; a bar on its tile shows mediaview
+making it ready: its videos found, matched with IMDb's titles, their pictures
+made), and the sidebar's Media (after its folders: dropping a folder before or
 after it puts it there) opens mediaview over the whole window: the movies and
 TV shows in all of them in one place (see [mediaview](#mediaview)). Esc or ×
 comes back; "Show it in its folder" there opens that folder here.
 Preferences hides it ("Media view"), as does its right-click menu.
+A media folder moved or renamed in phil stays one, and where its videos were
+left (videoplayer's, and so what's been watched) goes along. One moved or
+deleted outside phil (`mv`, another file manager) shows in mediaview as not
+there, as an unplugged drive does: "Forget it" there, and mark it where it is now.
 
 ### PDFs
 

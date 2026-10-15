@@ -1036,6 +1036,9 @@ function makeTile(entry, index) {
 // link, what it points to); ⚡ in the bottom right corner for an on-change
 // hook; ▶ in the top right one for a video, and a folder icon for a folder
 // (shown by themes that drop the folder's tab). (The top left is left alone.)
+// A folder's icon of its own: picked in its Properties, or a media folder's (while mediaview's on).
+const folderIcon = (entry) => entry.icon ?? (entry.mediaFolder && mediaViewOn() ? "clapperboard" : null);
+
 function showMarks(tile, entry) {
   const desc = tile.querySelector(".label .desc");
   const description = entry.description ?? carried.get(entry.path) ?? ""; // phil's, or the file's own
@@ -1043,7 +1046,8 @@ function showMarks(tile, entry) {
   tile.classList.toggle("has-desc", !!description);
   showTileTags(tile, entry);
   showState(tile, entry);
-  const folderMark = entry.icon ? [`l:${entry.icon}`, "folder line custom"] : ["folder", "folder fill"]; // its own icon, picked in Properties
+  const own = folderIcon(entry); // its own icon, picked in Properties; a media folder's
+  const folderMark = own ? [`l:${own}`, "folder line custom"] : ["folder", "folder fill"];
   // ⚡: an on-change hook (Properties); ▶: a video; a folder's icon.
   const marks = [entry.onChange && ["bolt", "hook"], entry.kind === "video" && ["play", ""], entry.kind === "dir" && folderMark].filter(Boolean);
   const key = marks.flat().join(" ");
@@ -1109,7 +1113,7 @@ function showFolderInfo(tile, entry) {
   // {url} for an image or video thumbnail, {text} for a text file; a bare URL in older summaries.
   const previews = (summary?.previews ?? []).map((p) => (typeof p === "string" ? { url: p } : p));
   const look = previews.map((p) => p.url ?? `text:${p.text.lines.slice(0, 4).join("|")}`).join(" ") ||
-    (entry.icon ? `icon:${entry.icon}` : summary?.files ? "file" : summary?.dirs ? "folder" : "");
+    (folderIcon(entry) ? `icon:${folderIcon(entry)}` : summary?.files ? "file" : summary?.dirs ? "folder" : "");
   if (box.dataset.look !== look || !box.firstChild) fillFolderFace(box, summary, previews, entry);
   box.dataset.look = look;
   const meta = tile.querySelector(".meta");
@@ -1167,7 +1171,7 @@ function fillFolderFace(box, summary, previews, entry) {
       },
     });
   } else {
-    const [name, cls] = entry.icon ? [`l:${entry.icon}`, "kind custom"] : summary?.files || summary?.dirs ? [summary.files ? "file" : "folder", "kind"] : [];
+    const [name, cls] = folderIcon(entry) ? [`l:${folderIcon(entry)}`, "kind custom"] : summary?.files || summary?.dirs ? [summary.files ? "file" : "folder", "kind"] : [];
     if (face.dataset.mode !== "icon") face.replaceChildren(), delete face.dataset.icon, (face.dataset.mode = "icon");
     put(face, "className", "face");
     if (name) putIcon(face, name, cls);
@@ -1435,7 +1439,8 @@ function showPlace(a, p) {
   put(a, "href", new URL("#" + encodePath(p.path), location.href).href);
   if (a.dataset.path !== p.path) a.dataset.path = p.path; // drop target
   a.classList.toggle("folder", !!p.folder); // the user's (see placeGapAt)
-  putIcon(a, p.customIcon ? `l:${p.customIcon}` : p.icon); // the icon picked in its Properties, if any
+  // The icon picked in its Properties, if any; a media folder's (not a drive's).
+  putIcon(a, p.customIcon ? `l:${p.customIcon}` : p.mediaFolder && !isMount(p) && mediaViewOn() ? "l:clapperboard" : p.icon);
   const name = p.description || p.name; // its Properties' description, when it has one
   if (isMount(p)) put(a.querySelector(".place-name"), "textContent", name);
   else put(a.lastChild, "nodeValue", name);
@@ -1475,6 +1480,7 @@ function setMediaViewOn(on) {
   saveSettings(0);
   if (!on && mediaOpen()) closeApp();
   renderPlaces();
+  render(); // (media folders' icons)
 }
 
 // A drive that isn't mounted (an internal one's partition: nothing mounts
@@ -1668,6 +1674,52 @@ const mediaViewOn = () => !choosing && state.settings.mediaView !== false;
 const openMediaView = () => openInApp("mediaview", {});
 const mediaOpen = () => appView.querySelector("iframe")?.title === "mediaview";
 const showMediaPlace = () => $("#places .media-place")?.classList.toggle("active", mediaOpen());
+
+// A folder just marked as media: mediaview makes it ready (its videos found,
+// matched with IMDb's titles, their pictures made: apps/mediaview/media.js
+// prepare()), with a bar on its tile and the title it's at in the status bar
+// meanwhile, so the Media view shows it at once.
+const mediaPreparing = new Map(); // folder -> {phase, done, total, title}
+
+async function prepareMediaFolder(path, name) {
+  if (mediaPreparing.has(path)) return;
+  mediaPreparing.set(path, { phase: "Starting", done: 0, total: 0 });
+  showTransfers();
+  let total = 0;
+  try {
+    const res = await fetch("/engine/embed/mediaview/api/media/prepare", { method: "POST", body: JSON.stringify({ path }) });
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
+    let buf = "";
+    for await (const chunk of res.body.pipeThrough(new TextDecoderStream())) {
+      buf += chunk;
+      for (let nl; (nl = buf.indexOf("\n")) !== -1;) {
+        const m = JSON.parse(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+        if (m.error) throw new Error(m.error);
+        if (m.finished) total = m.total;
+        else {
+          mediaPreparing.set(path, m);
+          showTransfers();
+          flashStatus(m.total ? `Adding ${name} to Media: ${m.done} of ${m.total}${m.title ? ` \u00b7 ${m.title}` : ""}` : `Adding ${name} to Media: ${m.phase.toLowerCase()}\u2026`, 60_000);
+        }
+      }
+    }
+    flashStatus(`${name}: in Media, ${total} title${total === 1 ? "" : "s"} (sidebar \u2192 Media)`);
+  } catch (err) {
+    flashStatus(`Couldn't add ${name} to Media: ${err.message}`, 8000);
+  } finally {
+    mediaPreparing.delete(path);
+    showTransfers();
+  }
+}
+
+function showMediaPrepareBar(bar, m) {
+  const pct = m.total ? Math.round((m.done / m.total) * 100) : 0;
+  bar.classList.toggle("unknown", !m.total); // looking for its videos: how many isn't known yet
+  put(bar.querySelector(".fill").style, "width", m.total ? `${pct}%` : "100%");
+  put(bar.querySelector(".pct"), "textContent", m.total ? `Media ${m.done}/${m.total}` : `${m.phase}\u2026`);
+  put(bar, "title", `Adding it to Media: ${m.phase.toLowerCase()}${m.total ? `, ${m.done} of ${m.total} titles` : ""}${m.title ? `\n${m.title}` : ""}`);
+}
 
 // ---------------------------------------------------------------- the Preferences view
 
@@ -2516,7 +2568,8 @@ async function showProperties(entry) {
       if ("description" in changes || "icon" in changes) refreshPlaces(); // a place's description is its label in the sidebar, its icon its icon
       if ((changes.tags?.length || "autoTags" in changes) && state.autoTagged) thumbs.tag(state.path); // the tag list may have grown
       if ("media" in changes) {
-        if (changes.media) flashStatus(`${p.name}: a media folder (sidebar → Media)`);
+        if (changes.media) prepareMediaFolder(p.path, p.name);
+        refreshPlaces(); // (its icon, if it's there)
       }
     } catch (err) {
       alert(`Couldn't save: ${err.message}`);
@@ -3744,6 +3797,8 @@ function showTransfers() {
   }
   // Others' downloads (a browser's): a bar on its partial file.
   for (const w of state.browserDownloads) add(tiles.get(w.path), { key: `web ${w.id}`, w });
+  // Folders being added to Media (prepareMediaFolder): how far.
+  for (const [path, m] of mediaPreparing) add(tiles.get(path), { key: "media", m });
   // Copies cut off (a crash, ×): their record says how far they got; ↻ goes on, × forgets it.
   for (const e of state.view) if (e.copying?.state === "stopped" && !live.has(e.path)) add(tiles.get(e.path), { key: "stopped", stopped: e });
   for (const bar of document.querySelectorAll(".transfer-bar")) if (!bars.has(bar.parentElement)) bars.set(bar.parentElement, []); // none there now
@@ -3752,7 +3807,7 @@ function showTransfers() {
       key: (b) => b.key,
       kind: barKind,
       make: (b) => makeTransferBar(barKind(b)),
-      show: (bar, b) => (b.w ? showWebBar(bar, b.w) : b.d ? showDownloadBar(bar, b.d, b.part) : b.stopped ? showStoppedBar(bar, b.stopped) : showTransferBar(bar, b.t, b)),
+      show: (bar, b) => (b.m ? showMediaPrepareBar(bar, b.m) : b.w ? showWebBar(bar, b.w) : b.d ? showDownloadBar(bar, b.d, b.part) : b.stopped ? showStoppedBar(bar, b.stopped) : showTransferBar(bar, b.t, b)),
     });
     // More than one on a tile (a copy into a folder a download goes to): one under the other.
     [...host.querySelectorAll(":scope > .transfer-bar")].forEach((bar, i) => put(bar.style, "top", i ? `${8 + i * 24}px` : ""));
@@ -4043,7 +4098,7 @@ $("#tv-dir-here").onclick = () => {
 };
 
 const partDone = (b) => b.d.state === "completed" || (b.part?.length != null && b.part.downloaded >= b.part.length);
-const barKind = (b) => (b.w ? (b.w.stoppable ? "web-stop" : "web") : b.d ? (partDone(b) ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
+const barKind = (b) => (b.m ? "media" : b.w ? (b.w.stoppable ? "web-stop" : "web") : b.d ? (partDone(b) ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
 
 // A download's files, and the folders in it (below the folder it goes to),
 // each with how much of it there is and how much is downloaded: path ->
@@ -4202,6 +4257,8 @@ function makeTransferBar(kind) {
       barButton("", "", () => act(["paused", "error", "failed"].includes(bar.item.d.state) ? "resume" : "pause")),
       barButton("×", "", () => stopDownloadPart(bar.item)),
     );
+  } else if (kind === "media") {
+    bar.classList.add("media-prepare"); // a folder being added to Media: nothing to stop (it's quick, and harmless)
   } else if (kind === "copy") {
     const pause = barButton("", "", () => api("/api/transfer-pause", { method: "POST", body: JSON.stringify({ id: bar.item.t.id, pause: !bar.item.t.paused }) }).catch(() => {}));
     pause.classList.add("pause");

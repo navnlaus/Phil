@@ -129,9 +129,19 @@ function showMediaStatus(status) {
     line.append(`Titles and ratings: IMDb's, of ${new Date(status.built).toLocaleDateString()}. `, button("Update", update));
   }
   if (status.error) line.append(` Couldn't update: ${status.error}`);
-  if (away.length) line.append(` Not there now (shown as when last seen): ${away.map((r) => r.path).join(", ")}.`);
-  // Not downloaded yet: said at the top, where it's seen.
-  line.classList.toggle("first", !status.ready || !!status.building);
+  // Media folders not there now: an unplugged drive (its titles shown as when last seen), or one
+  // moved or deleted outside phil (which didn't see it go: Forget, then mark it where it is now).
+  for (const r of away) {
+    const forget = button("Forget it", async () => {
+      if (!confirm(`Stop showing ${r.path}? If it was moved, mark it as a media folder where it is now (its Properties in phil).`)) return;
+      await api("api/media/forget", { method: "POST", body: JSON.stringify({ path: r.path }) }).catch((err) => alert(err.message));
+      loadMedia();
+    });
+    forget.title = "It was moved or deleted outside phil (phil carries it along when it moves it)";
+    line.append(` ${r.path} isn't there now: its drive unplugged, or moved outside phil (shown as when last seen). `, forget);
+  }
+  // Not downloaded yet, or a folder not there: said at the top, where it's seen.
+  line.classList.toggle("first", !status.ready || !!status.building || away.length > 0);
 }
 
 function onMediaStatus(status) {

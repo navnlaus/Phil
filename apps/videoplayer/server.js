@@ -8,7 +8,7 @@
 //   GET  /stream?path=&t=          it, from `t` seconds, as fragmented MP4 (ffmpeg)
 //   GET  /api/settings             the settings and where the video was left
 //   PUT  /api/settings             {settings}: changed in the player
-//   PUT  /api/position             {path, t}: where it was left (t null: watched to the end)
+//   PUT  /api/position             {path, t, done}: where it was left (done: watched to the end, kept as t null; t null: barely begun, forgotten)
 //   POST /api/mpv                  {path, t}: plays it in mpv from there
 //   GET  /user.css                 ~/.config/phil/videoplayer.css, the player restyled
 //
@@ -53,17 +53,19 @@ const AUDIO_COPY = new Set(["aac", "mp3", "opus", "flac"]);
 export function createServer({ profile = {} } = {}) {
   const incognito = !!profile.incognito;
   let settings = null; // read once, then this
-  let positions = null; // path -> {t, at}
+  let positions = null; // incognito's: path -> {t, at} (otherwise the file, read each time: phil changes it too, when videos move)
   const readSettings = async () =>
     settings ??= { ...DEFAULTS, ...await Deno.readTextFile(SETTINGS_FILE).then(JSON.parse, () => ({})) };
   const readPositions = async () =>
-    positions ??= new Map(incognito ? [] : Object.entries(await Deno.readTextFile(POSITIONS_FILE).then(JSON.parse, () => ({}))));
+    incognito ? (positions ??= new Map()) : new Map(Object.entries(await Deno.readTextFile(POSITIONS_FILE).then(JSON.parse, () => ({}))));
 
-  async function savePositions() {
+  async function savePositions(list) {
     if (incognito) return;
-    const recent = [...positions].sort((a, b) => b[1].at - a[1].at).slice(0, MAX_POSITIONS);
+    const recent = [...list].sort((a, b) => b[1].at - a[1].at).slice(0, MAX_POSITIONS);
     await Deno.mkdir(join(POSITIONS_FILE, ".."), { recursive: true });
-    await Deno.writeTextFile(POSITIONS_FILE, JSON.stringify(Object.fromEntries(recent)));
+    const tmp = `${POSITIONS_FILE}.${crypto.randomUUID().slice(0, 8)}.tmp`; // (whole, for whoever reads it: mediaview, phil)
+    await Deno.writeTextFile(tmp, JSON.stringify(Object.fromEntries(recent)));
+    await Deno.rename(tmp, POSITIONS_FILE);
   }
 
   return {
@@ -103,11 +105,12 @@ export function createServer({ profile = {} } = {}) {
           return json({ ok: true });
         }
         case "PUT /api/position": {
-          const { path: file, t } = await req.json();
+          const { path: file, t, done } = await req.json();
           const list = await readPositions();
-          if (typeof t === "number" && t > 0) list.set(absolute(file), { t: Math.round(t), at: Date.now() });
+          if (done) list.set(absolute(file), { t: null, at: Date.now() }); // watched (mediaview's ✓, and its next episode)
+          else if (typeof t === "number" && t > 0) list.set(absolute(file), { t: Math.round(t), at: Date.now() });
           else list.delete(absolute(file));
-          await savePositions();
+          await savePositions(list);
           return json({ ok: true });
         }
         case "POST /api/mpv": {

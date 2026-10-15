@@ -166,7 +166,7 @@ function savePosition() {
   if (!e || !state.info) return;
   const t = now(), end = duration();
   const done = end && (t > end - 10 || t / end > 0.97);
-  put("api/position", { path: e.path, t: t < 5 || done ? null : t });
+  put("api/position", { path: e.path, t: t < 5 || done ? null : t, done: !!done });
 }
 video.addEventListener("play", () => (clearInterval(positionTimer), (positionTimer = setInterval(savePosition, POSITION_EVERY_MS))));
 video.addEventListener("pause", () => (clearInterval(positionTimer), savePosition()));
