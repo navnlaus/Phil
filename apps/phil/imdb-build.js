@@ -34,10 +34,13 @@ async function build(dir) {
     fresh[name] = res.headers.get("last-modified") ?? "";
   }
   const built = await Deno.stat(join(dir, "imdb.sqlite")).then(() => true, () => false);
-  if (built && FILES.every((name) => fresh[name] && fresh[name] === dates[name])) return; // up to date
+  // (Newer, not just different: IMDb's servers don't all have the latest at once, and some answer with older ones.)
+  const newer = (name) => !dates[name] || !fresh[name] || Date.parse(fresh[name]) > Date.parse(dates[name]);
+  if (built && !FILES.some(newer)) return; // up to date
   for (const name of FILES) {
     const res = await fetch(BASE + name);
     if (!res.ok) throw new Error(`${name}: ${res.status} ${res.statusText}`);
+    fresh[name] = res.headers.get("last-modified") ?? fresh[name]; // (what was downloaded: maybe not what was asked about)
     const total = Number(res.headers.get("content-length")) || 0;
     const file = join(dir, name), tmp = `${file}.part`;
     const out = await Deno.open(tmp, { write: true, create: true, truncate: true });
