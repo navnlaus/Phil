@@ -197,9 +197,9 @@ async function serve({ profile = {}, request = null, browser = false, standalone
   const launchers = Object.fromEntries(
     await Promise.all(Object.entries(APPS).map(async ([name, app]) => [name, await app.launch()])),
   );
-  // Windows: in a Chromium-based browser (chromium.js) when the settings'
-  // "browser" (or PHIL_BROWSER) asks for one ("default": the default browser,
-  // or another installed; a path) and there is one; otherwise WebKitGTK's (window.js).
+  // Windows: in a Chromium-based browser (chromium.js): the default browser, or
+  // another installed (the settings' "browser", or PHIL_BROWSER: a name or path);
+  // with none, or "webkit", WebKitGTK's (window.js).
   const chromium = browser ? null : await import("./chromium.js").then(async (m) => {
     const path = await m.findBrowser(Deno.env.get("PHIL_BROWSER") ?? await setting("browser"));
     return path && { module: m, path };

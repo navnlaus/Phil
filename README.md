@@ -1,8 +1,10 @@
 # phil
 
 A scopemaxed, vibecoded file manager and the engine it
-runs on. The UI is plain HTML/CSS/JS rendered by the system WebKitGTK; the
-backend is JavaScript running on Deno. No bundled browser, no npm dependencies.\
+runs on. The UI is plain HTML/CSS/JS, shown in app windows of your default
+browser's engine (Chromium-based: Chrome, Brave, Vivaldi...), with the system
+WebKitGTK as the fallback; the backend is JavaScript running on Deno. No
+bundled browser, no npm dependencies.\
 Developed and tested on Omarchy, the install scripts assumes a similar setup.
 
 ![phil showing a Pictures folder: photo thumbnails with their tags, folders with previews of what's inside, and the folder's tags in the sidebar](docs/screenshots/pictures.webp)
@@ -17,6 +19,8 @@ Developed and tested on Omarchy, the install scripts assumes a similar setup.
 | Code, highlighted (textedit) | Resize, crop, turn and compress (imageresize) |
 | ![Copying the Videos folder to a backup drive: its tile and the sidebar's Transfers show the percentage and speed, with pause and stop](docs/screenshots/transfer.webp) | ![videoplayer playing a letterboxed video, its Crop menu open at 2.39:1](docs/screenshots/video.webp) |
 | Copying to another drive with rsync: progress on the folder and in the sidebar, pause, stop and resume | Videos play in the window (videoplayer); Crop cuts off the bars in the picture |
+| ![Downloads: torrents and a web download from panda-dl, and a video from Streamgrab, each with its bar on its tile and in the sidebar's Transfers](docs/screenshots/downloads.webp) | ![The Transfers view: every download in full, with speeds, time left, peers and seeds, and panda-dl's settings](docs/screenshots/transfers-view.webp) |
+| Torrents and web downloads (panda-dl) and browser videos (Streamgrab), as they come in | The Transfers view: each in full, and the settings for downloads |
 | ![The chips theme](docs/screenshots/chips.webp) | |
 | Themes: here, chips | |
 
@@ -25,7 +29,7 @@ Developed and tested on Omarchy, the install scripts assumes a similar setup.
 ## The engine and its apps
 
 phil is one app of `phil-engine`, which runs apps in one background process:
-their windows (GTK + WebKitGTK) share a main loop, and their servers a worker.
+their windows (the browser's, or GTK + WebKitGTK's: see [Windows](#windows-your-browsers-engine-or-webkitgtk)) share a main loop, and their servers a worker.
 The first app you run starts the engine in the background; after that, an app's
 command just asks the running engine for a window and returns, so windows open
 quickly. The engine keeps running after its last window closes.
@@ -95,16 +99,16 @@ chooser: apps' Open and Save dialogs (Brave's, Firefox's...) are phil windows. I
 `<browser>-127.0.0.1__phil-choose-Default`), for a window rule that floats
 them; they don't open the terminal panel or change the folder phil reopens. They start with hidden files hidden and without the sidebar's Transfers and Cameras, and keep their own sort, tile size and sidebar (the settings' `chooser`), apart from phil's windows'.
 
-### Windows in Chromium instead of WebKitGTK
+### Windows: your browser's engine, or WebKitGTK
 
-With `"browser": "default"` in `~/.config/phil/settings.json` (or
-`PHIL_BROWSER=default`), the engine's windows open in a Chromium-based browser
-instead: the default browser when it's one (Chrome, Chromium, Brave, Vivaldi,
-Edge, Opera…), otherwise the first of those installed; a browser's name
-(`"chromium"`) or path picks one. Its video and drawing are Blink's: HLS
-cameras that stuttered in WebKitGTK play smoothly. Without one (or with
-`"webkit"`, the default), windows are WebKitGTK's. A newly started engine
-takes the setting (`phil-engine --retire`, or `phil --quit`).
+The engine's windows open in your default browser when it's Chromium-based
+(Chrome, Chromium, Brave, Vivaldi, Edge, Opera…), otherwise in the first of
+those installed; with none, they're WebKitGTK's. `"browser"` in
+`~/.config/phil/settings.json` (or `PHIL_BROWSER`) picks another: a browser's
+name (`"chromium"`) or path, or `"webkit"` for WebKitGTK's windows always. In
+a browser, video and drawing are Blink's: HLS cameras that stuttered in
+WebKitGTK play smoothly. A newly started engine takes the setting
+(`phil-engine --retire`, or `phil --quit`).
 
 - One browser for all the engine's windows, with a profile of its own
   (`~/.local/state/phil/browser-<name>`; incognito: a throwaway one), so
@@ -323,6 +327,26 @@ up to 400 lines), when its tile comes into view. Documents (Word, RTF,
 OpenDocument) show their text too, from the Markdown textedit reads them as
 (below; converted once, then kept with the thumbnails).
 
+### Downloads
+
+phil shows downloads where they land, as it shows copies: a bar on the file or
+folder being downloaded and a row in the sidebar's Transfers, with pause and
+stop.
+
+- [panda-dl](https://github.com/navnlaus/panda-dl) (our fork of
+  [pandaind/panda-dl](https://github.com/pandaind/panda-dl), with what phil
+  needs: each torrent file's progress, skipping files, torrents in their own
+  folder) downloads web links and torrents. phil asks its daemon over its
+  socket: every download, a torrent's files each with their own progress,
+  peers and seeds, uploads while seeding. A link or `.torrent` dropped on phil
+  is downloaded where it's dropped; links and magnets copied to the clipboard
+  are downloaded too, if you want. Its settings are in the Transfers view
+  (click the Transfers heading).
+- Any other program can show its downloads there by writing a progress report
+  to `$XDG_RUNTIME_DIR/phil/transfers/<name>.json` (`apps/phil/browserdownloads.js`
+  has the format): Streamgrab, a Brave extension that downloads the videos and
+  streams a page plays, does.
+
 ### Settings
 
 The gear at the bottom of the sidebar: whether the sidebar shows Transfers and
@@ -378,7 +402,7 @@ empty space → Inspect Element works too.
 
 ## Requirements
 
-`webkit2gtk-4.1` (or a Chromium-based browser: see [Windows in Chromium](#windows-in-chromium-instead-of-webkitgtk)), `deno`, `wl-clipboard`, `libvips` (built with poppler, for PDF thumbnails) (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
+A Chromium-based browser, or `webkit2gtk-4.1` (see [Windows](#windows-your-browsers-engine-or-webkitgtk)), `deno`, `wl-clipboard`, `libvips` (built with poppler, for PDF thumbnails) (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
 `ffmpeg` (videoplayer: probing and converting), and with WebKitGTK, GStreamer
 plugins for its video (`gst-plugins-good`, `gst-libav`). `mpv`
 and `xdg-open` are used for "open externally". `udisks2` (`udisksctl`) mounts removable drives from the sidebar; a system drive's mount, like everything phil does as root, goes through `sudo`.
@@ -438,7 +462,7 @@ click; HTTP/2 carries any number over one connection, and WebKit only speaks it
 over TLS. The certificate is made at each start (openssl, a few ms), for
 127.0.0.1, kept in memory only, and trusted by the engine's windows alone
 (`webkit_web_context_allow_tls_certificate_for_host`; a browser's: see
-[Windows in Chromium](#windows-in-chromium-instead-of-webkitgtk)). `--browser` (a browser
+[Windows](#windows-your-browsers-engine-or-webkitgtk)). `--browser` (a browser
 wouldn't trust it) and `PHIL_PLAIN_HTTP=1` stay on plain HTTP, as does an
 engine that can't run openssl.
 
@@ -560,11 +584,11 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | drop files from another phil window (any button: middle moves, the others ask) or another program (a file manager…) | onto a folder (its tile, a place in the sidebar, a part of the path) or the folder's empty space: "Move to" / "Copy to" (all from that folder already: "Copy here"), with the same progress, pause and resume |
 | right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, the sidebar); out of the window, the files go on being dragged, for the app they're dropped on to copy, move or ask |
 | a copy or move under way | a bar on the folder it goes to, on what it's making there, on the file it's at (that file's percentage), and in the sidebar's Transfers, with the percentage and speed (time left in its tooltip); while it gets ready (counting, rsync listing the files, or on a resume comparing them with what's there) a turning icon and what it's doing (in the sidebar, the icon); ⏸ pauses, × stops (what's done stays: a move removes each file only once it's copied). Its record (in phil's metadata, every few seconds) outlives a crash: a copy cut off shows "Stopped at 45%" on its folder, and the file it was at "Cut off at 18%" (a file that takes more than a few seconds has a record of its own; in the sidebar's Transfers, just the percentage); ↻ resumes it where it stopped: finished files are skipped, and a file that was cut off is appended to, from where it stopped, then checked whole against the original (rsync --inplace --append-verify; after a crash too); copying the same thing there again goes on with it too; × forgets it. rsync stops with phil, so nothing copies on unseen. Moves within a drive, and copies within one that clones files (btrfs), are instant and skip it. Folders being copied into show their size as it goes: the folder a copy (of one item) is making, "1.3 GB of 3.0 GB"; the folder it goes into, its size growing by what's been copied. Before it starts (a resume too), what's left to copy is checked against the destination's free space: too little, it says so and doesn't start. A copy that fails says why, from rsync's errors ("No space left on device", not the broken pipe the other side reports) |
-| a download under way ([panda-dl](https://github.com/pandaind/panda-dl)'s: HTTP and BitTorrent) | a bar like a copy's: on what's being downloaded (once it's there; a torrent's files each with their own progress, and the folders in it with theirs together: a file it has finished gets the finished mark and its thumbnail while the rest goes on; this needs panda-dl to list a torrent's files, a change to it in `~/Projects/panda-dl`, branch `file-progress`; without that, its files are guessed and share its progress), on the folder it goes to and in the sidebar's Transfers, with the percentage and speed (time left and peers in its tooltip); ⏸ pauses, ▶ resumes, × stops and forgets it (what's downloaded stays). × on one of a torrent's files (or a folder in it), or deleting it in phil, drops just that from the download and the rest goes on; dropping its last file closes it. phil asks panda-dl's daemon over its socket, on one connection: every second while something downloads, every 5 seconds otherwise, never while no window is open (`apps/phil/downloads.js`; `PANDA_DL_SOCKET` for another socket). What's being downloaded isn't thumbnailed till it's done, then at once. Links dropped on a folder (a tile, a place, a part of the path, or the empty space: the folder shown), a magnet link or a web link from a browser, are downloaded there; a dropped .torrent file offers "Download into" before Move and Copy (panda-dl's daemon is started then if it isn't running: `panda-dl start`, `PANDA_DL` for another panda-dl; it runs on apart from phil). One finished but still in panda-dl's list has a small mark on its tile: a download icon, and ↑ with its upload speed while it's seeding (what it has uploaded, and its ratio, in the tooltip); × takes it off the list (the file stays) |
+| a download under way ([panda-dl](https://github.com/navnlaus/panda-dl)'s: HTTP and BitTorrent) | a bar like a copy's: on what's being downloaded (once it's there; a torrent's files each with their own progress, and the folders in it with theirs together: a file it has finished gets the finished mark and its thumbnail while the rest goes on; this needs panda-dl to list a torrent's files, a change to it in `~/Projects/panda-dl`, branch `file-progress`; without that, its files are guessed and share its progress), on the folder it goes to and in the sidebar's Transfers, with the percentage and speed (time left and peers in its tooltip); ⏸ pauses, ▶ resumes, × stops and forgets it (what's downloaded stays). × on one of a torrent's files (or a folder in it), or deleting it in phil, drops just that from the download and the rest goes on; dropping its last file closes it. phil asks panda-dl's daemon over its socket, on one connection: every second while something downloads, every 5 seconds otherwise, never while no window is open (`apps/phil/downloads.js`; `PANDA_DL_SOCKET` for another socket). What's being downloaded isn't thumbnailed till it's done, then at once. Links dropped on a folder (a tile, a place, a part of the path, or the empty space: the folder shown), a magnet link or a web link from a browser, are downloaded there; a dropped .torrent file offers "Download into" before Move and Copy (panda-dl's daemon is started then if it isn't running: `panda-dl start`, `PANDA_DL` for another panda-dl; it runs on apart from phil). One finished but still in panda-dl's list has a small mark on its tile: a download icon, and ↑ with its upload speed while it's seeding (what it has uploaded, and its ratio, in the tooltip); × takes it off the list (the file stays) |
 | the sidebar's Transfers | every copy, move, delete and download (paused ones too, finished downloads still seeding, and copies and moves cut off, wherever they were going: phil crashed or was closed, or ×; their records are in phil's metadata, so they're there after a restart, with ↻ to resume them where they stopped and × to forget them), each its name over its bar, with the bar's buttons; click one: the folder it goes to, with what it's making selected |
 | an app's download saved through phil's file chooser (Brave's, Chrome's, Firefox's...) | in the Transfers list and on its partial file's tile (`<path>.crdownload`, `<path>.part`, next to where it was saved; a Chromium-family browser that started it before the Save was answered keeps it as `Unconfirmed 123456.crdownload` in its download folder till it's done: the one made in the two minutes before the save is taken to be it, and has the download's name as its description till it's done): how far, how fast, the time left. Its full size from a Chromium-family browser's History database (by that path; read in place, without locking it, when it changed); otherwise unknown (a moving stripe). Not growing for 30 s: "paused or stalled". Gone from the list when it's renamed into place. The paths saved are kept (`~/.local/state/phil/saved-downloads.json`), so a restart keeps following them. Downloads not saved through phil aren't shown, and phil can't pause or stop one (`apps/phil/browserdownloads.js`) |
 | any program's transfer that reports to phil (Streamgrab's downloads, ~/Projects/streamgrab) | in the Transfers list, as it says: a JSON file each in `$XDG_RUNTIME_DIR/phil/transfers/` (`{id, app, name, target, path, bytes, total, percent, speed, eta, state, started, pid, incognito, stoppable, stopKeeps}`), rewritten as it goes and removed when it's done; × sends its process SIGTERM when it says it may be stopped. One whose process is gone is dropped. An incognito phil lists the incognito ones, the other phil the others |
-| click the sidebar's Transfers heading | the Transfers view, over the folder: every transfer in full (what, where to: a click shows it there, its bar and buttons, size, speeds, time left, peers, what's uploaded; a torrent's files, each with its own progress and ×), and the settings for downloads, panda-dl's: its download folder (for links copied to the clipboard and its own command; drops in phil go where they're dropped), connections per web download, and whether copied magnet and .torrent links are downloaded. Saved as they're changed: through its daemon when it's running, otherwise in `~/.config/panda-dl/config.json`. Esc, ×, or opening a folder closes it |
+| click the sidebar's Transfers heading (there while something's under way, paused or stopped; otherwise the sidebar's settings, the gear → "Transfers and downloads…") | the Transfers view, over the folder: every transfer in full (what, where to: a click shows it there, its bar and buttons, size, speeds, time left, peers, what's uploaded; a torrent's files, each with its own progress and ×), and the settings for downloads, panda-dl's: its download folder (for links copied to the clipboard and its own command; drops in phil go where they're dropped), connections per web download, and whether copied magnet and .torrent links are downloaded. Saved as they're changed: through its daemon when it's running, otherwise in `~/.config/panda-dl/config.json`. Esc, ×, or opening a folder closes it |
 | right-drag onto the folder it's in | "Copy here" (the tiles' empty space, a file, that folder in the path): copies beside them, numbered ("photo 2.jpg", "Folder 2"), selected |
 | middle-drag onto a folder | move there right away; out of the window, the files go on being dragged, for the app they're dropped on to move (or copy) |
 | Backspace, Esc | parent folder |

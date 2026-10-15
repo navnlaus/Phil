@@ -940,4 +940,6 @@ body.choosing #files { --chooser-h: 48px; }
 #settings-pop select { width: 100%; }
 /* What the settings leave out of the sidebar (and a file chooser's window). */
 body.no-transfers #transfers-panel, body.no-cameras #cameras-panel { display: none; }
+#transfers-panel.empty { display: none; }
+#settings-transfers { margin-top: 6px; }
 body.choosing .sidebar-foot { display: none; } /* a file chooser: no settings */

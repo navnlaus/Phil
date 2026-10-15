@@ -1654,6 +1654,7 @@ for (const input of settingsPop.querySelectorAll("[data-setting]")) {
     saveSettings();
   };
 }
+$("#settings-transfers").onclick = () => (openSettings(false), openTransfersView());
 themeSelect.onchange = () => api("/api/theme", { method: "PUT", body: JSON.stringify({ theme: themeSelect.value }) }).catch((err) => alert(err.message));
 
 function setTheme(theme) {
@@ -3610,6 +3611,8 @@ function renderTransferList() {
     ...state.browserDownloads.map((w) => ({ key: `web ${w.id}`, w })),
   ];
   keyed($("#transfers"), list, { key: (b) => b.key, kind: barKind, make: makeTransferRow, show: showTransferRow });
+  // Its heading only while there's something (or the view's open); the settings have a way in too.
+  $("#transfers-panel").classList.toggle("empty", !list.length && transfersView.hidden);
   if (!transfersView.hidden) renderTransfersView(list);
 }
 
@@ -3728,6 +3731,7 @@ function closeTransfersView() {
   if (transfersView.hidden) return;
   transfersView.hidden = true;
   $("#btn-transfers").setAttribute("aria-pressed", "false");
+  renderTransferList();
   const back = transfersFocus?.isConnected && transfersFocus !== document.body && !transfersView.contains(transfersFocus) ? transfersFocus : grid;
   back.focus({ preventScroll: true });
 }
