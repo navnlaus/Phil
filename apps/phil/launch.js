@@ -25,6 +25,15 @@ Options:
                      don't save the terminal's bash history, keep thumbnails and
                      other caches in memory only (unless --thumb-dir is given),
                      no WebKit disk cache
+  --choose MODE      A file chooser (an app's Open or Save dialog, through
+                     xdg-desktop-portal-termfilechooser): MODE is open (a file),
+                     dir (a folder) or save (a file's name and folder); with
+                     --multiple, more than one; --out FILE gets the chosen
+                     paths, one per line (nothing: cancelled). The path given
+                     is where to start (to save: the suggested file). Waits
+                     until the choice is made, or the window closed.
+  --multiple         (--choose) More than one may be chosen
+  --out FILE         (--choose) Where the chosen paths are written
   --file-manager-service
                      Run the org.freedesktop.FileManager1 D-Bus service that
                      "Show in folder" uses; started by D-Bus, see scripts/install.sh
@@ -49,6 +58,9 @@ const OPTIONS = {
   "--jobs": true,
   "--port": true,
   "--incognito": false,
+  "--choose": true,
+  "--multiple": false,
+  "--out": true,
   "--file-manager-service": false,
   "--help": false,
 };
@@ -108,6 +120,46 @@ export function parse(args, { cwd }) {
     port: opts.port === undefined ? undefined : positiveInt("port", opts.port),
   };
 
+  // A file chooser: the window, then waiting for the choice (phil's server writes
+  // <out>, then <out>.done: when it's chosen, cancelled, or the window closed).
+  if (opts.choose !== undefined) {
+    if (!["open", "dir", "save"].includes(opts.choose)) throw new Error("--choose: open, dir or save");
+    if (!opts.out) throw new Error("--choose needs --out FILE");
+    const out = resolve(cwd, opts.out);
+    const start = positional[0] ? resolve(cwd, positional[0]) : home();
+    let dir = start, name = "";
+    const stat = (() => {
+      try {
+        return Deno.statSync(start);
+      } catch {
+        return null;
+      }
+    })();
+    if (opts.choose === "save" ? !stat?.isDirectory : stat && !stat.isDirectory) (dir = dirname(start)), (name = start.slice(dir.length + 1));
+    try {
+      if (!Deno.statSync(dir).isDirectory) dir = home();
+    } catch {
+      dir = home();
+    }
+    try {
+      Deno.removeSync(`${out}.done`); // (none, usually)
+    } catch { /* none */ }
+    return {
+      profile,
+      open: { dir, select: [], choose: { mode: opts.choose, multiple: !!opts.multiple, out, name } },
+      async waitFor() {
+        for (;;) {
+          try {
+            Deno.statSync(`${out}.done`);
+            Deno.removeSync(`${out}.done`);
+            return;
+          } catch { /* not yet */ }
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      },
+    };
+  }
+
   // A folder to open, or files to show selected in their folder.
   const paths = positional.map((p) => resolve(cwd, p));
   const isFile = (p) => {
@@ -122,8 +174,14 @@ export function parse(args, { cwd }) {
 }
 
 /** The page URL: files to select in ?select=, the folder in the fragment. */
-export function windowUrl(base, { dir, select = [] }) {
+export function windowUrl(base, { dir, select = [], choose = null }) {
   for (const path of select) base.searchParams.append("select", path);
+  if (choose) { // a file chooser (--choose): what's asked, and where the answer goes
+    base.searchParams.set("choose", choose.mode);
+    if (choose.multiple) base.searchParams.set("multiple", "1");
+    base.searchParams.set("out", choose.out);
+    if (choose.name) base.searchParams.set("name", choose.name);
+  }
   if (dir) base.hash = dir.split("/").map(encodeURIComponent).join("/");
   return base;
 }

@@ -112,12 +112,15 @@ async function launch(argv) {
   if (flags.has("--browser") || flags.has("--standalone")) {
     return serve({ profile, request, browser: flags.has("--browser"), standalone: flags.has("--standalone") });
   }
-  // An engine is running: it opens the window, we're done.
+  // An engine is running: it opens the window, we're done (unless the app waits
+  // for something of the window's: phil --choose, for the choice).
   if (await ask(socket, request)) {
     trace("handed to the running engine");
+    await parsed.waitFor?.();
     Deno.exit(0);
   }
   await startEngine({ profile, request }, socket);
+  await parsed.waitFor?.();
   Deno.exit(0);
 }
 

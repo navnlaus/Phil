@@ -343,6 +343,15 @@ export function createServer({ profile, controlSocket }) {
         } catch (err) {
           throw httpError(502, err.message);
         }
+      case "POST /api/choose": { // {out, paths}: a file chooser's answer (phil --choose): the paths, one per line, in <out>, then <out>.done; [] cancelled
+        const { out, paths = [] } = await req.json();
+        if (typeof out !== "string" || !out.startsWith("/") || !Array.isArray(paths) || !paths.every((p) => typeof p === "string" && p.startsWith("/"))) throw httpError(400, "out, and the chosen paths");
+        if (await isDir(out)) throw httpError(400, "out is a folder");
+        if (await Deno.lstat(`${out}.done`).then(() => true, () => false)) return json({ ok: true, already: true }); // answered once
+        await Deno.writeTextFile(out, paths.length ? paths.join("\n") + "\n" : "");
+        await Deno.writeTextFile(`${out}.done`, "");
+        return json({ ok: true });
+      }
       case "GET /api/download-settings": // panda-dl's: {running, config}
         return json(await downloads.settings());
       case "PUT /api/download-settings": // {name: value, ...}: some of them changed; answers as GET
