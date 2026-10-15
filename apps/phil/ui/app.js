@@ -986,8 +986,27 @@ function updateTile(tile, entry) {
   contentChanged.push(tile);
 }
 
+const WRITTEN_MS = 30_000; // a file changing again within this: being written (see refreshPreview)
+const lastChanged = new Map(); // path -> when its tile last saw it change
+
+// A file being written, looked at again: quiet for WRITTEN_MS, redrawn; otherwise, later.
+function whenQuiet(tile, entry) {
+  if (!entry) return;
+  const quiet = Date.now() - (lastChanged.get(entry.path) ?? 0);
+  if (quiet < WRITTEN_MS) return void wantLater(entry.path, WRITTEN_MS - quiet + 500, whenQuiet);
+  lastChanged.delete(entry.path);
+  refreshPreview(tile, entry);
+}
+
 function refreshPreview(tile, entry) {
   if (!entry) return;
+  // A file changing again within WRITTEN_MS of its last change: being written (a download,
+  // a torrent, a copy, a program's output): left as it is (redrawn on every change, it
+  // flashed), and redrawn once it's been quiet that long. (One change, a file saved: at once.)
+  const now = Date.now(), before = lastChanged.get(entry.path);
+  lastChanged.set(entry.path, now);
+  if (lastChanged.size > 500) lastChanged.delete(lastChanged.keys().next().value);
+  if (before && now - before < WRITTEN_MS) return void wantLater(entry.path, WRITTEN_MS + 500, whenQuiet);
   const box = tile.firstElementChild;
   const near = isNear(tile);
   if (entry.kind === "file") {

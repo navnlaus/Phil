@@ -224,6 +224,12 @@ position, selection and already loaded thumbnails stay. Its subfolders are
 watched too (one level down), so a folder tile's counts and previews follow
 changes inside it. F5 still reloads by hand.
 
+A file only growing (a download, a torrent, a copy, a program writing its
+output) is told about every 5 seconds, not every half second; and a file that
+changes again within 30 seconds of its last change keeps its tile as it is
+(redrawn on every change, it flashed), then gets its preview once it's been
+quiet that long. A file changed once (saved) is redrawn at once.
+
 ### Folder tiles
 
 A folder's tile shows what it holds: how many folders and files, the files'
