@@ -150,8 +150,8 @@ let matchedWith = null;
  * The library: `roots` (the folders marked as media) scanned, each file
  * described and matched, grouped into movies and shows. `fixes` (key ->
  * IMDb id, or 0: not a movie or show, left out) put matches right;
- * `watched` (path -> {t}, videoplayer's positions: t null when watched to
- * the end) says how far each was watched. Roots not there now (a drive
+ * `watched` (path -> {t, at}, videoplayer's positions: t null when watched to
+ * the end) says how far each was watched, and when. Roots not there now (a drive
  * unplugged) come from `remembered` (root -> its files when last seen).
  */
 export async function library(roots, { fixes = {}, watched = {}, remembered = {} } = {}) {
@@ -177,7 +177,7 @@ export async function library(roots, { fixes = {}, watched = {}, remembered = {}
     }
     const m = cache.get(key);
     const pos = watched[f.path];
-    const file = { path: f.path, size: f.size, mtime: f.mtime, quality: d.quality, source: d.source, offline: f.offline, watched: pos ? (pos.t === null ? "done" : pos.t) : null };
+    const file = { path: f.path, size: f.size, mtime: f.mtime, quality: d.quality, source: d.source, offline: f.offline, watched: pos ? (pos.t === null ? "done" : pos.t) : null, watchedAt: pos?.at ?? null };
     if (d.kind === "movie") {
       const id = m ? `tt${m.title.id}` : key;
       if (!movies.has(id)) movies.set(id, { key, ...(m ? info(m) : { title: d.title, year: d.year }), match: m ? (m.sure ? "sure" : "guess") : "none", parsed: { title: d.title, year: d.year }, files: [] });

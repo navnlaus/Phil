@@ -147,45 +147,69 @@
       <!-- The movies and TV shows in the media folders (the sidebar's Media; media.js). -->
       <div id="media-view" class="view" hidden>
         <div class="mv-page">
-          <header class="tv-head mv-head">
+          <header class="mv-head">
             <h2>Media</h2>
             <div class="mv-tabs" role="tablist">
               <button type="button" role="tab" data-tab="movies" aria-selected="true">Movies <span class="n"></span></button>
               <button type="button" role="tab" data-tab="shows" aria-selected="false">TV shows <span class="n"></span></button>
             </div>
-            <input class="mv-filter" type="search" placeholder="Find" spellcheck="false" autocomplete="off" aria-label="Find a title">
+            <input class="mv-filter" type="search" placeholder="Find a title" spellcheck="false" autocomplete="off" aria-label="Find a title">
             <select class="mv-genre" aria-label="Genre"><option value="">All genres</option></select>
             <select class="mv-sort" aria-label="Sort">
               <option value="added">Recently added</option>
               <option value="rating">Rating</option>
+              <option value="votes">Most voted</option>
               <option value="year">Year</option>
               <option value="title">Title</option>
+              <option value="length">Length</option>
             </select>
+            <div class="mv-layout">
+              <button type="button" class="icon toggle" data-layout="grid" title="Pictures"></button>
+              <button type="button" class="icon toggle" data-layout="list" title="List"></button>
+            </div>
             <button class="icon close" type="button" title="Close (Esc)"><svg><use href="#i-close"/></svg></button>
           </header>
-          <p class="hint mv-status"></p>
+          <section class="mv-continue-wrap" hidden>
+            <h3 class="heading">Continue watching</h3>
+            <div class="mv-continue"></div>
+          </section>
+          <div class="mv-cols" hidden>
+            <span></span>
+            <button type="button" data-sort="title">Title</button>
+            <button type="button" data-sort="year">Year</button>
+            <button type="button" data-sort="rating">Rating</button>
+            <button type="button" data-sort="votes" class="c-votes">Votes</button>
+            <button type="button" data-sort="length">Length</button>
+            <span class="c-genres">Genres</span>
+            <span class="c-quality">Quality</span>
+            <button type="button" data-sort="added" class="c-added">Added</button>
+          </div>
           <div class="mv-grid"></div>
           <p class="hint mv-empty" hidden></p>
+          <p class="hint mv-status"></p>
         </div>
-        <!-- One movie or show: what it is, its files (and a show's episodes), and putting its match right. -->
+        <!-- One movie or show: what it is, playing it, its files (a show's episodes), and putting its match right. -->
         <aside class="mv-detail" hidden>
-          <button class="icon close" type="button" title="Close"><svg><use href="#i-close"/></svg></button>
-          <div class="mv-d-head">
+          <div class="mv-d-hero">
             <img class="mv-d-poster" alt="">
-            <div>
-              <h3 class="mv-d-title"></h3>
-              <p class="mv-d-facts"></p>
-              <p class="mv-d-genres hint"></p>
-              <a class="mv-d-imdb" href="#" target="_blank" rel="noreferrer">IMDb</a>
-            </div>
+            <button class="icon close" type="button" title="Close (Esc)"><svg><use href="#i-close"/></svg></button>
           </div>
-          <div class="mv-d-files"></div>
-          <section class="mv-d-fix">
-            <p class="hint mv-d-matched"></p>
-            <div class="tv-row"><input class="mv-d-search" type="search" placeholder="Not right? Find the title…" spellcheck="false" autocomplete="off"></div>
-            <div class="mv-d-results"></div>
-            <div class="tv-row"><button type="button" class="mv-d-again">Match it again</button><button type="button" class="mv-d-none">Not a movie or show</button></div>
-          </section>
+          <div class="mv-d-body">
+            <h3 class="mv-d-title"></h3>
+            <p class="mv-d-facts"></p>
+            <p class="mv-d-genres"></p>
+            <div class="mv-d-actions">
+              <button type="button" class="mv-d-play primary"></button>
+              <button type="button" class="mv-d-imdb" title="Its page on IMDb, in your browser">IMDb</button>
+            </div>
+            <div class="mv-d-files"></div>
+            <details class="mv-d-fix">
+              <summary></summary>
+              <input class="mv-d-search" type="search" placeholder="Find the right title…" spellcheck="false" autocomplete="off">
+              <div class="mv-d-results"></div>
+              <div class="mv-d-buttons"><button type="button" class="mv-d-again">Match it again</button><button type="button" class="mv-d-none">Not a movie or show</button></div>
+            </details>
+          </div>
         </aside>
       </div>
 

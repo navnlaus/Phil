@@ -331,13 +331,17 @@ auto-tagging found next to the tags given by hand.
 
 Mark a folder as a media folder (its Properties: "A media folder"), on any
 drive, and the sidebar's Media shows the movies and TV shows in all of them in
-one place, over the folder: posters (a frame of each video), titles, years,
-IMDb ratings and votes, runtimes, genres and quality, sorted by when they were
-added, rating, year or title, by genre, and found by name. A show's seasons
-list every episode, with its title and rating, the ones that are there and
-the ones that aren't; what videoplayer played to the end is marked watched,
-what it stopped in started. Two copies of a movie are one movie. Click one for
-its files: play it (videoplayer), or show it in its folder. A drive that isn't
+one place, over the folder, as pictures (a frame of each video, its IMDb
+rating and quality on it) or a list (title, year, rating, votes, length,
+genres, quality, when it was added: a click on a column sorts by it), by
+genre, and found by name. What's been started comes first, under "Continue
+watching": a movie where videoplayer left it, a show's episode not finished or
+the one after the last watched, played with a click. A show's seasons list
+every episode, with its title and rating, the ones that are there and the
+ones that aren't, watched (✓) and started (◐). Two copies of a movie are one
+movie. Click one for its details: Play (or Resume, or a show's next episode),
+its copies (play one, or show it in its folder), its IMDb page; a play button
+on each picture plays it straight away. A drive that isn't
 plugged in keeps its titles, greyed out, as they were when it was last there.
 
 What a video is comes from its name, the way they're usually named ("Bugonia
