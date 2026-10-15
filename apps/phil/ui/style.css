@@ -645,6 +645,7 @@ main { padding-top: var(--bar-h); }
 #confirm .copy { position: absolute; top: -8px; right: -10px; }
 #confirm:has(.copy:not([hidden])) .title { padding-right: 28px; }
 #confirm .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+#confirm .buttons [value=extra] { margin-right: auto; } /* a third choice: apart, on the left */
 #confirm .fields { display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: 8px 12px; margin: 0 0 16px; }
 #confirm .fields[hidden] { display: none; }
 #confirm .fields input { height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }

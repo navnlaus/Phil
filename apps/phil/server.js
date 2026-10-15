@@ -1286,9 +1286,26 @@ function driveName({ label, size, fstype }) {
 // password) and mount, with what udisks would give: the files the user's on
 // NTFS, exFAT and FAT. Gives where it is. An NTFS drive Windows (or Linux)
 // didn't close properly is a 409: it can only be mounted `readOnly`.
-async function mountDrive({ device, readOnly = false }) {
+async function mountDrive({ device, readOnly = false, clearDirty = false }) {
   const drive = (await unmountedDrives(await blockDevices())).find((d) => d.path === device);
   if (!drive) throw httpError(404, "That drive isn't there to mount (mounted already?)");
+  // Asked, after the 409 below: its "not closed properly" flag cleared (ntfsfix -d, ntfs-3g's; root),
+  // then mounted as usual. It repairs nothing: only Windows' chkdsk checks and repairs NTFS.
+  if (clearDirty) {
+    if (!/^ntfs/.test(drive.fstype)) throw httpError(400, "Only an NTFS drive has that flag");
+    // (A missing program throws as it starts, not in the promise.)
+    let ntfsfix = true;
+    try {
+      await new Deno.Command("ntfsfix", { args: ["--version"], stdin: "null", stdout: "null", stderr: "null" }).output();
+    } catch {
+      ntfsfix = false;
+    }
+    if (!ntfsfix) throw httpError(501, "Clearing it needs ntfsfix, from ntfs-3g: sudo pacman -S ntfs-3g (or omarchy pkg add ntfs-3g), then try again.");
+    await requireSudo(`Clearing ${driveName(drive)}'s "not closed properly" flag needs root.`);
+    const fixed = await sudo(["ntfsfix", "-d", device], { ms: 120_000 });
+    if (sudoWanted(fixed.stderr)) await requireSudo(`Clearing ${driveName(drive)}'s "not closed properly" flag needs root.`);
+    if (!fixed.ok) throw httpError(500, `ntfsfix couldn't clear it:\n${(fixed.stderr || fixed.stdout).trim()}`);
+  }
   let stdout;
   try {
     try {

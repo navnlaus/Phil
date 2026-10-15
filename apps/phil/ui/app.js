@@ -1504,13 +1504,14 @@ function showUnmountedPlace(a, p) {
 }
 
 // A drive that wasn't closed properly (NTFS) can be mounted read-only: asked.
-async function mount(p, a, readOnly = false) {
+// `clearDirty`: an NTFS drive's "not closed properly" flag cleared first (ntfsfix -d, as root), asked.
+async function mount(p, a, readOnly = false, clearDirty = false) {
   if (a.classList.contains("busy")) return;
   a.classList.add("busy");
-  flashStatus(`Mounting ${p.name}…`, 60_000);
+  flashStatus(clearDirty ? `Clearing ${p.name}'s flag, and mounting it…` : `Mounting ${p.name}…`, 60_000);
   try {
     // A system drive's needs root: sudo (the password box when it wants it).
-    const { path } = await withSudo(() => api("/api/mount", { method: "POST", body: JSON.stringify({ device: p.device, readOnly }) }), { ok: "Mount" });
+    const { path } = await withSudo(() => api("/api/mount", { method: "POST", body: JSON.stringify({ device: p.device, readOnly, clearDirty }) }), { ok: clearDirty ? "Clear and mount" : "Mount" });
     flashStatus(`Mounted ${p.name}${readOnly ? " (read-only)" : ""}`);
     await refreshPlaces();
     navigate(path);
@@ -1519,7 +1520,20 @@ async function mount(p, a, readOnly = false) {
     if (err.cancelled) return;
     if (err.status !== 409) return alert(`Couldn't mount ${p.name}\n${err.message}`);
     a.classList.remove("busy");
-    const ok = await askConfirm({ title: `${p.name} can only be mounted read-only`, detail: err.message, ok: "Mount read-only", danger: false, copyable: true });
+    const ok = await askConfirm({ title: `${p.name} can only be mounted read-only`, detail: err.message, ok: "Mount read-only", danger: false, copyable: true, extra: "Clear the flag and mount\u2026" });
+    if (ok === "extra") {
+      // Linux can't check NTFS: clearing the flag only lets it be written again. Said first.
+      const sure = await askConfirm({
+        title: `Clear ${p.name}'s "not closed properly" flag?`,
+        detail: "This doesn't check or repair anything: it only lets Linux mount it writable again (ntfsfix -d, as root). " +
+          "If it was left that way by a crash, a file being written then may be damaged, and writing to it before it's checked can make that worse. " +
+          "Only Windows' chkdsk checks and repairs NTFS; run it on this drive when you can.\n\n" +
+          "A Windows system drive (C:) may also hold Windows' unfinished changes (hibernation, Fast Startup): don't clear it then, shut Windows down fully instead.",
+        ok: "Clear and mount", danger: true,
+      });
+      if (sure) return mount(p, a, false, true);
+      return;
+    }
     if (ok) return mount(p, a, true);
   } finally {
     a.classList.remove("busy");
@@ -2128,7 +2142,8 @@ const confirmDialog = $("#confirm");
 let confirmShown = Promise.resolve();
 // With `fields` ([{name, label, type, value, placeholder}]): text boxes, and it
 // resolves to their values ({name: value}), or null when cancelled.
-function askConfirm({ title, detail, ok, cancel = "Cancel", danger = true, copyable = false, fields = null }) {
+// `extra`: a third choice's label: it resolves to "extra" when that's picked.
+function askConfirm({ title, detail, ok, cancel = "Cancel", danger = true, copyable = false, fields = null, extra = null }) {
   const shown = confirmShown.then(() => new Promise((resolve) => {
     confirmDialog.querySelector(".title").textContent = title;
     confirmDialog.querySelector(".detail").textContent = detail ?? "";
@@ -2152,6 +2167,9 @@ function askConfirm({ title, detail, ok, cancel = "Cancel", danger = true, copya
     okButton.classList.toggle("danger", danger);
     cancelButton.hidden = !cancel;
     cancelButton.textContent = cancel ?? "";
+    const extraButton = confirmDialog.querySelector("[value=extra]");
+    extraButton.hidden = !extra;
+    extraButton.textContent = extra ?? "";
     // Copy: the message, for pasting somewhere (it stays open).
     const copy = confirmDialog.querySelector("[value=copy]");
     copy.hidden = !copyable;
@@ -2169,6 +2187,7 @@ function askConfirm({ title, detail, ok, cancel = "Cancel", danger = true, copya
     else okButton.focus(); // Enter: OK (not Copy, before it)
     confirmDialog.addEventListener("close", () => {
       const yes = confirmDialog.returnValue === "ok";
+      if (extra && confirmDialog.returnValue === "extra") return resolve("extra");
       resolve(fields ? (yes ? Object.fromEntries(inputs.map((i) => [i.name, i.value])) : null) : yes);
     }, { once: true });
   }));
