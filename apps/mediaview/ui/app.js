@@ -95,7 +95,22 @@ mediaDetail.querySelector(".close").onclick = () => closeMediaDetail();
 $('[data-layout="grid"]').innerHTML = icon("layout-grid");
 $('[data-layout="list"]').innerHTML = icon("list");
 
+// Shown (the window, or the keyboard given it in phil's): once there's something to see.
+let isShown = false;
+const shown = () => isShown || ((isShown = true), ready());
+
+// Opened: the library as it was last time, at once, then as it is now (the
+// folders looked through again: a drive asleep can take a while).
 async function loadMedia() {
+  if (!media.lib) {
+    const last = await api("api/media?cached=1").catch(() => null);
+    if (last && !media.lib) {
+      media.lib = last;
+      showMediaStatus(last.imdb);
+      renderMedia();
+      shown();
+    }
+  }
   if (!media.lib) mediaView.querySelector(".mv-status").textContent = "Looking through the media folders…";
   const loading = (media.loading = api("api/media").catch((err) => ({ error: err.message })));
   const lib = await loading;
@@ -595,4 +610,4 @@ onCloseRequest(() => {
 new EventSource("api/media/events").onmessage = (e) => onMediaStatus(JSON.parse(e.data));
 
 await loadMedia();
-ready();
+shown();

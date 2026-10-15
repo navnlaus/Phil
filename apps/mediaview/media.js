@@ -143,12 +143,26 @@ function matchTitle({ kind, title, year }) {
 
 // ---------------------------------------------------------------- the library
 
-const matched = new Map(); // key -> match(), kept while the database is the same
-let matchedWith = null;
-const freshMatches = () => {
+// Titles matched: {built (the database's), items: key -> [IMDb id, sure], or 0
+// (none found)}, kept while the database is the same, and saved (the server's:
+// loadMatches, unsavedMatches), so a title's matched once, not again after a
+// restart (matching is most of the work: some 20 ms each).
+let matches = { built: null, items: {} }, dirty = false;
+export const loadMatches = (stored) => void (stored?.items && (matches = stored));
+export const unsavedMatches = () => (dirty ? ((dirty = false), matches) : null);
+
+function matchOf(key, d) {
   const built = imdb.status().built;
-  if (built !== matchedWith) matched.clear(), (matchedWith = built); // a new database: matched again
-};
+  if (matches.built !== built) (matches = { built, items: {} }), (dirty = true); // a new database: matched again
+  if (!(key in matches.items)) {
+    const m = match(d);
+    matches.items[key] = m ? [m.title.id, m.sure] : 0;
+    dirty = true;
+  }
+  const found = matches.items[key];
+  const title = found ? imdb.title(found[0]) : null;
+  return title ? { title, sure: found[1] } : null;
+}
 // What files named so are, as fixes and matches know them: one key per movie (title and year) or show.
 const keyOf = (d) => `${d.kind === "episode" ? "show" : "movie"}|${imdb.norm(d.title)}|${d.kind === "episode" ? "" : d.year ?? ""}`;
 
@@ -168,13 +182,12 @@ export async function prepare(root, { poster, onProgress = () => {} } = {}) {
     const key = keyOf(d);
     if (!titles.has(key)) titles.set(key, { d, file: f });
   }
-  freshMatches();
   let done = 0;
   onProgress({ phase: "Matching titles", done, total: titles.size });
   for (const [key, { d, file }] of titles) {
-    if (!matched.has(key)) matched.set(key, match(d));
+    const m = matchOf(key, d);
     await poster(file.path).catch(() => {});
-    onProgress({ phase: "Matching titles", done: ++done, total: titles.size, title: matched.get(key)?.title.title ?? d.title });
+    onProgress({ phase: "Matching titles", done: ++done, total: titles.size, title: m?.title.title ?? d.title });
   }
   return files;
 }
@@ -185,27 +198,33 @@ export async function prepare(root, { poster, onProgress = () => {} } = {}) {
  * IMDb id, or 0: not a movie or show, left out) put matches right;
  * `watched` (path -> {t, at}, videoplayer's positions: t null when watched to
  * the end) says how far each was watched, and when. Roots not there now (a drive
- * unplugged) come from `remembered` (root -> its files when last seen).
+ * unplugged) come from `remembered` (root -> its files when last seen). One
+ * inside another is that one's (scanned with it, its files once).
  */
 export async function library(roots, { fixes = {}, watched = {}, remembered = {} } = {}) {
   const files = [], online = {};
+  const outer = (r) => roots.find((o) => o !== r && r.startsWith(o + "/"));
   for (const root of roots) {
+    if (outer(root)) continue;
     const found = await scan(root).catch(() => null);
     online[root] = !!found;
     for (const f of found ?? remembered[root] ?? []) files.push({ ...f, root, offline: !found });
   }
-  const scanned = Object.fromEntries(roots.filter((r) => online[r]).map((r) => [r, files.filter((f) => f.root === r).map(({ path, size, mtime }) => ({ path, size, mtime }))]));
+  for (const root of roots) {
+    let o = root;
+    while (outer(o)) o = outer(o);
+    online[root] = online[o];
+  }
+  const scanned = Object.fromEntries(roots.filter((r) => online[r] && !outer(r)).map((r) => [r, files.filter((f) => f.root === r).map(({ path, size, mtime }) => ({ path, size, mtime }))]));
 
   const movies = new Map(), shows = new Map(), cache = new Map();
-  freshMatches();
   for (const f of files) {
     const d = describe(f.path, f.root);
     const key = keyOf(d);
     if (fixes[key] === 0) continue; // left out by hand
     if (!cache.has(key)) {
       const fixed = fixes[key] ? imdb.title(fixes[key]) : null;
-      if (!fixed && !matched.has(key)) matched.set(key, match(d));
-      cache.set(key, fixed ? { title: fixed, sure: true, fixed: true } : matched.get(key));
+      cache.set(key, fixed ? { title: fixed, sure: true, fixed: true } : matchOf(key, d));
     }
     const m = cache.get(key);
     const pos = watched[f.path];
