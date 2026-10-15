@@ -3567,6 +3567,7 @@ function transferTip(b) {
   if (b.t) {
     const t = b.t;
     const head = t.op === "delete" ? (t.counting ? `Counting: ${t.found.toLocaleString()} so far` : `Deleting: ${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} gone`)
+      : t.preparing && !t.paused ? `${t.op === "move" ? "Moving" : "Copying"}: ${t.preparing.toLowerCase()}…`
       : line(t.op === "move" ? (t.paused ? "Move paused" : "Moving") : t.paused ? "Copy paused" : "Copying", of(t.bytes, t.total),
         !t.paused && t.speed ? `${formatSize(t.speed)}/s` : "", !t.paused && t.eta != null ? `${formatDuration(t.eta)} left` : "");
     return [head, when("Started", t.started)].filter(Boolean).join("\n");
@@ -3876,6 +3877,7 @@ function makeTransferBar(kind) {
   const fill = Object.assign(document.createElement("div"), { className: "fill" });
   const label = Object.assign(document.createElement("span"), { className: "pct" }); // not .label: that's the tile's name
   bar.append(fill, label);
+  if (kind === "copy") label.insertAdjacentHTML("beforebegin", icon("l:loader-circle", "spin")); // getting ready (preparing)
   const cancel = () => api("/api/transfer-cancel", { method: "POST", body: JSON.stringify({ id: bar.item.t.id }) }).catch(() => {});
   if (kind === "delete") {
     bar.classList.add("deleting");
@@ -3926,6 +3928,10 @@ function showTransferBar(bar, t, { ofFile = false } = {}) {
     `${t.op === "move" ? "Moving" : "Copying"} to ${t.dest}: ${formatSize(t.bytes)} of ${formatSize(t.total)}` +
     (t.paused ? " (paused)" : copySpeed(t, ", ")));
   put(fill.style, "width", `${t.percent}%`);
+  // Getting ready (counting, rsync listing or comparing what's there): saying so with the spinning
+  // icon on a tile; in the sidebar, the icon alone.
+  bar.classList.toggle("preparing", !!t.preparing && !t.paused);
+  if (t.preparing && !t.paused) return put(label, "textContent", inSidebar(bar) ? "" : `${t.preparing}…`);
   // As a download's: how far, and its speed (not on the file it's at: that's only how far into it).
   put(label, "textContent", `${t.paused && !inSidebar(bar) ? "Paused " : ""}${t.percent}%${!t.paused && !ofFile && t.speed ? ` · ${formatSize(t.speed)}/s` : ""}`);
   bar.classList.toggle("paused", !!t.paused);

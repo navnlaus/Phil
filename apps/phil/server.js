@@ -1527,6 +1527,12 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
     }
   }
   for (const it of items) if (!it.quick) liveTargets.add(it.target);
+  // Before it copies anything (sizes, rsync's list of files; on a resume, checking what's
+  // there): `preparing` says what it's doing, then progress replaces it.
+  if (items.some((it) => !it.quick)) {
+    job.last = { id, started: Date.now(), op, dest, targets: items.filter((it) => !it.quick).map((it) => it.target), items: items.length, bytes: 0, total: 0, percent: 0, paused: false, preparing: "Counting" };
+    report(job.last);
+  }
   // Done already, for a resumed one: what's at the target (a move's source has only what's left).
   const sizes = await Promise.all(items.map(async (it) => {
     if (it.quick) return { total: 0, there: 0 };
@@ -1616,6 +1622,9 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
             base = await apparentSize(target);
             partial = base ? await partialBytes(src, target) : 0;
             record(job.paused ? "paused" : "running", doneBefore + base);
+            last = 0; // (its first progress line goes out at once, replacing this)
+            job.last = { ...job.last, started, total, bytes: doneBefore + base, percent: total ? Math.floor(((doneBefore + base) / total) * 100) : 0, paused: job.paused, file: null, preparing: base ? "Comparing with what's there" : "Listing files" };
+            report(job.last);
             try {
               await rsync(src, target, { move: op === "move", posix: !NON_POSIX_FS.test(destFs.type), job, progress });
               break;
