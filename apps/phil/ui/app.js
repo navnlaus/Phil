@@ -3783,7 +3783,7 @@ function showDownloadBar(bar, d, part = null) {
     bar.classList.toggle("paused", paused || checking);
     bar.classList.remove("failed");
     put(bar.querySelector(".fill").style, "width", `${pct}%`);
-    put(bar.querySelector(".pct"), "textContent", `${paused ? "Paused " : checking ? "Checking… " : ""}${pct}%`);
+    put(bar.querySelector(".pct"), "textContent", `${paused && !inSidebar(bar) ? "Paused " : checking ? "Checking… " : ""}${pct}%`);
     put(bar, "title", `${formatSize(part.downloaded)} of ${formatSize(part.length)} of this; “${d.name}”: ${d.percent}%` +
       (paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}`));
     const [toggle, stop] = bar.querySelectorAll(".cancel");
@@ -3806,7 +3806,7 @@ function showDownloadBar(bar, d, part = null) {
   bar.classList.toggle("paused", paused || !!waiting);
   bar.classList.toggle("failed", failed);
   put(bar.querySelector(".fill").style, "width", `${d.percent}%`);
-  put(bar.querySelector(".pct"), "textContent", failed ? "Failed" : waiting ?? `${paused ? "Paused " : ""}${d.percent}%${!paused && d.speed ? ` · ${formatSize(d.speed)}/s` : ""}`);
+  put(bar.querySelector(".pct"), "textContent", failed ? "Failed" : waiting ?? `${paused && !inSidebar(bar) ? "Paused " : ""}${d.percent}%${!paused && d.speed ? ` · ${formatSize(d.speed)}/s` : ""}`);
   const peers = d.peers !== null && !paused ? `, ${d.peers} peer${d.peers === 1 ? "" : "s"}` : "";
   put(bar, "title", `Downloading ${d.name}: ${formatSize(d.bytes)} of ${formatSize(d.total)}` +
     (failed ? `\n${d.error || "it failed"}` : paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}${peers}`));
@@ -3886,7 +3886,7 @@ function showTransferBar(bar, t, { ofFile = false } = {}) {
     (t.paused ? " (paused)" : copySpeed(t, ", ")));
   put(fill.style, "width", `${t.percent}%`);
   // As a download's: how far, and its speed (not on the file it's at: that's only how far into it).
-  put(label, "textContent", `${t.paused ? "Paused " : ""}${t.percent}%${!t.paused && !ofFile && t.speed ? ` · ${formatSize(t.speed)}/s` : ""}`);
+  put(label, "textContent", `${t.paused && !inSidebar(bar) ? "Paused " : ""}${t.percent}%${!t.paused && !ofFile && t.speed ? ` · ${formatSize(t.speed)}/s` : ""}`);
   bar.classList.toggle("paused", !!t.paused);
   const [pause, cancel] = bar.querySelectorAll(".cancel");
   putIcon(pause, t.paused ? "l:play" : "l:pause");
@@ -3894,16 +3894,19 @@ function showTransferBar(bar, t, { ofFile = false } = {}) {
   put(cancel, "title", `Stop ${t.op === "move" ? "moving" : "copying"} (what's done stays; ↻ on the folder goes on)`);
 }
 
+// A bar in the sidebar's Transfers: just the percentage (paused or stopped: its buttons and tooltip say), so it fits.
+const inSidebar = (bar) => !!bar.closest(".transfer-row");
+
 function showStoppedBar(bar, e) {
   const c = e.copying;
   put(bar.querySelector(".fill").style, "width", `${c.percent}%`);
   if (c.file) { // a file cut off mid-copy (it has its name): ↻ on the folder goes on with it
     put(bar, "title", `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped ${c.percent}% of the way in, ${formatDate(c.updated)}: ↻ on the folder it's in goes on with it`);
-    put(bar.querySelector(".pct"), "textContent", `Cut off at ${c.percent}%`);
+    put(bar.querySelector(".pct"), "textContent", inSidebar(bar) ? `${c.percent}%` : `Cut off at ${c.percent}%`);
     return;
   }
   put(bar, "title", `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped at ${c.percent}% (${formatSize(c.bytes)} of ${formatSize(c.total)}), ${formatDate(c.updated)}`);
-  put(bar.querySelector(".pct"), "textContent", `Stopped at ${c.percent}%`);
+  put(bar.querySelector(".pct"), "textContent", inSidebar(bar) ? `${c.percent}%` : `Stopped at ${c.percent}%`);
   put(bar.querySelector(".cancel"), "title", `Go on ${c.op === "move" ? "moving" : "copying"} (what's there is skipped)`);
 }
 

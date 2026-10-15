@@ -74,6 +74,10 @@ const browserWindow = (() => {
 // alone, while the page still sees them (the terminal's Ctrl+W deletes a word;
 // camview's closes it). In pages shown inside such a window too (same origin: the
 // window's id is in the tab's storage).
+// Blink (a Chromium-based browser's windows, or --browser in one): marked for its
+// scrollbars, styled thin as WebKitGTK's are (themes/base.css).
+if (globalThis.navigator?.userAgentData) document.documentElement.classList.add("blink");
+
 const inBrowserWindow = browserWindow || (globalThis.parent !== globalThis && (() => {
   try {
     return !!sessionStorage.getItem("philWindow");
