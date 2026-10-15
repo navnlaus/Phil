@@ -1722,7 +1722,8 @@ async function answerChoice(paths) {
     if (there && !(await askConfirm({ title: `Replace ${name}?`, detail: `There's a file called that in ${state.path} already.`, ok: "Replace" }))) return;
   }
   choosing.answered = true;
-  await api("/api/choose", { method: "POST", body: JSON.stringify({ out: choosing.out, paths }) }).catch(() => {});
+  // (Saved: the app's download there is in the Transfers list: browserdownloads.js.)
+  await api("/api/choose", { method: "POST", body: JSON.stringify({ out: choosing.out, paths, save: choosing.mode === "save" }) }).catch(() => {});
   closeWindow();
 }
 

@@ -164,7 +164,7 @@ export function createServer({ profile, controlSocket }) {
   };
   // Downloads under way (panda-dl's; downloads.js), for every window as
   // {downloads}; what they're writing isn't thumbnailed till they're done.
-  // Others' downloads (a browser's: its partial file growing), for the Transfers list too.
+  // Others' downloads saved through phil's file chooser (a browser's partial file growing), for the Transfers list too.
   const browserDownloads = watchBrowserDownloads((list) => {
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ browserDownloads: list }));
   });
@@ -349,11 +349,12 @@ export function createServer({ profile, controlSocket }) {
           throw httpError(502, err.message);
         }
       case "POST /api/choose": { // {out, paths}: a file chooser's answer (phil --choose): the paths, one per line, in <out>, then <out>.done; [] cancelled
-        const { out, paths = [] } = await req.json();
+        const { out, paths = [], save = false } = await req.json();
         if (typeof out !== "string" || !out.startsWith("/") || !Array.isArray(paths) || !paths.every((p) => typeof p === "string" && p.startsWith("/"))) throw httpError(400, "out, and the chosen paths");
         if (await isDir(out)) throw httpError(400, "out is a folder");
         if (await Deno.lstat(`${out}.done`).then(() => true, () => false)) return json({ ok: true, already: true }); // answered once
         await Deno.writeTextFile(out, paths.length ? paths.join("\n") + "\n" : "");
+        if (save && paths.length) browserDownloads.saved(paths[0]); // an app downloading it there: in the Transfers list
         await Deno.writeTextFile(`${out}.done`, "");
         return json({ ok: true });
       }
