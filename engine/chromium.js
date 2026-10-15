@@ -18,8 +18,12 @@
 // IDLE_MS, a background engine's browser is closed (it starts again with the
 // next window, in about half a second).
 //
-// The servers' certificate (tls.js) is trusted by this browser's windows alone
-// (--ignore-certificate-errors-spki-list, its public key's hash), for HTTP/2.
+// The servers' certificate (tls.js) is accepted in these windows for the
+// servers alone, for HTTP/2: every window is held as it opens until the engine
+// has asked to hear of its certificate errors (Security), and those of the
+// servers' address and ports are let through; any other is refused, as ever.
+// (Not --ignore-certificate-errors-spki-list: a bar over the first window
+// called it "unsupported".)
 //
 // The window's class (Wayland app id), for window rules, is the browser's for
 // an app at that address: "<browser>-127.0.0.1__<app>-Default" (e.g.
@@ -95,21 +99,6 @@ async function execOf(desktopId) {
   return null;
 }
 
-// The certificate's public key's SHA-256, base64 (what --ignore-certificate-errors-spki-list takes).
-async function spkiHash(certPem) {
-  try {
-    const sh = "openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64";
-    const child = new Deno.Command("sh", { args: ["-c", sh], stdin: "piped", stdout: "piped", stderr: "null" }).spawn();
-    const writer = child.stdin.getWriter();
-    await writer.write(new TextEncoder().encode(certPem));
-    await writer.close();
-    const out = await child.output();
-    return out.success ? new TextDecoder().decode(out.stdout).trim() : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * The engine's windows in `browser` (a path, from findBrowser). As
  * window.js's createApp, but run() resolves (rather than blocking) once it
@@ -121,8 +110,9 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
   const stateHome = Deno.env.get("XDG_STATE_HOME") || join(Deno.env.get("HOME") ?? "/", ".local/state");
   const pipeDir = join(runtime, `phil-browser-${Deno.pid}`);
   const profile = ephemeral ? join(pipeDir, "profile") : join(stateHome, "phil", `browser-${basename(browser)}`);
-  let spki = null; // the certificate's hash, once worked out
-  let session = null; // {send, closed}: the browser running, over its pipe
+  const ports = new Set(); // the servers' (their certificate errors let through)
+  let session = null; // {send, close}: the browser running, over its pipe, once set up
+  let link = null; // the same, from its start (for its events)
   let starting = null;
   let nextWindow = 1, retiring = false, stopped = false, idleTimer = 0;
   const cookies = new Set(); // "name=value" given to the browser (its servers' sessions)
@@ -143,13 +133,11 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
         const made = await new Deno.Command("mkfifo", { args: ["-m", "600", f], stderr: "null" }).output();
         if (!made.success) throw new Error("mkfifo failed");
       }
-      if (trustCertificate) spki ??= await spkiHash(trustCertificate);
       const args = [
         `--user-data-dir=${profile}`, "--remote-debugging-pipe", "--no-startup-window", "--no-first-run",
         "--no-default-browser-check", "--password-store=basic", "--disable-sync", "--disable-extensions",
         "--disable-default-apps", "--disable-component-update", "--disable-background-networking",
         "--process-per-site", // every window of the engine's (one site) in one page process
-        ...(spki ? [`--ignore-certificate-errors-spki-list=${spki}`, "--test-type"] : []), // (test-type: without the bar saying that flag is "unsupported")
       ];
       // fd 3: what the browser reads (the engine's commands), fd 4: what it writes.
       const child = new Deno.Command("sh", {
@@ -159,7 +147,7 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
       const [toBrowser, fromBrowser] = await Promise.all([Deno.open(fin, { write: true }), Deno.open(fout, { read: true })]);
       trace(`browser started: ${basename(browser)}`);
       const s = connect(toBrowser, fromBrowser, () => {
-        session = null;
+        session = link = null;
         windows.clear();
         targetWindow.clear();
         cookies.clear();
@@ -167,7 +155,10 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
         if (!keepRunning || retiring) stop();
       });
       s.exited = child.status.then(() => s.close());
+      link = s; // (its events from here on: windows opening)
       await s.send("Target.setDiscoverTargets", { discover: true });
+      // Every new window held until it's been told about certificate errors (onEvent).
+      await s.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
       session = s;
       return s;
     })().finally(() => (starting = null));
@@ -206,9 +197,9 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
       close();
     })();
     return {
-      send(method, params = {}) {
+      send(method, params = {}, sessionId = undefined) {
         if (closed) return Promise.resolve({ error: { message: "browser gone" } });
-        const message = { id: ++id, method, params };
+        const message = { id: ++id, method, params, ...(sessionId ? { sessionId } : {}) };
         const { promise, resolve } = Promise.withResolvers();
         waiting.set(message.id, resolve);
         writer.write(encoder.encode(JSON.stringify(message) + "\0")).catch(close);
@@ -219,7 +210,25 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
   }
 
   // Windows coming and going (the browser's page targets): which of ours each is, by its ?philWindow.
-  function onEvent({ method, params }) {
+  // A window opening (held): its certificate errors come here, then it goes on. One of them:
+  // let through for the servers (by address and port: theirs), refused for the rest.
+  async function onEvent({ method, params, sessionId }) {
+    if (method === "Target.attachedToTarget") {
+      const sid = params.sessionId;
+      if (params.targetInfo.type === "page" && trustCertificate) {
+        await link?.send("Security.enable", {}, sid);
+        await link?.send("Security.setOverrideCertificateErrors", { override: true }, sid);
+      }
+      return void link?.send("Runtime.runIfWaitingForDebugger", {}, sid);
+    }
+    if (method === "Security.certificateError") {
+      let ours = false;
+      try {
+        const u = new URL(params.requestURL);
+        ours = u.protocol === "https:" && u.hostname === "127.0.0.1" && ports.has(u.port);
+      } catch { /* not a URL */ }
+      return void link?.send("Security.handleCertificateError", { eventId: params.eventId, action: ours ? "continue" : "cancel" }, sessionId);
+    }
     if (method === "Target.targetCreated" || method === "Target.targetInfoChanged") {
       const { targetId, type, url } = params.targetInfo;
       if (type !== "page" || targetWindow.has(targetId)) return;
@@ -289,6 +298,7 @@ export function createApp({ name, browser, ephemeral = false, keepRunning = fals
       const id = String(nextWindow++);
       windows.set(id, null);
       const u = new URL(url);
+      ports.add(u.port);
       const token = u.searchParams.get("token");
       u.searchParams.delete("token");
       if (token && !cookies.has(`${app}-${u.port}=${token}`)) {
