@@ -702,14 +702,14 @@ new ResizeObserver(redrawTexts).observe(grid);
 // ---------------------------------------------------------------- navigation
 
 function navigate(path) {
-  closeTransfersView(), closePrefsView(); // a folder opened: shown
+  closeTransfersView({ resume: false }), closePrefsView(); // a folder opened: shown
   if (path === loading) return; // clicked again while it opens (a drive waking up)
   const hash = "#" + encodePath(path);
   if (location.hash === hash) load(path);
   else location.hash = hash;
 }
 
-addEventListener("hashchange", () => (closeTransfersView(), closePrefsView(), load(decodeURIComponent(location.hash.slice(1)))));
+addEventListener("hashchange", () => (closeTransfersView({ resume: false }), closePrefsView(), load(decodeURIComponent(location.hash.slice(1)))));
 
 // The folder being opened, while it's listed (a drive waking up can take seconds),
 // and which load is the newest (an older one finishing later is dropped).
@@ -1668,8 +1668,9 @@ function applySettings() {
 // the folders marked as media (their Properties), over the whole window as
 // other apps are. Preferences turns it off.
 const mediaViewOn = () => !choosing && state.settings.mediaView !== false;
-const openMediaView = () => openInApp("mediaview", {});
-const mediaOpen = () => appView.querySelector("iframe")?.title === "mediaview";
+// (Set aside behind the Transfers view: that one, as it was.)
+const openMediaView = () => (appAside && appView.querySelector("iframe")?.title === "mediaview" ? closeTransfersView() : openInApp("mediaview", {}));
+const mediaOpen = () => !appView.hidden && appView.querySelector("iframe")?.title === "mediaview";
 const showMediaPlace = () => $("#places .media-place")?.classList.toggle("active", mediaOpen());
 
 // A folder just marked as media: mediaview makes it ready (its videos found,
@@ -1732,7 +1733,7 @@ settingsButton.onclick = () => (prefsView.hidden ? openPrefsView() : closePrefsV
 prefsView.querySelector(".tv-head .close").onclick = () => closePrefsView();
 
 async function openPrefsView() {
-  closeTransfersView();
+  closeTransfersView({ resume: false });
   prefsFocus = document.activeElement?.closest?.("#sidebar") ? grid : document.activeElement;
   prefsView.hidden = false;
   settingsButton.setAttribute("aria-pressed", "true");
@@ -2063,7 +2064,28 @@ function askAppToClose() {
   frame?.focus();
 }
 
+// An app set aside, not closed (mediaview, while the Transfers view shows one of its downloads):
+// hidden, its page as it was; back when that view's closed (bringAppBack), or closed with it.
+let appAside = false;
+function setAppAside() {
+  appAside = true;
+  appView.hidden = true;
+  showMediaPlace();
+}
+
+function bringAppBack() {
+  appAside = false;
+  const frame = appView.querySelector("iframe");
+  if (!frame) return;
+  appView.hidden = false;
+  frame.focus();
+  frame.contentWindow.focus();
+  frame.contentWindow.postMessage({ engine: "focus" }, "*"); // (kit.js holdFocus: its view)
+  showMediaPlace();
+}
+
 function closeApp() {
+  appAside = false;
   appView.hidden = true;
   appView.replaceChildren();
   showMediaPlace();
@@ -2083,8 +2105,8 @@ addEventListener("message", (e) => {
     frame.contentWindow.postMessage({ engine: "focus" }, "*"); // now it can focus its view (kit.js holdFocus)
   } else if (e.data?.engine === "close") {
     closeApp();
-  } else if (e.data?.app === "mediaview" && e.data.transfer) { // a download's %: it in the Transfers view
-    closeApp();
+  } else if (e.data?.app === "mediaview" && e.data.transfer) { // a download's %: it in the Transfers view, mediaview behind it
+    setAppAside();
     openTransfersView(e.data.transfer);
   } else if (e.data?.app === "mediaview" && e.data.show) { // "Show it in its folder": here, the media view closed
     closeApp();
@@ -3933,7 +3955,7 @@ function transferTip(b) {
 
 // The folder a transfer goes to (a delete's: the one it's deleting in), with what it's making selected.
 function goToTransfer(b) {
-  closeTransfersView();
+  closeTransfersView({ resume: false });
   if (b.stopped) {
     initialSelect = [b.stopped.path];
     return navigate(parentOf(b.stopped.path));
@@ -3977,11 +3999,14 @@ function openTransfersView(focus = null) {
   transfersView.querySelector(".tv-head .close").focus({ preventScroll: true });
 }
 
-function closeTransfersView() {
+// `resume`: an app set aside for it (mediaview's download shown here) comes back as it was; false
+// (a folder opened, Preferences): that app's closed.
+function closeTransfersView({ resume = true } = {}) {
   if (transfersView.hidden) return;
   transfersView.hidden = true;
   $("#btn-transfers").setAttribute("aria-pressed", "false");
   renderTransferList();
+  if (appAside) return void (resume ? bringAppBack() : closeApp());
   const back = transfersFocus?.isConnected && transfersFocus !== document.body && !transfersView.contains(transfersFocus) ? transfersFocus : grid;
   back.focus({ preventScroll: true });
 }

@@ -892,7 +892,8 @@ movie. Downloads into a media folder (panda-dl's torrents and web downloads,
 a browser's) show from the moment they start, matched like the rest (a
 magnet still fetching its metadata, by its name): a ↓ and how far on the title,
 a striped bar, and in its details each file's progress, speed and time left
-(a click on any of them: phil's Transfers view, with that download in view);
+(a click on any of them: phil's Transfers view, with that download in view,
+mediaview set aside behind it: Esc there comes back to it as it was);
 done, it's an ordinary file to play. Click one for its details: Play (or Resume, or a show's next episode),
 its copies (play one, or show it in its folder), its IMDb page; a play button
 on each picture plays it straight away. Videos play in videoplayer, shown in
