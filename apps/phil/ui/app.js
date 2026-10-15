@@ -1,5 +1,10 @@
 import { appUrl, askPassword, clipboardKey, closeWindow, copyText, embedOf, holdFocus, pasteText, ready, tooltips } from "/engine/ui/kit.js";
 import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
+import "/ui/vendor/dayjs.min.js"; // (UMD: globalThis.dayjs; MIT)
+import "/ui/vendor/dayjs-relativeTime.js";
+
+const dayjs = globalThis.dayjs;
+dayjs.extend(globalThis.dayjs_plugin_relativeTime);
 
 tooltips(); // the page's own, in the theme's style (kit.js)
 
@@ -3517,6 +3522,7 @@ function makeTransferRow(b) {
   row.className = "transfer-row";
   row.append(Object.assign(document.createElement("span"), { className: "transfer-name" }), makeTransferBar(barKind(b)));
   row.addEventListener("click", () => goToTransfer(row.item));
+  row.addEventListener("mouseenter", () => put(row, "title", transferTip(row.item))); // its time "ago" as of now
   return row;
 }
 
@@ -3536,25 +3542,40 @@ function showTransferRow(row, b) {
   put(row, "title", transferTip(b));
 }
 
-// A transfer's tooltip in the sidebar: its state and numbers, then where it goes.
+// When something happened, as precisely as it's worth: "5 minutes ago" within the
+// hour, then with its time ("3 hours ago, 14:32"), "yesterday 14:32", the weekday
+// within the week ("Monday 14:32"), the date this year ("12 Oct 14:32"), with the
+// year before that.
+function whenText(ms) {
+  const t = dayjs(ms), now = dayjs();
+  if (now.diff(t, "minute") < 60) return t.fromNow();
+  if (t.isSame(now, "day")) return `${t.fromNow()}, ${t.format("HH:mm")}`;
+  if (t.isSame(now.subtract(1, "day"), "day")) return `yesterday ${t.format("HH:mm")}`;
+  if (now.diff(t, "day") < 7) return t.format("dddd HH:mm");
+  return t.format(t.isSame(now, "year") ? "D MMM HH:mm" : "D MMM YYYY HH:mm");
+}
+
+// A transfer's tooltip in the sidebar: its state and numbers, then when it started (or stopped).
 function transferTip(b) {
   const of = (done, total) => (total ? `${formatSize(done)} of ${formatSize(total)}` : "");
   const line = (...parts) => parts.filter(Boolean).join(" · ");
+  const when = (label, ms) => (ms ? `${label} ${whenText(ms)}` : "");
   if (b.stopped) {
     const c = b.stopped.copying;
-    return `${line(`${c.op === "move" ? "Move" : "Copy"} stopped at ${c.percent}%`, of(c.bytes, c.total))}\n${parentOf(b.stopped.path)}`;
+    return [line(`${c.op === "move" ? "Move" : "Copy"} stopped at ${c.percent}%`, of(c.bytes, c.total)), when("Stopped", c.updated)].filter(Boolean).join("\n");
   }
   if (b.t) {
     const t = b.t;
-    if (t.op === "delete") return `${t.counting ? `Counting: ${t.found.toLocaleString()} so far` : `Deleting: ${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} gone`}\n${t.dest}`;
-    const verb = t.op === "move" ? (t.paused ? "Move paused" : "Moving") : t.paused ? "Copy paused" : "Copying";
-    return `${line(verb, of(t.bytes, t.total), !t.paused && t.speed ? `${formatSize(t.speed)}/s` : "", !t.paused && t.eta != null ? `${formatDuration(t.eta)} left` : "")}\n${t.dest}`;
+    const head = t.op === "delete" ? (t.counting ? `Counting: ${t.found.toLocaleString()} so far` : `Deleting: ${t.bytes.toLocaleString()} of ${t.total.toLocaleString()} gone`)
+      : line(t.op === "move" ? (t.paused ? "Move paused" : "Moving") : t.paused ? "Copy paused" : "Copying", of(t.bytes, t.total),
+        !t.paused && t.speed ? `${formatSize(t.speed)}/s` : "", !t.paused && t.eta != null ? `${formatDuration(t.eta)} left` : "");
+    return [head, when("Started", t.started)].filter(Boolean).join("\n");
   }
   const d = b.d, active = d.state === "downloading" && d.checking == null;
   const state = d.checking != null ? `Checking files ${d.checking}%`
     : { paused: "Paused", completed: d.upSpeed > 0 ? "Seeding" : "Downloaded", error: "Failed", failed: "Failed", queued: "Queued", metadata: "Finding the torrent", initializing: "Starting", starting: "Starting" }[d.state] ?? "Downloading";
-  return `${line(state, d.state === "completed" ? formatSize(d.total) : of(d.bytes, d.total), active && d.speed ? `${formatSize(d.speed)}/s` : "", active && d.eta ? `${formatDuration(d.eta)} left` : "",
-    d.upSpeed ? `↑ ${formatSize(d.upSpeed)}/s` : "", (d.state === "error" || d.state === "failed") && d.error)}\n${d.dir}`;
+  return [line(state, d.state === "completed" ? formatSize(d.total) : of(d.bytes, d.total), active && d.speed ? `${formatSize(d.speed)}/s` : "", active && d.eta ? `${formatDuration(d.eta)} left` : "",
+    d.upSpeed ? `↑ ${formatSize(d.upSpeed)}/s` : "", (d.state === "error" || d.state === "failed") && d.error), when("Added", d.created * 1000)].filter(Boolean).join("\n");
 }
 
 // The folder a transfer goes to (a delete's: the one it's deleting in), with what it's making selected.

@@ -1344,7 +1344,7 @@ async function deletePaths(paths, { report = () => {}, forget = async () => {} }
   const found = checked.map(() => 0);
   const counting = () => {
     if (Date.now() - started < 300) return;
-    job.last = { id, op: "delete", dest: dirname(checked[0]), targets: checked, items: checked.length, counting: true,
+    job.last = { id, started, op: "delete", dest: dirname(checked[0]), targets: checked, items: checked.length, counting: true,
       found: found.reduce((a, b) => a + b, 0), bytes: 0, total: 0, percent: 0 };
     report(job.last);
   };
@@ -1364,7 +1364,7 @@ async function deletePaths(paths, { report = () => {}, forget = async () => {} }
   const progress = () => {
     if ((Date.now() - started < 300 && !job.last) || Date.now() - last < 250 || !total) return; // a quick one shows nothing
     last = Date.now();
-    job.last = { id, op: "delete", dest: dirname(checked[0]), targets: checked, items: checked.length, bytes: Math.min(gone, total), total,
+    job.last = { id, started, op: "delete", dest: dirname(checked[0]), targets: checked, items: checked.length, bytes: Math.min(gone, total), total,
       percent: Math.floor((Math.min(gone, total) / total) * 100) };
     report(job.last);
   };
@@ -1587,7 +1587,7 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
     if (Date.now() - lastRecord > 3000) (lastRecord = Date.now()), record(job.paused ? "paused" : "running", done);
     if (Date.now() - last < 250 || !total) return;
     last = Date.now();
-    job.last = { id, op, dest, targets: items.filter((it) => !it.quick).map((it) => it.target), items: items.length, bytes: done, total,
+    job.last = { id, started, op, dest, targets: items.filter((it) => !it.quick).map((it) => it.target), items: items.length, bytes: done, total,
       percent: Math.floor((done / total) * 100), paused: job.paused, file: file?.path ?? null, filePercent: file?.percent ?? null,
       ...speedOf(done) };
     report(job.last);
