@@ -1613,6 +1613,16 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
     return { total: op === "move" ? left + there : Math.max(left, there), there };
   }));
   const total = sizes.reduce((a, b) => a + b.total, 0);
+  // Room for what's left to copy (not a move within the drive: nothing's added): said at
+  // once, not after rsync runs into a full disk. (A stopped copy's record stays: ↻ later.)
+  const needed = sizes.reduce((a, b, i) => a + (items[i].quick ? 0 : Math.max(0, b.total - b.there)), 0);
+  const free = needed ? await availableBytes(dest) : null;
+  if (free !== null && needed > free) {
+    for (const it of items) liveTargets.delete(it.target);
+    transfers.delete(id);
+    report({ id, dest, finished: true }); // (its "Counting" row gone)
+    throw httpError(507, `${basename(dest) || dest} has ${formatBytes(free)} free; this needs ${formatBytes(needed)} more (free some space, then try again)`);
+  }
   // Done: the items finished (doneBefore), what was at the current one's target
   // when its rsync started (base: resumed, or going on after a pause), and what
   // that rsync has copied.
@@ -1808,6 +1818,33 @@ async function partialBytes(src, target) {
 // the source (--append-verify: copied again if they differ); finished ones are
 // skipped (same size and time). A move removes each file once it's copied, and
 // the emptied folders at the end.
+// A folder's drive's free space in bytes (df), or null when it can't be told.
+async function availableBytes(dir) {
+  try {
+    const out = await new Deno.Command("df", { args: ["--output=avail", "-B1", "--", dir], stdin: "null", stdout: "piped", stderr: "null" }).output();
+    const n = Number(new TextDecoder().decode(out.stdout).trim().split("\n").at(-1));
+    return out.success && Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+const formatBytes = (n) => {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1000 && i < units.length - 1) (n /= 1000), i++;
+  return `${i && n < 10 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
+};
+
+// What went wrong, from rsync's errors: the line that says why (a full disk, no
+// permission...), not its last ("write error: Broken pipe": the other side, which had stopped).
+function rsyncError(stderr) {
+  const lines = stderr.trim().split("\n").map((l) => l.trim()).filter(Boolean);
+  const why = /No space left on device|Disk quota exceeded|Permission denied|Read-only file system|File name too long|Invalid argument|Input\/output error|File too large|No such file or directory/i;
+  const line = lines.find((l) => why.test(l)) ?? lines.find((l) => /^rsync(: \[receiver\]|:).*(error|failed)/i.test(l) && !/Broken pipe/i.test(l)) ?? lines.at(-1);
+  return line || "rsync failed";
+}
+
 async function rsync(src, target, { move, posix, job, progress }) {
   const folder = (await Deno.lstat(src)).isDirectory;
   const args = [posix ? "-a" : "-rlt", "--info=name1,progress1", "--8-bit-output", "--no-inc-recursive", "--inplace", "--append-verify", "--outbuf=L",
@@ -1841,7 +1878,7 @@ async function rsync(src, target, { move, posix, job, progress }) {
   const { success } = await child.status;
   job.child = null;
   if (job.cancelled) throw new Error("cancelled");
-  if (!success) throw new Error((await stderr).trim().split("\n").at(-1) || "rsync failed");
+  if (!success) throw new Error(rsyncError(await stderr));
   if (move) {
     if (folder) await new Deno.Command("find", { args: [src, "-depth", "-type", "d", "-empty", "-delete"], stdin: "null", stdout: "null", stderr: "null" }).output();
     if (await Deno.lstat(src).then(() => true, () => false)) throw new Error("copied, but some of it couldn't be removed from where it was");
