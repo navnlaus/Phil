@@ -120,6 +120,7 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer; /* (no href: see app.js) */
 }
 #places a:hover { background: var(--bg-hover); }
 
