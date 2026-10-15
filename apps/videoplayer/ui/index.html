@@ -13,7 +13,7 @@
 </head>
 <body>
   <main id="stage" tabindex="0" aria-label="Video">
-    <video id="video" preload="auto" playsinline></video>
+    <div id="crop"><video id="video" preload="auto" playsinline></video></div>
   </main>
   <div id="message" hidden>
     <p class="text"></p>
@@ -27,7 +27,6 @@
       <span id="count"></span>
       <span id="info"></span>
     </div>
-    <button id="btn-mpv" title="Play it in mpv, from here">mpv</button>
     <button id="btn-settings" class="icon" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     <button id="btn-full" class="icon" title="Fullscreen (F)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button id="btn-close" class="icon close-button" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -50,6 +49,10 @@
       <button id="btn-play" class="icon" title="Play (Space)"><svg viewBox="0 0 24 24"><path class="play" d="M7 4.5v15l12-7.5z"/><path class="pause" d="M8 5v14M16 5v14"/></svg></button>
       <span id="time">0:00 / 0:00</span>
       <span class="spacer"></span>
+      <div class="menu-anchor">
+        <button id="btn-crop" title="Crop to an aspect ratio: bars in the picture cut off (C)">Crop</button>
+        <ul id="crop-menu" hidden></ul>
+      </div>
       <button id="btn-loop" class="icon" title="Repeat (R)"><svg viewBox="0 0 24 24"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg></button>
       <button id="btn-speed" title="Speed ([ and ], Backspace: normal)">1×</button>
       <button id="btn-mute" class="icon" title="Mute (M)"><svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4z"/><path class="waves" d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/><path class="cross" d="M16 9l6 6M22 9l-6 6"/></svg></button>

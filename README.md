@@ -759,9 +759,20 @@ left a video (more than 5 seconds in, not near its end).
 | , . | a frame back, forward (paused) |
 | Page Up / Page Down | previous / next video in the folder |
 | R | repeat |
+| C / Shift+C | the next / previous crop |
 | F, double-click | fullscreen |
 | Ctrl+C | copy the file's path |
 | Esc / Q | close the settings, leave fullscreen, close |
+
+The video fills the window; its bars float over it and fade in when the pointer
+is on them (the top one: name, settings, fullscreen, close; the bottom one: the
+timeline and the controls). Crop (bottom bar, or C) cuts the picture to an
+aspect ratio, as VLC's Video → Crop: Fill window (the window's own shape: the
+picture fills it, what doesn't fit cut off), 16:10, 16:9, 4:3, 1.85:1, 2:1, 2.21:1,
+2.35:1, 2.39:1, 5:3, 5:4 or 1:1, the middle of the picture that shape, as large
+as the window takes, so black bars in the video itself (a 2.39:1 film in a 16:9
+file) are cut off; it stays as you go to the next videos, until the player
+closes.
 
 The gear: start where you left off, then the next video, repeat.
 `~/.config/phil/videoplayer.json` has those and the rest (the player writes
@@ -783,7 +794,8 @@ only what differs from these):
 `~/.config/phil/videoplayer.css`, if it's there, is loaded after its own styles
 (`apps/videoplayer/ui/style.css`): `#seek .played { background: hotpink }`.
 Where videos were left: `~/.local/state/phil/videoplayer-positions.json` (the
-last 500). mpv (the top bar's button) takes over from where it is.
+last 500). A video that can't be played here offers mpv instead, from where
+it got to.
 
 `deno task videoplayer file` runs it from the source.
 
