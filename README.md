@@ -72,6 +72,19 @@ terminals, like phil's).
   development runs don't end up in the installed engine); `--browser` prints a
   URL instead of opening a window.
 
+### phil as the file chooser
+
+`phil --choose open|dir|save [--multiple] --out FILE [path]` is a file chooser:
+a phil window with a bar at the bottom saying what's asked ("Choose a file",
+"Choose folders", "Save as" with the suggested name, its extension left out of
+the selection), and Open or Save, and Cancel. Double-click (or Enter) on a file
+chooses it; folders asked for, none selected: the folder shown; to save, a file
+clicked gives its name, and replacing one asks first. It waits until the choice
+is made (or the window is closed, any way: cancelled), then the chosen paths
+are in FILE, one per line (nothing: cancelled). This is the wrapper interface
+of `xdg-desktop-portal-termfilechooser`, which makes it the desktop's file
+chooser: apps' Open and Save dialogs (Brave's, Firefox's...) are phil windows.
+
 ### Windows in Chromium instead of WebKitGTK
 
 With `"browser": "default"` in `~/.config/phil/settings.json` (or

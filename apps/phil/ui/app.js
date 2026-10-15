@@ -1582,6 +1582,7 @@ function updateStatus() {
     text += `  ·  ${sel.name}` + (sel.kind === "dir" ? "" : `  ${formatSize(sel.size)}  ${formatDate(sel.mtime)}`);
   }
   $("#status-count").textContent = text;
+  updateChooser();
 }
 
 function updateProgress() {
@@ -1648,6 +1649,13 @@ function setZoom(zoom) {
 function open(index) {
   const entry = state.view[index];
   if (!entry) return;
+  // Choosing (phil --choose): a file opened is the answer (to save: its name, replacing it);
+  // a folder opens as ever.
+  if (choosing && entry.kind !== "dir") {
+    if (choosing.mode === "open") return answerChoice(choosing.multiple && state.marked.has(entry.path) ? chosenPaths() : [entry.path]);
+    if (choosing.mode === "save") return (chooser.querySelector(".ch-name").value = entry.name), answerChoice(chosenPaths());
+    return; // (folders asked for)
+  }
   if (entry.kind === "dir") navigate(entry.path);
   else if (entry.kind === "image") openInApp("imageview", { file: entry.path, sort: state.settings.sort });
   // mpv plays everything; WebKit's player stalls on some files (NVIDIA decoding).
@@ -1656,6 +1664,89 @@ function open(index) {
   else if (isJson(entry)) openInApp("jsonedit", { file: entry.path });
   else if (isDocument(entry)) openInApp("textedit", { file: entry.path }); // to read, as Markdown; "Open with default app" to edit
   else openFile(entry);
+}
+
+// ---------------------------------------------------------------- choosing (phil --choose)
+
+// An app's Open or Save dialog (through xdg-desktop-portal-termfilechooser: phil
+// --choose): phil as ever, with a bar at the bottom saying what's asked. The answer
+// goes to the server (POST /api/choose), which hands it to the waiting command;
+// closing the window, any way, is cancelling.
+const choosing = (() => {
+  const p = new URLSearchParams(location.search);
+  const mode = p.get("choose");
+  return ["open", "dir", "save"].includes(mode) ? { mode, multiple: p.get("multiple") === "1", out: p.get("out"), name: p.get("name") ?? "", answered: false, picked: null } : null;
+})();
+const chooser = $("#chooser");
+const inFolder = (name) => (state.path === "/" ? "/" : state.path + "/") + name;
+
+// What would be chosen now: to save, the name in this folder; files (or folders)
+// selected; folders asked for, none selected: the folder shown.
+function chosenPaths() {
+  if (!choosing) return [];
+  if (choosing.mode === "save") {
+    const name = chooser.querySelector(".ch-name").value.trim();
+    return name && !name.includes("/") && state.path ? [inFolder(name)] : [];
+  }
+  const marked = markedEntries();
+  if (choosing.mode === "dir") {
+    const dirs = marked.filter((e) => e.kind === "dir").map((e) => e.path);
+    return dirs.length ? (choosing.multiple ? dirs : dirs.slice(0, 1)) : state.path ? [state.path] : [];
+  }
+  const files = marked.filter((e) => e.kind !== "dir").map((e) => e.path);
+  return choosing.multiple ? files : files.slice(0, 1);
+}
+
+// The bar as the selection is: its button, what it would choose; to save, a file
+// clicked gives its name.
+function updateChooser() {
+  if (!choosing) return;
+  const marked = markedEntries();
+  const one = marked.length === 1 && marked[0].kind !== "dir" ? marked[0] : null;
+  if (choosing.mode === "save" && one && one.path !== choosing.picked) chooser.querySelector(".ch-name").value = one.name;
+  choosing.picked = one?.path ?? null;
+  const paths = chosenPaths();
+  chooser.querySelector(".ch-ok").disabled = !paths.length;
+  chooser.querySelector(".ch-picked").textContent = choosing.mode === "save" ? `in ${state.path ?? ""}`
+    : paths.length > 1 ? `${paths.length} chosen` : paths[0] ? (paths[0].split("/").pop() || "/") : "";
+}
+
+async function answerChoice(paths) {
+  if (!choosing || choosing.answered) return;
+  if (choosing.mode === "save" && paths.length) {
+    const name = paths[0].split("/").pop();
+    const there = state.entries.find((e) => e.name === name);
+    if (there?.kind === "dir") return void askConfirm({ title: `${name} is a folder`, detail: "Give the file another name.", ok: "OK", cancel: null, danger: false });
+    if (there && !(await askConfirm({ title: `Replace ${name}?`, detail: `There's a file called that in ${state.path} already.`, ok: "Replace" }))) return;
+  }
+  choosing.answered = true;
+  await api("/api/choose", { method: "POST", body: JSON.stringify({ out: choosing.out, paths }) }).catch(() => {});
+  closeWindow();
+}
+
+if (choosing) {
+  document.body.classList.add("choosing");
+  chooser.hidden = false;
+  const name = chooser.querySelector(".ch-name"), ok = chooser.querySelector(".ch-ok");
+  chooser.querySelector(".ch-what").textContent = { open: choosing.multiple ? "Choose files" : "Choose a file", dir: choosing.multiple ? "Choose folders" : "Choose a folder", save: "Save as" }[choosing.mode];
+  ok.textContent = choosing.mode === "save" ? "Save" : "Open";
+  name.hidden = choosing.mode !== "save";
+  name.value = choosing.name;
+  name.addEventListener("input", updateChooser);
+  name.addEventListener("keydown", (e) => e.key !== "Escape" && e.stopPropagation()); // the name's keys, not the folder's (Enter saves)
+  chooser.onsubmit = (e) => (e.preventDefault(), answerChoice(chosenPaths()));
+  chooser.querySelector(".ch-cancel").onclick = () => answerChoice([]);
+  // Closed some other way (its X, Super+W): cancelled.
+  addEventListener("pagehide", () => {
+    if (!choosing.answered) navigator.sendBeacon("/api/choose", new Blob([JSON.stringify({ out: choosing.out, paths: [] })], { type: "application/json" }));
+  });
+  if (choosing.mode === "save") {
+    setTimeout(() => { // the name ready to type over (not its extension)
+      name.focus();
+      const dot = name.value.lastIndexOf(".");
+      name.setSelectionRange(0, dot > 0 ? dot : name.value.length);
+    }, 400);
+  }
 }
 
 const isJson = (entry) => entry.kind === "file" && /\.json$/i.test(entry.name);
