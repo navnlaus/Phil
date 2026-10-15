@@ -2,14 +2,9 @@
 
 body { background: #000; overflow: hidden; }
 
-#stage { position: fixed; inset: 0; outline: none; }
-/* Pinned to the window, the picture fitted inside (a grid centred the video's box, which, as
-   wide as the window, was taller than a wide one: pushed down, a black bar over it). */
-#video, #mjpeg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
-#video[hidden], #mjpeg[hidden] { display: none; }
-
 #message {
   position: fixed;
+  z-index: 4;
   inset: 45% 20px auto;
   margin: 0;
   text-align: center;
@@ -44,7 +39,8 @@ body { background: #000; overflow: hidden; }
 }
 #stats[hidden] { display: none; }
 
-/* The controls: over the video, faded until the pointer is over the window. */
+/* The controls, for the tile filling the window (body.focused): over the video, faded until the pointer is over the window. */
+body:not(.focused) #bar, body:not(.focused) #ptz, body:not(.focused) #presets, body:not(.focused) #stats { display: none; }
 #ptz, #presets {
   position: fixed;
   z-index: 4;
@@ -107,10 +103,9 @@ body:hover #ptz, body:hover #presets, #ptz:focus-within, #presets:focus-within, 
 #preset-form[hidden] { display: none; }
 #preset-name { height: 30px; width: 150px; padding: 0 10px; border: 1px solid var(--accent); border-radius: 15px; background: rgba(0, 0, 0, 0.75); color: #fff; }
 
-/* The wall (wall.js): every camera, as big as they fit (--cols, --rows). */
-body.wall { background: #000; }
+/* The tiles (app.js): every camera, as big as they fit (--cols, --rows). */
 #wall { position: fixed; inset: 0; display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 1), minmax(0, 1fr)); gap: 2px; outline: none; }
-#wall .cam { position: relative; min-width: 0; min-height: 0; height: auto; padding: 0; border: 0; border-radius: 0; background: #0b0b0c; overflow: hidden; cursor: pointer; }
+#wall .cam { position: relative; min-width: 0; min-height: 0; background: #0b0b0c; overflow: hidden; cursor: pointer; outline: none; }
 #wall .cam:hover::after, #wall .cam:focus-visible::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 2px var(--accent); pointer-events: none; }
 #wall video, #wall img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 #wall video[hidden], #wall img[hidden] { display: none; }
@@ -119,9 +114,9 @@ body.wall { background: #000; }
 #wall-message { position: fixed; inset: 45% 20px auto; margin: 0; color: #ddd; text-align: center; }
 #wall-message[hidden] { display: none; }
 
-/* The wall's list (wall.js): every camera, on or off, and adding a stream. */
+/* The wall's list: every camera, on or off, and adding a stream. */
 #wall-list-button { position: fixed; z-index: 6; top: 8px; right: 8px; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: rgba(0, 0, 0, 0.55); color: #fff; opacity: 0; transition: opacity 0.2s ease 0.4s; }
-body.wall:hover #wall-list-button, #wall-list-button:focus-visible, #wall-list-button.on { opacity: 1; transition: opacity 0.08s; }
+body:hover #wall-list-button, #wall-list-button:focus-visible, #wall-list-button.on { opacity: 1; transition: opacity 0.08s; }
 #wall-list-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; }
 #wall-list-button:hover, #wall-list-button.on { background: rgba(0, 0, 0, 0.8); }
 #wall-list { position: fixed; z-index: 7; top: 0; right: 0; bottom: 0; width: min(380px, 100%); display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; overflow-y: auto; background: var(--bg); color: var(--text); border-left: 1px solid var(--border); box-shadow: -8px 0 28px rgba(0, 0, 0, 0.4); }
@@ -154,10 +149,10 @@ body.wall:hover #wall-list-button, #wall-list-button:focus-visible, #wall-list-b
 #wall-list .error[hidden] { display: none; }
 /* A web page camera: the page in its tile (a click opens it over the wall, to use). */
 #wall .cam iframe { width: 100%; height: 100%; border: 0; display: block; pointer-events: none; background: #000; }
-/* A camera filling the window: its tile, the same stream. */
-#wall .cam.zoomed { position: fixed; inset: 0; z-index: 5; background: #000; }
-#wall .cam.zoomed::after { display: none; }
-body.zoomed #wall-list-button { display: none; }
+/* A camera filling the window: its tile, the same stream (and the controls over it). */
+#wall .cam.focused { position: fixed; inset: 0; z-index: 3; background: #000; cursor: default; }
+#wall .cam.focused::after, #wall .cam.focused .cam-name { display: none; }
+body.focused #wall-list-button { display: none; }
 #wall-page { position: fixed; z-index: 8; inset: 0; background: #000; }
 #wall-page[hidden] { display: none; }
 #wall-page iframe { width: 100%; height: 100%; border: 0; display: block; }

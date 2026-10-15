@@ -122,9 +122,9 @@ export function createServer({ profile = {} } = {}) {
         case "POST /api/log":
           console.error(`camview: ${String((await req.json()).message ?? "").slice(0, 500)}`);
           return json({ ok: true });
-        case "PUT /api/camera": { // {id, invert} / {id, disabled} / {id, name}
+        case "PUT /api/camera": { // {id, invert} / {id, disabled} / {id, name} / {id, profile}
           const { id: which, ...rest } = await req.json();
-          const changes = Object.fromEntries(Object.entries(rest).filter(([k]) => ["invert", "disabled", "name"].includes(k)));
+          const changes = Object.fromEntries(Object.entries(rest).filter(([k]) => ["invert", "disabled", "name", "profile"].includes(k)));
           return json(await cameras.update(String(which ?? ""), changes));
         }
         case "GET /api/cameras/all": // every camera, with whether it's on, offline or off (the wall's list)

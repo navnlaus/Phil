@@ -5,8 +5,9 @@
 //
 // Kept in ~/.config/phil/cameras.json (readable only by you: logins are in it):
 // {"cameras": [{id, host, port, url, manufacturer, model, name, user,
-// password, added, hidden, seen, invert, absent}]}. `invert`: mounted upside
-// down, its pan and tilt turned around (camview's toggle). `absent`: not found
+// password, added, hidden, seen, invert, profile, absent}]}. `invert`: mounted upside
+// down, its pan and tilt turned around (camview's toggle). `profile`: the stream
+// picked for it (camview's quality; none: its biggest). `absent`: not found
 // the last time it was looked for (off, gone): not listed until it's found
 // again, with its name, login and the rest.
 //
@@ -66,7 +67,7 @@ async function save(cameras) {
 const idOf = (host, port) => `${host}:${port}`;
 const shown = (c) => ({
   id: c.id, host: c.host, port: c.port, name: c.name || c.model || c.host, model: [c.manufacturer, c.model].filter(Boolean).join(" "),
-  login: !!c.user, needsLogin: !!c.auth && !c.user, seen: c.seen ?? 0, invert: !!c.invert,
+  login: !!c.user, needsLogin: !!c.auth && !c.user, seen: c.seen ?? 0, invert: !!c.invert, profile: c.profile ?? null,
 });
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
 const isStream = (c) => (c.type === "rtsp" && !c.tuya) || c.type === "page"; // added by its URL
@@ -287,7 +288,7 @@ export async function add(address, login = {}) {
   return shown(known.find((c) => c.id === id));
 }
 
-/** Changes a camera: {name}, {user, password} (checked first: rejected if the camera says no), {hidden}, {disabled}, {invert}. */
+/** Changes a camera: {name}, {user, password} (checked first: rejected if the camera says no), {hidden}, {disabled}, {invert}, {profile}. */
 export async function update(id, changes) {
   const known = await load();
   const c = known.find((c) => c.id === id);
@@ -310,6 +311,10 @@ export async function update(id, changes) {
     if (!c.disabled) c.absent = false; // turned on: shown (looking again says if it's there)
   }
   if ("invert" in changes) c.invert = !!changes.invert;
+  if ("profile" in changes) { // the stream picked for it (camview's quality), wherever it's shown
+    c.profile = typeof changes.profile === "string" && changes.profile ? changes.profile.slice(0, 200) : undefined;
+    return (await save(known), shown(c)); // (its details stay: nothing about the camera changed)
+  }
   details.delete(id);
   await save(known);
   return shown(c);

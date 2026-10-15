@@ -11,10 +11,9 @@
   <script type="module" src="ui/main.js"></script>
 </head>
 <body>
-  <main id="stage" tabindex="0" aria-label="Camera">
-    <video id="video" muted autoplay playsinline disablepictureinpicture></video>
-    <img id="mjpeg" alt="" hidden>
-  </main>
+  <!-- The cameras, each a tile playing its stream (app.js); one filling the window, with the controls below. -->
+  <main id="wall" tabindex="0" aria-label="Cameras"></main>
+  <p id="wall-message">Looking for cameras…</p>
   <p id="message" hidden></p>
   <pre id="stats" hidden></pre>
 
