@@ -349,9 +349,13 @@ stop.
 
 ### Settings
 
-The gear at the bottom of the sidebar: whether the sidebar shows Transfers and
-Cameras (`showTransfers`, `showCameras` in `~/.config/phil/settings.json`), and
-the theme (every window follows).
+The gear at the bottom of the sidebar opens Preferences, over the folder as
+the Transfers view is (Esc, ×, or opening a folder closes it): whether the
+sidebar shows Transfers and Cameras (`showTransfers`, `showCameras` in
+`~/.config/phil/settings.json`), the theme (every window follows), whether
+windows open in the default browser or WebKitGTK (`"browser"`), whether the
+engine keeps a log (`"log"`; both from its next start), and a way to the
+Transfers view and its download settings.
 
 ### Themes
 
@@ -588,7 +592,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | the sidebar's Transfers | every copy, move, delete and download (paused ones too, finished downloads still seeding, and copies and moves cut off, wherever they were going: phil crashed or was closed, or ×; their records are in phil's metadata, so they're there after a restart, with ↻ to resume them where they stopped and × to forget them), each its name over its bar, with the bar's buttons; click one: the folder it goes to, with what it's making selected |
 | an app's download saved through phil's file chooser (Brave's, Chrome's, Firefox's...) | in the Transfers list and on its partial file's tile (`<path>.crdownload`, `<path>.part`, next to where it was saved; a Chromium-family browser that started it before the Save was answered keeps it as `Unconfirmed 123456.crdownload` in its download folder till it's done: the one made in the two minutes before the save is taken to be it, and has the download's name as its description till it's done): how far, how fast, the time left. Its full size from a Chromium-family browser's History database (by that path; read in place, without locking it, when it changed); otherwise unknown (a moving stripe). Not growing for 30 s: "paused or stalled". Gone from the list when it's renamed into place. The paths saved are kept (`~/.local/state/phil/saved-downloads.json`), so a restart keeps following them. Downloads not saved through phil aren't shown, and phil can't pause or stop one (`apps/phil/browserdownloads.js`) |
 | any program's transfer that reports to phil (Streamgrab's downloads, ~/Projects/streamgrab) | in the Transfers list, as it says: a JSON file each in `$XDG_RUNTIME_DIR/phil/transfers/` (`{id, app, name, target, path, bytes, total, percent, speed, eta, state, started, pid, incognito, stoppable, stopKeeps}`), rewritten as it goes and removed when it's done; × sends its process SIGTERM when it says it may be stopped. One whose process is gone is dropped. An incognito phil lists the incognito ones, the other phil the others |
-| click the sidebar's Transfers heading (there while something's under way, paused or stopped; otherwise the sidebar's settings, the gear → "Transfers and downloads…") | the Transfers view, over the folder: every transfer in full (what, where to: a click shows it there, its bar and buttons, size, speeds, time left, peers, what's uploaded; a torrent's files, each with its own progress and ×), and the settings for downloads, panda-dl's: its download folder (for links copied to the clipboard and its own command; drops in phil go where they're dropped), connections per web download, and whether copied magnet and .torrent links are downloaded. Saved as they're changed: through its daemon when it's running, otherwise in `~/.config/panda-dl/config.json`. Esc, ×, or opening a folder closes it |
+| click the sidebar's Transfers heading (there while something's under way, paused or stopped; otherwise the gear → Preferences → "Transfers and downloads…") | the Transfers view, over the folder: every transfer in full (what, where to: a click shows it there, its bar and buttons, size, speeds, time left, peers, what's uploaded; a torrent's files, each with its own progress and ×), and the settings for downloads, panda-dl's: its download folder (for links copied to the clipboard and its own command; drops in phil go where they're dropped), connections per web download, and whether copied magnet and .torrent links are downloaded. Saved as they're changed: through its daemon when it's running, otherwise in `~/.config/panda-dl/config.json`. Esc, ×, or opening a folder closes it |
 | right-drag onto the folder it's in | "Copy here" (the tiles' empty space, a file, that folder in the path): copies beside them, numbered ("photo 2.jpg", "Folder 2"), selected |
 | middle-drag onto a folder | move there right away; out of the window, the files go on being dragged, for the app they're dropped on to move (or copy) |
 | Backspace, Esc | parent folder |

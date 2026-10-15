@@ -89,17 +89,9 @@
       <h3 class="heading"><button id="btn-cameras" type="button" class="heading-button" title="Every camera, live (Esc comes back)">Cameras</button> <button id="btn-cameras-refresh" class="icon" type="button" title="Look for cameras again: new ones are added, ones not found are left out until they're back"><svg><use href="#i-refresh"/></svg></button></h3>
       <nav id="cameras" aria-label="Cameras"></nav>
     </section>
-    <!-- At the bottom: phil's settings (what the sidebar shows, the theme). -->
+    <!-- At the bottom: the gear, for the Preferences view. -->
     <div class="sidebar-foot">
-      <button id="btn-settings" class="icon" type="button" title="Settings" aria-haspopup="true"></button>
-      <div id="settings-pop" hidden>
-        <h3 class="heading">Sidebar</h3>
-        <label class="check"><input type="checkbox" data-setting="showTransfers"> Transfers</label>
-        <label class="check"><input type="checkbox" data-setting="showCameras"> Cameras</label>
-        <h3 class="heading">Theme</h3>
-        <select id="settings-theme" aria-label="Theme"></select>
-        <button id="settings-transfers" type="button" title="Every transfer, and the settings for downloads">Transfers and downloads…</button>
-      </div>
+      <button id="btn-settings" class="icon" type="button" title="Preferences" aria-pressed="false"></button>
     </div>
   </aside>
 
@@ -109,7 +101,7 @@
       <section id="grid" tabindex="0" aria-label="Files"></section>
 
       <!-- Every transfer in full, and panda-dl's settings (the sidebar's Transfers heading). -->
-      <div id="transfers-view" hidden>
+      <div id="transfers-view" class="view" hidden>
         <div class="tv-page">
           <header class="tv-head">
             <h2>Transfers</h2>
@@ -145,6 +137,47 @@
             </div>
             <p class="tv-error" hidden></p>
           </section>
+        </div>
+      </div>
+
+      <!-- phil's preferences (the sidebar's gear): what the sidebar shows, the theme, the windows. -->
+      <div id="prefs-view" class="view" hidden>
+        <div class="tv-page">
+          <header class="tv-head">
+            <h2>Preferences</h2>
+            <button class="icon close" type="button" title="Close (Esc)"><svg><use href="#i-close"/></svg></button>
+          </header>
+          <div class="tv-fields">
+            <span>Sidebar</span>
+            <div class="tv-field">
+              <label class="check"><input type="checkbox" data-pref="showTransfers"> Transfers</label>
+              <label class="check"><input type="checkbox" data-pref="showCameras"> Cameras</label>
+              <p class="hint">Transfers shows only while something is being copied, moved, deleted or downloaded.</p>
+            </div>
+            <label for="prefs-theme">Theme</label>
+            <div class="tv-field">
+              <select id="prefs-theme"></select>
+              <p class="hint prefs-theme-dir"></p>
+            </div>
+            <label for="prefs-browser">Windows</label>
+            <div class="tv-field">
+              <select id="prefs-browser">
+                <option value="">In the default browser</option>
+                <option value="webkit">WebKitGTK's</option>
+              </select>
+              <p class="hint">A Chromium-based browser's engine (Brave, Chrome, Chromium…); without one, WebKitGTK's. From phil's next start.</p>
+            </div>
+            <span>Log</span>
+            <div class="tv-field">
+              <label class="check"><input type="checkbox" data-pref="log"> Keep a log</label>
+              <p class="hint">What the engine says, in $XDG_RUNTIME_DIR/phil/main.log. From phil's next start; never in incognito.</p>
+            </div>
+            <span>Downloads</span>
+            <div class="tv-field">
+              <div class="tv-row"><button type="button" id="prefs-transfers">Transfers and downloads…</button></div>
+              <p class="hint">panda-dl's settings: the download folder, connections, links copied to the clipboard.</p>
+            </div>
+          </div>
         </div>
       </div>
 

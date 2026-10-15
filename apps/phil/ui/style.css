@@ -867,8 +867,9 @@ body.incognito::before {
 #app-view iframe { width: 100%; height: 100%; border: 0; display: block; }
 
 /* The Transfers view (the sidebar's Transfers heading): over the folder. */
-#transfers-view { position: absolute; inset: 0; z-index: 6; overflow-y: auto; background: var(--bg); }
-#transfers-view[hidden] { display: none; }
+/* The Transfers and Preferences views: over the folder. */
+#files > .view { position: absolute; inset: 0; z-index: 6; overflow-y: auto; background: var(--bg); }
+#files > .view[hidden] { display: none; }
 .tv-page { max-width: 760px; margin: 0 auto; padding: 18px 20px 40px; }
 .tv-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .tv-head h2 { margin: 0; font-size: 18px; font-weight: 600; }
@@ -928,18 +929,17 @@ body.choosing #files { --chooser-h: 48px; }
 #chooser .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 #chooser .primary:disabled { opacity: 0.45; }
 
-/* The sidebar's foot: the settings button, at the bottom (pinned while it scrolls). */
+/* The sidebar's foot: the gear (Preferences), at the bottom (pinned while it scrolls). */
 #sidebar > * { flex-shrink: 0; }
 .sidebar-foot { position: sticky; bottom: -6px; margin-top: auto; padding: 8px 2px 6px; background: var(--bg-side); }
 #btn-settings { width: 28px; height: 28px; padding: 0; border: 0; background: none; color: var(--text-dim); }
-#btn-settings:hover, #btn-settings[aria-expanded="true"] { background: var(--bg-hover); color: var(--text); }
+#btn-settings:hover, #btn-settings[aria-pressed="true"] { background: var(--bg-hover); color: var(--text); }
 #btn-settings svg { width: 16px; height: 16px; margin: 0; }
-#settings-pop { position: absolute; left: 2px; bottom: 40px; z-index: 8; width: 200px; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); }
-#settings-pop[hidden] { display: none; }
-#settings-pop .heading { margin-top: 4px; }
-#settings-pop select { width: 100%; }
 /* What the settings leave out of the sidebar (and a file chooser's window). */
 body.no-transfers #transfers-panel, body.no-cameras #cameras-panel { display: none; }
 #transfers-panel.empty { display: none; }
-#settings-transfers { margin-top: 6px; }
+#prefs-view select { max-width: 280px; }
+#prefs-view .tv-field .check + .hint { margin-top: 2px; }
+#prefs-transfers { flex: none; padding: 4px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised); color: var(--text); }
+#prefs-transfers:hover { background: var(--bg-hover); }
 body.choosing .sidebar-foot { display: none; } /* a file chooser: no settings */
