@@ -1376,10 +1376,12 @@ async function udisksctl(args) {
   }
   const said = (b) => new TextDecoder().decode(b).trim();
   if (!out.success) {
-    // "Error mounting /dev/x: GDBus.Error:org.freedesktop.UDisks2.Error.Failed: <the reason>"
-    const reason = said(out.stderr).split("\n").find((l) => l.trim()) ?? "udisksctl failed";
+    // "Error mounting /dev/x: GDBus.Error:org.freedesktop.UDisks2.Error.Failed: <the reason>", after, at
+    // times, a line of its own about asking for a password in a terminal (it has none): not the reason.
+    const lines = said(out.stderr).split("\n").filter((l) => l.trim());
+    const reason = lines.find((l) => /GDBus\.Error/.test(l)) ?? lines.find((l) => !/authentication agent/.test(l)) ?? lines[0] ?? "udisksctl failed";
     const err = httpError(500, reason.replace(/^.*?GDBus\.Error:[\w.]+:\s*/, "").replace(/^Error \w+ \S+:\s*/, ""));
-    err.notAuthorized = /NotAuthorized/.test(reason); // it'd take a password: root's way (sudo) instead
+    err.notAuthorized = lines.some((l) => /NotAuthorized/.test(l)); // it'd take a password: root's way (sudo) instead
     throw err;
   }
   return { stdout: said(out.stdout) };
