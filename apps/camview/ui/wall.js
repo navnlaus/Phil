@@ -1,14 +1,11 @@
 // camview's wall (?wall=1; phil's sidebar, its Cameras heading): every camera,
-// live, side by side. Each plays its smallest stream, the camera's own H.264 if
+// live, side by side. Each plays its full stream (its biggest), the camera's own H.264 if
 // this machine's player shows it right, otherwise re-encoded, otherwise JPEG
-// pictures (as app.js does for one). A click shows that camera on its own (with
-// its controls; Esc comes back here) without leaving the wall: its tile fills
-// the window at once, still playing, and the camera's own page (app.js: its
-// main stream, its controls) comes over it once that plays; back, the tile
-// goes back to its place, every camera still connected. Esc closes the wall. Its list (the
+// pictures (as app.js does for one). A click makes that tile fill the window,
+// the same stream playing on (Esc puts it back). Esc closes the wall. Its list (the
 // button in the top right corner, or L): every camera, offline and turned off
 // ones too, each turned on or off, removed, and streams added by their URL.
-import { appUrl, closeWindow, embedOf, onCloseRequest, ready, tooltips } from "../engine/ui/kit.js";
+import { closeWindow, onCloseRequest, ready, tooltips } from "../engine/ui/kit.js";
 import { playHls } from "./hls.js";
 
 tooltips();
@@ -78,63 +75,29 @@ async function api(path) {
 
 const log = (message) => fetch("api/log", { method: "POST", body: JSON.stringify({ message }) }).catch(() => {});
 
-// A camera on its own, over the wall (the wall's connections kept): its tile,
-// filling the window, at once; its page (app.js) over that once its video plays.
-let opened = null; // {t, frame, shown}
-const SHOW_MS = 6000; // its page shown by then, playing or not (pictures, a camera that's slow)
+// A camera filling the window: its tile, the same stream playing on. Esc (or a click) puts it back.
+let opened = null;
 
 function openCamera(t) {
-  if (opened) return;
+  if (opened) return closeCamera();
+  opened = t;
   t.el.classList.add("zoomed");
   document.body.classList.add("zoomed");
-  const src = appUrl("camview", { camera: t.camera.id, from: "wall" });
-  const frame = Object.assign(document.createElement("iframe"), { src, className: "cam-page", title: t.camera.name, allow: "fullscreen" });
-  frame.dataset.embed = embedOf(src);
-  opened = { t, frame, shown: false };
-  const o = opened;
-  const show = () => {
-    if (opened !== o || o.shown) return;
-    o.shown = true;
-    frame.classList.add("shown");
-    focusFrame(frame);
-  };
-  frame.addEventListener("load", () => {
-    const doc = frame.contentDocument;
-    doc?.querySelector("#video")?.addEventListener("playing", show, { once: true });
-    doc?.querySelector("#mjpeg")?.addEventListener("load", show, { once: true }); // (pictures, not video)
-  });
-  setTimeout(show, SHOW_MS);
-  document.body.append(frame);
-  t.el.blur();
 }
 
 function closeCamera() {
   if (!opened) return;
-  opened.frame.remove();
-  opened.t.el.classList.remove("zoomed");
+  opened.el.classList.remove("zoomed");
   document.body.classList.remove("zoomed");
   opened = null;
   wall.focus({ preventScroll: true });
 }
 
-function focusFrame(frame) {
-  frame.focus();
-  frame.contentWindow?.focus();
-  frame.contentWindow?.postMessage({ engine: "focus" }, "*"); // (kit.js holdFocus: its view)
-}
-
-// The camera's page says it's ready (it gets the keyboard, once it's shown), or it closes (Esc, ×).
-addEventListener("message", (e) => {
-  if (!opened || e.origin !== location.origin || e.data?.embed !== opened.frame.dataset.embed) return;
-  if (e.data?.engine === "ready" && opened.shown) focusFrame(opened.frame);
-  else if (e.data?.engine === "close") closeCamera();
-});
-
 function makeTile(camera) {
   const tile = document.createElement("button");
   tile.type = "button";
   tile.className = "cam";
-  tile.title = `${camera.name}${camera.host ? ` (${camera.host})` : ""}: click to show it on its own`;
+  tile.title = `${camera.name}${camera.host ? ` (${camera.host})` : ""}: click to fill the window with it (Esc, or a click, back)`;
   tile.innerHTML = `<video muted autoplay playsinline disablepictureinpicture></video><img alt="" hidden><span class="cam-name"></span><span class="cam-msg"></span>`;
   tile.querySelector(".cam-name").textContent = camera.name;
   if (camera.page) { // a web page (a camera's that plays it its own way): the page itself; a click shows it over the wall
@@ -157,9 +120,9 @@ async function start(t) {
   if (t.camera.needsLogin) return say(t, "Needs a login: right-click it in phil's sidebar");
   try {
     const { profiles } = await api(`api/camera?id=${encodeURIComponent(t.camera.id)}`);
-    // The smallest (a camera's second stream): many at once, each small on the screen.
+    // The biggest (a camera's main stream): full quality, here and when it fills the window.
     const sized = profiles.filter((p) => p.width);
-    t.profile = (sized.length ? sized.sort((a, b) => a.width * a.height - b.width * b.height)[0] : profiles[0])?.token ?? "";
+    t.profile = (sized.length ? sized.sort((a, b) => b.width * b.height - a.width * a.height)[0] : profiles[0])?.token ?? "";
     play(t);
   } catch (err) {
     say(t, err.message);
@@ -367,19 +330,15 @@ function close() {
 }
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && opened) return e.preventDefault(), closeCamera(); // (its page not shown yet: the keyboard's here)
+  if (e.key === "Escape" && opened) return e.preventDefault(), closeCamera();
   if (e.key === "Escape" && !pageView.hidden) return e.preventDefault(), closePage(); // a page shown first, then the list
   if (e.key === "Escape" && !panel.hidden) return e.preventDefault(), toggleList(false);
   if (e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "w")) return e.preventDefault(), close();
   const typing = e.target.closest?.("input, textarea");
   if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l") e.preventDefault(), toggleList();
 });
-// Asked to close (phil: Esc while it had the keyboard): a camera shown first.
-onCloseRequest(() => {
-  if (!opened) return close();
-  if (opened.shown) opened.frame.contentWindow?.postMessage({ engine: "close-request" }, "*");
-  else closeCamera();
-});
+// Asked to close (phil: Esc while it had the keyboard): a camera filling the window first.
+onCloseRequest(() => (opened ? closeCamera() : close()));
 
 // The wall's tiles, as the cameras shown now are: each kept (playing on) while
 // its camera is, by id; new ones started, gone ones stopped.
@@ -393,6 +352,7 @@ function renderTiles(cameras) {
     tiles.push(t);
   }
   for (const t of old.values()) stop(t), t.el.remove();
+  if (opened && !tiles.includes(opened)) closeCamera(); // (filling the window, and gone)
   for (const t of tiles) wall.append(t.el); // (in place already: stays)
   for (const t of tiles.filter((t) => t.fresh)) (t.fresh = false), start(t);
   note.hidden = tiles.length > 0;

@@ -1,4 +1,4 @@
-import { closeWindow, embedded, holdFocus, onCloseRequest, ready, tooltips } from "../engine/ui/kit.js";
+import { closeWindow, holdFocus, onCloseRequest, ready, tooltips } from "../engine/ui/kit.js";
 import { playHls } from "./hls.js";
 
 tooltips(); // the page's own, in the theme's style (kit.js)
@@ -470,9 +470,7 @@ function close() {
   stopMove();
   stopPlayer();
   if (document.fullscreenElement) document.exitFullscreen();
-  // Shown over the wall of cameras (wall.js), or inside phil: it closes this (closeWindow tells it).
-  if (embedded) return closeWindow();
-  // Opened from the wall in its place (an older wall): back to it (the parameters phil gave stay).
+  // Shown from the wall of cameras (wall.js): back to it (the parameters phil gave stay).
   const url = new URL(location.href);
   if (url.searchParams.get("from") === "wall") {
     url.searchParams.delete("camera");

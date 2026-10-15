@@ -933,11 +933,11 @@ them at the bottom of its sidebar; double-click one to show it in that window
 shows the wall: every camera that's on).
 
 - **All of them at once**: click "Cameras" (the sidebar's heading) for the
-  wall, every camera live side by side, each from its smallest stream, as big
-  as they fit the window. Click one to show it on its own, with its controls:
-  its tile fills the window at once, still playing, and the camera's own view
-  (its full stream) comes over it as soon as that plays. Esc comes back to the
-  wall, every camera still connected (nothing starts over); Esc closes the wall. (`?wall=1`, `apps/camview/ui/wall.js`.)
+  wall, every camera live side by side, each from its full stream, as big as
+  they fit the window. Click one and its tile fills the window, the same stream
+  playing on (nothing reconnects); Esc, or a click, puts it back; Esc closes
+  the wall. Turning a camera (pan, tilt, zoom) is in its own view: double-click
+  it in the sidebar. (`?wall=1`, `apps/camview/ui/wall.js`.)
 - **Every camera, and streams of your own**: the wall's list (the button in
   its top right corner, or L) has them all, those offline and turned off too,
   each with a switch (off: not in the sidebar or the wall, kept in the list) and
