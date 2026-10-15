@@ -89,6 +89,17 @@
       <h3 class="heading"><button id="btn-cameras" type="button" class="heading-button" title="Every camera, live (Esc comes back)">Cameras</button> <button id="btn-cameras-refresh" class="icon" type="button" title="Look for cameras again: new ones are added, ones not found are left out until they're back"><svg><use href="#i-refresh"/></svg></button></h3>
       <nav id="cameras" aria-label="Cameras"></nav>
     </section>
+    <!-- At the bottom: phil's settings (what the sidebar shows, the theme). -->
+    <div class="sidebar-foot">
+      <button id="btn-settings" class="icon" type="button" title="Settings" aria-haspopup="true"></button>
+      <div id="settings-pop" hidden>
+        <h3 class="heading">Sidebar</h3>
+        <label class="check"><input type="checkbox" data-setting="showTransfers"> Transfers</label>
+        <label class="check"><input type="checkbox" data-setting="showCameras"> Cameras</label>
+        <h3 class="heading">Theme</h3>
+        <select id="settings-theme" aria-label="Theme"></select>
+      </div>
+    </div>
   </aside>
 
   <main>
