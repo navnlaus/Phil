@@ -13,6 +13,7 @@
 //   GET  /api/media/poster?path= a video's thumbnail
 //   POST /api/open-url           {url}: a web page (an IMDb link, a missing episode's search), in the default browser
 //   POST /api/show               {path}: a file in its folder, in a phil window (mediaview on its own)
+//   POST /api/show-transfer      {transfer}: a download in phil's Transfers view, in a phil window (likewise)
 //   POST /api/media/prepare      {path}: a folder just marked as media, made ready (prepare()): its
 //                                progress as lines of JSON ({phase, done, total, title}), then {finished, total} or {error}
 //   POST /api/media/forget       {path}: a media folder not there now (moved outside phil, or gone) no longer one
@@ -71,7 +72,7 @@ export function createServer({ profile = {}, controlSocket = null }) {
     };
     for (const d of feed.panda) {
       if (d.state === "completed") continue;
-      const common = { speed: d.speed ?? null, eta: d.eta ?? null, state: d.state, name: d.name };
+      const common = { speed: d.speed ?? null, eta: d.eta ?? null, state: d.state, name: d.name, transfer: `download ${d.id}` };
       const videos = (d.files ?? []).filter((f) => mediaKind(f.path) === "video");
       if (videos.length) {
         for (const f of videos) add({ path: f.path, progress: f.length ? f.downloaded / f.length : (d.percent ?? 0) / 100, total: f.length ?? null, ...common });
@@ -79,14 +80,14 @@ export function createServer({ profile = {}, controlSocket = null }) {
     }
     for (const w of feed.browser) {
       if (mediaKind(w.target) !== "video") continue;
-      add({ path: w.target, progress: (w.percent ?? 0) / 100, total: w.total ?? null, speed: w.speed ?? null, eta: w.eta ?? null, state: w.state, name: w.name });
+      add({ path: w.target, progress: (w.percent ?? 0) / 100, total: w.total ?? null, speed: w.speed ?? null, eta: w.eta ?? null, state: w.state, name: w.name, transfer: `web ${w.id}` });
     }
     return out;
   }
   // The page's bars, as the downloads go (phil's lists change: every second or so while they do).
   const tellDownloads = async () => {
     if (!listeners.size) return;
-    const items = mediaDownloads(await mediaRoots()).map(({ path, progress, speed, eta, state }) => ({ path, progress, speed, eta, state }));
+    const items = mediaDownloads(await mediaRoots()).map(({ path, progress, speed, eta, state, transfer }) => ({ path, progress, speed, eta, state, transfer }));
     tell("downloads", { items });
   };
   feed.addEventListener("change", () => tellDownloads().catch(() => {}));
@@ -219,6 +220,13 @@ export function createServer({ profile = {}, controlSocket = null }) {
           if ((await hooks.get(path)).media !== true) throw httpError(404, "Not a media folder");
           await hooks.set(path, { media: "" });
           store.forget(path);
+          return json({ ok: true });
+        }
+        case "POST /api/show-transfer": { // on its own: a phil window, its Transfers view on that download
+          const { transfer } = await req.json();
+          if (!/^(download|web) \S+$/.test(String(transfer))) throw httpError(400, "A download, as phil names it");
+          const answer = controlSocket ? await ask(controlSocket, { open: { app: "phil", transfer } }).catch(() => null) : null;
+          if (!answer?.ok) throw httpError(503, "Couldn't open a phil window");
           return json({ ok: true });
         }
         case "POST /api/show": { // on its own (not inside phil): a phil window, through the engine

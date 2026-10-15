@@ -266,6 +266,7 @@ function titleDownload(x) {
     speed: dls.reduce((n, d) => n + (d.speed ?? 0), 0) || null,
     eta: Math.max(...dls.map((d) => d.eta ?? 0)) || null,
     count: dls.length,
+    transfer: dls.find((d) => d.transfer)?.transfer ?? null,
   };
 }
 const etaText = (s) => (!s ? "" : s < 90 ? `${Math.round(s)} s left` : s < 5400 ? `${Math.round(s / 60)} min left` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min left`);
@@ -357,7 +358,7 @@ function mediaMeta(x, short = false) {
 function mediaBadges(x) {
   const files = mediaFiles(x), badges = [];
   const dl = titleDownload(x);
-  if (dl) badges.push([`\u2193 ${Math.floor(dl.progress * 100)}%`, "downloading", `${dl.count > 1 ? `${dl.count} files: ` : ""}${downloadText(dl)}`]);
+  if (dl) badges.push([`\u2193 ${Math.floor(dl.progress * 100)}%`, "downloading", `${dl.count > 1 ? `${dl.count} files: ` : ""}${downloadText(dl)}${dl.transfer ? "\nClick: in phil's Transfers" : ""}`]);
   if (x.match === "guess") badges.push(["?", "guess", "A guess: is it right?"]);
   if (x.match === "none") badges.push(["!", "none", "Not found in IMDb's titles"]);
   if (files.every((f) => f.offline)) badges.push(["⏏", "offline", "Its drive isn't there"]);
@@ -378,7 +379,8 @@ function makeMediaCard() {
   card.type = "button";
   card.className = "mv-card";
   card.innerHTML = `<div class="mv-poster"><img loading="lazy" alt=""><span class="mv-badges"></span><span class="mv-rating"></span><span class="mv-q"></span><span class="mv-bar"><span></span></span><span class="mv-play-over" title="Play">${icon("play")}</span></div><span class="mv-title"></span><span class="mv-meta"></span>`;
-  card.onclick = (e) => (e.target.closest(".mv-play-over") ? play(card.item) : openMediaDetail(card.item));
+  card.onclick = (e) => (e.target.closest(".b.downloading") ? showTransfer(titleDownload(card.item)?.transfer)
+    : e.target.closest(".mv-play-over") ? play(card.item) : openMediaDetail(card.item));
   return card;
 }
 
@@ -410,7 +412,7 @@ function makeMediaRow() {
   row.className = "mv-row";
   row.tabIndex = 0;
   row.innerHTML = `<span class="c-pic"><img loading="lazy" alt=""><span class="mv-bar"><span></span></span></span><span class="c-title"><span class="t"></span><span class="mv-badges"></span></span><span class="c-year"></span><span class="c-rating"></span><span class="c-votes"></span><span class="c-length"></span><span class="c-genres"></span><span class="c-quality"></span><span class="c-added"></span>`;
-  row.onclick = () => openMediaDetail(row.item);
+  row.onclick = (e) => (e.target.closest(".b.downloading") ? showTransfer(titleDownload(row.item)?.transfer) : openMediaDetail(row.item));
   row.ondblclick = () => play(row.item);
   row.onkeydown = (e) => void (e.key === "Enter" && (e.preventDefault(), openMediaDetail(row.item)));
   return row;
@@ -605,7 +607,10 @@ function makeEpisodeRow() {
   const row = document.createElement("div");
   row.className = "mv-ep";
   row.innerHTML = `<span class="mv-ep-n"><span class="n"></span>${icon("play", "p")}</span><span class="mv-ep-title"></span><span class="mv-ep-rating"></span><span class="mv-ep-state"></span>`;
-  row.onclick = () => row.f && playable(row.f) && playMedia(row.f);
+  row.onclick = () => {
+    if (row.f && downloadOf(row.f)) showTransfer(downloadOf(row.f).transfer);
+    else if (row.f && playable(row.f)) playMedia(row.f);
+  };
   row.oncontextmenu = (ev) => row.f && (ev.preventDefault(), showMediaFile(row.f));
   return row;
 }
@@ -640,7 +645,7 @@ function showEpisodeDownload(row, f) {
   const d = downloadOf(f);
   if (!d) return;
   put(row.querySelector(".mv-ep-state"), "textContent", `${Math.floor((d.progress ?? 0) * 100)}%`);
-  put(row, "title", `${f.path}\n${downloadText(d)}\nRight-click: show it in its folder`);
+  put(row, "title", `${f.path}\n${downloadText(d)}\nClick: in phil's Transfers. Right-click: show it in its folder`);
 }
 
 // A movie's copy: its quality, size and name; play it, or show it in its folder (or how far it's downloaded).
@@ -651,7 +656,8 @@ function makeFileRow(f) {
   if (downloadOf(f)) { // (made again when that changes: its kind)
     row.classList.add("downloading");
     row.dataset.dl = f.path;
-    row.querySelector(".mv-f-main").insertAdjacentHTML("beforeend", `<span class="mv-f-dl"><span class="mv-bar dl"><span></span></span><span class="t"></span></span>`);
+    row.querySelector(".mv-f-main").insertAdjacentHTML("beforeend", `<span class="mv-f-dl" title="Click: in phil's Transfers"><span class="mv-bar dl"><span></span></span><span class="t"></span></span>`);
+    row.querySelector(".mv-f-dl").onclick = () => showTransfer(downloadOf(row.item)?.transfer);
   }
   row.querySelector(".mv-f-play").onclick = () => playMedia(row.item);
   row.querySelector(".mv-f-show").onclick = () => showMediaFile(row.item);
@@ -763,6 +769,14 @@ addEventListener("message", (e) => {
     frame.contentWindow.postMessage({ engine: "focus" }, "*");
   } else if (e.data?.engine === "close") closePlayer();
 });
+
+// A download in phil's Transfers view (its pause, stop, and delete): in phil, the
+// window this is shown in (it closes this); on its own, a phil window.
+function showTransfer(transfer) {
+  if (!transfer) return;
+  if (embedded) return tellParent({ app: "mediaview", transfer });
+  api("api/show-transfer", { method: "POST", body: JSON.stringify({ transfer }) }).catch((err) => alert(err.message));
+}
 
 // A file in its folder: in phil, the window this is shown in (it closes this);
 // on its own, a phil window.

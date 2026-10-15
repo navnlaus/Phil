@@ -901,6 +901,10 @@ body.incognito::before {
 .tv-file.done .fill { background: var(--good); }
 .tv-file .cancel { width: 22px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text-dim); font-size: 14px; cursor: pointer; }
 .tv-file .cancel:hover { background: var(--bg-hover); color: var(--text); }
+.tv-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.tv-delete { height: 28px; padding: 0 12px; border: 1px solid var(--danger); border-radius: 6px; background: none; color: var(--error); }
+.tv-delete:hover:not(:disabled) { background: var(--danger); color: #fff; }
+.tv-card.focused { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; transition: outline-color 0.6s; }
 .tv-settings { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--border); }
 .tv-daemon { margin: 6px 0 14px; }
 .tv-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 14px 18px; align-items: start; }

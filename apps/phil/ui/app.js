@@ -2083,6 +2083,9 @@ addEventListener("message", (e) => {
     frame.contentWindow.postMessage({ engine: "focus" }, "*"); // now it can focus its view (kit.js holdFocus)
   } else if (e.data?.engine === "close") {
     closeApp();
+  } else if (e.data?.app === "mediaview" && e.data.transfer) { // a download's %: it in the Transfers view
+    closeApp();
+    openTransfersView(e.data.transfer);
   } else if (e.data?.app === "mediaview" && e.data.show) { // "Show it in its folder": here, the media view closed
     closeApp();
     initialSelect = [e.data.show];
@@ -3960,7 +3963,10 @@ let transfersFocus = null;
 $("#btn-transfers").onclick = () => (transfersView.hidden ? openTransfersView() : closeTransfersView());
 transfersView.querySelector(".tv-head .close").onclick = () => closeTransfersView();
 
-function openTransfersView() {
+// `focus`: one of them ("download <id>", "web <id>": mediaview's) scrolled to and lit up, once it's there.
+let transfersFocusKey = null;
+function openTransfersView(focus = null) {
+  transfersFocusKey = typeof focus === "string" ? focus : null;
   closePrefsView();
   // Where the keyboard goes back to: the folder, or the terminal (not the heading clicked to open it).
   transfersFocus = document.activeElement?.closest?.("#sidebar") ? grid : document.activeElement;
@@ -3983,6 +3989,12 @@ function closeTransfersView() {
 function renderTransfersView(list) {
   transfersView.querySelector(".tv-empty").hidden = list.length > 0;
   keyed($("#tv-items"), list, { key: (b) => b.key, kind: barKind, make: makeTransferCard, show: showTransferCard });
+  const card = transfersFocusKey && [...$("#tv-items").children].find((c) => c.dataset.keyed === transfersFocusKey);
+  if (!card) return;
+  transfersFocusKey = null;
+  card.scrollIntoView({ block: "center" });
+  card.classList.add("focused");
+  setTimeout(() => card.classList.remove("focused"), 2500);
 }
 
 // One transfer: its name and what it is, where it goes (a click: there), its
@@ -3996,6 +4008,10 @@ function makeTransferCard(b) {
     <details class="tv-files" hidden><summary></summary><div class="tv-file-list"></div></details>`;
   card.querySelector(".tv-where").after(makeTransferBar(barKind(b)));
   card.querySelector(".tv-where").onclick = () => goToTransfer(card.item);
+  if (b.d) { // panda-dl's: stopped, and every file it was making deleted
+    card.insertAdjacentHTML("beforeend", `<div class="tv-actions"><button type="button" class="tv-delete danger"></button></div>`);
+    card.querySelector(".tv-delete").onclick = () => deleteDownload(card.item.d);
+  }
   return card;
 }
 
@@ -4044,6 +4060,8 @@ function showTransferCard(card, b) {
   }
   put(card.querySelector(".tv-state"), "textContent", state);
   put(card.querySelector(".tv-where"), "textContent", where);
+  const del = card.querySelector(".tv-delete");
+  if (del) put(del, "textContent", b.d.state === "completed" ? "Remove and delete its files" : "Cancel and delete its files");
   put(card.querySelector(".tv-facts"), "textContent", facts.filter(Boolean).join(" · "));
   // A torrent's files (those still in it), each with how far it is, and × to drop it.
   const files = b.d?.files?.length > 1 && b.d.files[0].length !== null ? b.d.files : [];
@@ -4160,6 +4178,18 @@ function onDownloads(list) {
   }
   state.downloads = list;
   showTransfers();
+}
+
+// A download stopped and taken off panda-dl's list, and its files deleted (what's downloaded of them too), once asked.
+async function deleteDownload(d) {
+  const done = d.state === "completed";
+  const ok = await askConfirm({
+    title: `${done ? "Remove" : "Cancel"} \u201c${d.name}\u201d and delete its files?`,
+    detail: `${d.files?.length > 1 ? `Its ${d.files.length} files` : "Its file"} in ${d.dir} (${formatSize(done ? d.total : d.bytes)}${done ? "" : " downloaded so far"}) are deleted, not put in the trash.`,
+    ok: "Delete", danger: true,
+  });
+  if (!ok) return;
+  api("/api/download", { method: "POST", body: JSON.stringify({ action: "remove", id: d.id, deleteFile: true }) }).catch((err) => alert(`Couldn't delete it: ${err.message}`));
 }
 
 // × on a download's bar: on one of its files (or a folder in it), that's no
@@ -4667,9 +4697,13 @@ restoreTerminal = state.settings.termOpen && !choosing; // (a file chooser: just
 // Files to select, from ?select= (phil file..., "Show in folder"); dropped from
 // the URL so they aren't reselected later.
 const selectParams = new URLSearchParams(location.search).getAll("select");
+const transferParam = new URLSearchParams(location.search).get("transfer"); // (mediaview's: a download in the Transfers view)
 initialSelect = selectParams.length ? selectParams : null;
 if (location.search) history.replaceState(null, "", location.pathname + location.hash);
 document.body.classList.toggle("incognito", state.init.incognito);
+// (The Transfers view after the first folder's opened: opening one closes it.)
+if (transferParam && location.hash.length > 1) setTimeout(() => openTransfersView(transferParam));
+else if (transferParam) addEventListener("hashchange", () => setTimeout(() => openTransfersView(transferParam)), { once: true });
 if (location.hash.length > 1) load(decodeURIComponent(location.hash.slice(1)));
 else navigate(state.init.start);
 holdFocus(grid);
