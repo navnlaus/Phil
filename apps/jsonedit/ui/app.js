@@ -146,7 +146,7 @@ function askPath(label, value) {
       done(path.startsWith("/") ? path : null);
     };
     $("#path-cancel").onclick = () => done(null);
-    input.onkeydown = (e) => e.key === "Escape" && done(null);
+    input.onkeydown = (e) => void (e.key === "Escape" && done(null)); // (void: false would cancel every key typed)
   });
 }
 

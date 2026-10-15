@@ -418,7 +418,7 @@ $("#target").oninput = (e) => {
 $("#progressive").onchange = (e) => ((S.progressive = e.target.checked), update());
 $("#metadata").onchange = (e) => ((S.metadata = e.target.checked), update());
 $("#dest").oninput = () => (S.destEdited = true);
-$("#dest").onkeydown = (e) => e.key === "Enter" && save();
+$("#dest").onkeydown = (e) => void (e.key === "Enter" && save()); // (void: an on-handler returning false would cancel every key)
 $("#save").onclick = () => save();
 for (const b of document.querySelectorAll("#show button")) b.onclick = () => ((S.show = b.dataset.show), update({ render: false }));
 resultImg.onclick = () => resultImg.classList.toggle("actual"); // its actual pixels, to judge the compression
