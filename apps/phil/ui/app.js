@@ -3742,7 +3742,7 @@ function transferTip(b) {
   const when = (label, ms) => (ms ? `${label} ${whenText(ms)}` : "");
   if (b.w) {
     const w = b.w, going = w.state === "downloading";
-    return [line(`${w.app}: ${going ? "downloading" : "paused or stalled"}`, w.total ? of(w.bytes, w.total) : formatSize(w.bytes),
+    return [line(`${w.app}: ${going ? "downloading" : w.state === "stalled" ? "paused or stalled" : w.state}`, w.total ? of(w.bytes, w.total) : formatSize(w.bytes),
       going && w.speed ? `${formatSize(w.speed)}/s` : "", going && w.eta != null ? `${formatDuration(w.eta)} left` : ""), when("Started", w.started)].filter(Boolean).join("\n");
   }
   if (b.stopped) {
@@ -3845,10 +3845,10 @@ function showTransferCard(card, b) {
   let state, where, facts;
   if (b.w) {
     const w = b.w, going = w.state === "downloading";
-    state = `${w.app}: ${going ? "downloading" : "paused or stalled"}`;
+    state = `${w.app}: ${going ? "downloading" : w.state === "stalled" ? "paused or stalled" : w.state}`;
     where = `Into ${w.dir}`;
     facts = [w.total ? `${formatSize(w.bytes)} of ${formatSize(w.total)}` : formatSize(w.bytes), going && w.speed ? `↓ ${formatSize(w.speed)}/s` : "",
-      going && w.eta != null ? `${formatDuration(w.eta)} left` : "", w.started ? `started ${whenText(w.started)}` : "", "(phil can't pause or stop it: the browser can)"];
+      going && w.eta != null ? `${formatDuration(w.eta)} left` : "", w.started ? `started ${whenText(w.started)}` : "", w.stoppable ? "" : "(phil can't pause or stop it: the program doing it can)"];
   } else if (b.stopped) {
     const c = b.stopped.copying;
     state = `${c.op === "move" ? "Moving" : "Copying"} stopped at ${c.percent}%`;
@@ -3959,7 +3959,7 @@ $("#tv-dir-here").onclick = () => {
 };
 
 const partDone = (b) => b.d.state === "completed" || (b.part?.length != null && b.part.downloaded >= b.part.length);
-const barKind = (b) => (b.w ? "web" : b.d ? (partDone(b) ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
+const barKind = (b) => (b.w ? (b.w.stoppable ? "web-stop" : "web") : b.d ? (partDone(b) ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");
 
 // A download's files, and the folders in it (below the folder it goes to),
 // each with how much of it there is and how much is downloaded: path ->
@@ -4060,6 +4060,16 @@ const copySpeed = (t, sep) => (t.speed ? `${sep}${formatSize(t.speed)}/s` : "") 
 // Another program's download (a browser's): how far (its size known: from the browser's
 // History), how fast; a size unknown, a moving stripe.
 function showWebBar(bar, w) {
+  // A program's own state (a report's: "preparing", "converting"...), said as it is.
+  if (w.state !== "downloading" && w.state !== "stalled") {
+    const words = w.state.charAt(0).toUpperCase() + w.state.slice(1);
+    bar.classList.add("paused");
+    bar.classList.remove("unknown");
+    put(bar.querySelector(".fill").style, "width", w.percent != null ? `${w.percent}%` : "0%");
+    put(bar.querySelector(".pct"), "textContent", inSidebar(bar) ? (w.percent != null ? `${w.percent}%` : "") : `${words}${w.percent != null ? ` ${w.percent}%` : ""}`);
+    return put(bar, "title", `${w.app}: ${w.name}, ${w.state}`);
+  }
+  bar.classList.remove("paused");
   const going = w.state === "downloading", known = w.percent != null;
   bar.classList.toggle("paused", !going);
   bar.classList.toggle("unknown", !known && going);
@@ -4096,8 +4106,9 @@ function makeTransferBar(kind) {
     // Downloaded (an icon), and while it's seeding, ↑ and how fast.
     label.innerHTML = `${icon("l:download")}<span class="seeding">${icon("l:arrow-up")}<span></span></span>`;
     bar.append(barButton("×", "", () => stopDownloadPart(bar.item)));
-  } else if (kind === "web") {
-    bar.classList.add("download", "web"); // another program's: no buttons (phil can't pause or stop it)
+  } else if (kind === "web" || kind === "web-stop") {
+    bar.classList.add("download", "web"); // another program's: phil can't pause it; × when its report says it may be stopped
+    if (kind === "web-stop") bar.append(barButton("×", "Stop it (what's downloaded so far is left)", () => api("/api/transfer-report-stop", { method: "POST", body: JSON.stringify({ id: bar.item.w.id }) }).catch(() => {})));
   } else if (kind === "download") {
     bar.classList.add("download");
     const act = (action) => api("/api/download", { method: "POST", body: JSON.stringify({ action, id: bar.item.d.id }) }).catch((err) => alert(err.message));
