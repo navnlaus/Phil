@@ -3348,7 +3348,7 @@ async function transfer(op, items, dest, { resume = false, target = null } = {})
   }
   if (result.cancelled) {
     result.errors = result.errors.filter((e) => e.error !== "cancelled");
-    flashStatus(`${op === "move" ? "Moving" : "Copying"} stopped: what was done stays ${op === "move" ? "moved" : "copied"}; ↻ on the folder goes on`);
+    flashStatus(`${op === "move" ? "Moving" : "Copying"} stopped: what was done stays ${op === "move" ? "moved" : "copied"}; ↻ on the folder resumes it`);
   }
   await load(state.path);
   // What's made here (copies in the same folder) is selected.
@@ -3615,7 +3615,7 @@ function showTransferCard(card, b) {
     const c = b.stopped.copying;
     state = `${c.op === "move" ? "Moving" : "Copying"} stopped at ${c.percent}%`;
     where = `To ${parentOf(b.stopped.path)}`;
-    facts = [`from ${c.from}`, c.total ? `${formatSize(c.bytes)} of ${formatSize(c.total)}` : "", c.updated ? `stopped ${formatDate(c.updated)}` : "", "↻ goes on where it stopped"];
+    facts = [`from ${c.from}`, c.total ? `${formatSize(c.bytes)} of ${formatSize(c.total)}` : "", c.updated ? `stopped ${formatDate(c.updated)}` : "", "↻ resumes it where it stopped"];
   } else if (b.d) {
     const d = b.d;
     state = d.checking != null ? `Checking its files: ${d.checking}%` : { completed: d.upSpeed > 0 ? "Seeding" : "Downloaded", paused: "Paused", error: "Failed", failed: "Failed", queued: "Queued", metadata: "Finding it", checking: "Checking" }[d.state] ?? "Downloading";
@@ -3669,7 +3669,7 @@ function showFileRow(row, f, d) {
   put(row.querySelector(".tv-file-pct"), "textContent", pct >= 100 ? "Done" : `${pct}%`);
   row.classList.toggle("done", pct >= 100);
   put(row.querySelector(".cancel"), "title", d.state === "completed" || d.files.length === 1
-    ? "Drop it (the last of it: the download is closed; the file stays)" : "Stop downloading this (the rest goes on; what's downloaded stays)");
+    ? "Drop it (the last of it: the download is closed; the file stays)" : "Stop downloading this (the rest continues; what's downloaded stays)");
 }
 
 // panda-dl's settings: shown as they are, each saved as it's changed.
@@ -3788,8 +3788,8 @@ function showDownloadBar(bar, d, part = null) {
       (paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}`));
     const [toggle, stop] = bar.querySelectorAll(".cancel");
     putIcon(toggle, paused ? "l:play" : "l:pause");
-    put(toggle, "title", paused ? `Go on with “${d.name}”` : `Pause “${d.name}”`);
-    put(stop, "title", d.files?.length > 1 ? "Stop downloading this (the rest goes on; what's downloaded stays)" : `Stop and forget “${d.name}” (what's downloaded stays)`);
+    put(toggle, "title", paused ? `Resume “${d.name}”` : `Pause “${d.name}”`);
+    put(stop, "title", d.files?.length > 1 ? "Stop downloading this (the rest continues; what's downloaded stays)" : `Stop and forget “${d.name}” (what's downloaded stays)`);
     return;
   }
   if (d.state === "completed") { // still in panda-dl's list: seeding, maybe
@@ -3812,7 +3812,7 @@ function showDownloadBar(bar, d, part = null) {
     (failed ? `\n${d.error || "it failed"}` : paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}${peers}`));
   const [toggle, stop] = bar.querySelectorAll(".cancel");
   putIcon(toggle, paused || failed ? "l:play" : "l:pause");
-  put(toggle, "title", paused || failed ? "Go on" : "Pause");
+  put(toggle, "title", paused || failed ? "Resume" : "Pause");
   put(stop, "title", "Stop and forget this download (what's downloaded stays)");
 }
 
@@ -3890,8 +3890,8 @@ function showTransferBar(bar, t, { ofFile = false } = {}) {
   bar.classList.toggle("paused", !!t.paused);
   const [pause, cancel] = bar.querySelectorAll(".cancel");
   putIcon(pause, t.paused ? "l:play" : "l:pause");
-  put(pause, "title", t.paused ? "Go on" : "Pause");
-  put(cancel, "title", `Stop ${t.op === "move" ? "moving" : "copying"} (what's done stays; ↻ on the folder goes on)`);
+  put(pause, "title", t.paused ? "Resume" : "Pause");
+  put(cancel, "title", `Stop ${t.op === "move" ? "moving" : "copying"} (what's done stays; ↻ on the folder resumes it)`);
 }
 
 // A bar in the sidebar's Transfers: just the percentage (paused or stopped: its buttons and tooltip say), so it fits.
@@ -3901,13 +3901,13 @@ function showStoppedBar(bar, e) {
   const c = e.copying;
   put(bar.querySelector(".fill").style, "width", `${c.percent}%`);
   if (c.file) { // a file cut off mid-copy (it has its name): ↻ on the folder goes on with it
-    put(bar, "title", `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped ${c.percent}% of the way in, ${formatDate(c.updated)}: ↻ on the folder it's in goes on with it`);
+    put(bar, "title", `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped ${c.percent}% of the way in, ${formatDate(c.updated)}: ↻ on the folder it's in resumes it`);
     put(bar.querySelector(".pct"), "textContent", inSidebar(bar) ? `${c.percent}%` : `Cut off at ${c.percent}%`);
     return;
   }
   put(bar, "title", `${c.op === "move" ? "Moving" : "Copying"} it from ${c.from} stopped at ${c.percent}% (${formatSize(c.bytes)} of ${formatSize(c.total)}), ${formatDate(c.updated)}`);
   put(bar.querySelector(".pct"), "textContent", inSidebar(bar) ? `${c.percent}%` : `Stopped at ${c.percent}%`);
-  put(bar.querySelector(".cancel"), "title", `Go on ${c.op === "move" ? "moving" : "copying"} (what's there is skipped)`);
+  put(bar.querySelector(".cancel"), "title", `Resume ${c.op === "move" ? "moving" : "copying"} (what's there is skipped)`);
 }
 
 function barButton(text, title, action) {
