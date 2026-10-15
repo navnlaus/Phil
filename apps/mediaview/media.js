@@ -220,7 +220,7 @@ export async function library(roots, { fixes = {}, watched = {}, remembered = {}
   }
   const byPath = new Map(files.map((f) => [f.path, f]));
   for (const dl of downloads) {
-    const being = { progress: dl.progress, total: dl.total, speed: dl.speed, eta: dl.eta, state: dl.state };
+    const being = { progress: dl.progress, total: dl.total, speed: dl.speed, eta: dl.eta, state: dl.state, transfer: dl.transfer };
     const f = byPath.get(dl.path);
     if (f) f.downloading = being; // (a torrent writes its files where they go: found already)
     else if (online[dl.root]) {

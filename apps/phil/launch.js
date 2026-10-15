@@ -175,8 +175,9 @@ export function parse(args, { cwd }) {
 }
 
 /** The page URL: files to select in ?select=, the folder in the fragment. */
-export function windowUrl(base, { dir, select = [], choose = null }) {
+export function windowUrl(base, { dir, select = [], choose = null, transfer = null }) {
   for (const path of select) base.searchParams.append("select", path);
+  if (transfer) base.searchParams.set("transfer", transfer); // the Transfers view, that one in view (mediaview's)
   if (choose) { // a file chooser (--choose): what's asked, and where the answer goes
     base.searchParams.set("choose", choose.mode);
     if (choose.multiple) base.searchParams.set("multiple", "1");
