@@ -1803,7 +1803,15 @@ if (choosing) {
   name.value = choosing.name;
   name.addEventListener("input", updateChooser);
   name.addEventListener("keydown", (e) => e.stopPropagation()); // the name's keys, not the folder's (Enter saves)
-  // Esc in the bar (its name, its buttons): cancelled, as a dialog's Esc.
+  // Esc cancels, as a dialog's: anywhere in the window, unless something over it takes it
+  // first (a menu, a dialog, the viewer, an app shown, renaming, the filter cleared).
+  addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.defaultPrevented || choosing.answered) return;
+    if (!contextMenu.hidden || dialogOpen() || !viewerEl.hidden || !appView.hidden || renaming) return;
+    e.preventDefault();
+    answerChoice([]);
+  });
+  // In the bar (its name field keeps its keys to itself): the same.
   chooser.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     e.preventDefault();
@@ -4255,6 +4263,7 @@ filterInput.addEventListener("input", () => {
 });
 filterInput.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (filterInput.value) e.preventDefault(); // (cleared: that's all; empty, a chooser's Esc cancels)
     filterInput.value = "";
     render();
     grid.focus();
@@ -4424,7 +4433,7 @@ document.addEventListener("keydown", (e) => {
 
   if (e.altKey && e.key === "ArrowLeft") return history.back(), handled();
   if (e.altKey && e.key === "ArrowRight") return history.forward(), handled();
-  if ((e.key === "Backspace" || e.key === "Escape") && e.target === grid) return $("#btn-up").click(), handled();
+  if ((e.key === "Backspace" || (e.key === "Escape" && !choosing)) && e.target === grid) return $("#btn-up").click(), handled(); // (a chooser's Esc: cancelled)
   // Insert: a new folder; Super+Insert: a new file (Ctrl+ and Shift+Insert are the clipboard's).
   if (e.key === "Insert" && !e.ctrlKey && !e.shiftKey && !e.altKey && (e.target === grid || e.target === document.body)) {
     return createIn(state.path, e.metaKey ? "file" : "dir"), handled();
