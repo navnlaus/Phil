@@ -105,7 +105,9 @@ takes the setting (`phil-engine --retire`, or `phil --quit`).
   stays in it (a left-drag carries their `file://` URIs as any page's would);
   files dropped in from other programs come without their paths (Chromium keeps
   them from pages); the browser's own shortcuts work where phil has none of its
-  own (Ctrl+F finds in the page, Ctrl+P prints).
+  own (Ctrl+F finds in the page, Ctrl+P prints), but not those that would close the
+  window or quit the browser (Ctrl+W, Ctrl+Shift+W, Ctrl+Shift+Q): the pages keep
+  those (the terminal's Ctrl+W deletes a word).
 - `engine/chromium.js`; the pages talk to the engine through the server
   (`POST /engine/window`, `engine/ui/kit.js`).
 
