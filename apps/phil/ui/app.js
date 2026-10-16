@@ -4620,10 +4620,13 @@ function endScriptRun() {
   if (!wasOpen) setTerminalOpen(false);
 }
 
-// Keys in the terminal phil takes: Esc ends a double-clicked script's run,
-// Ctrl+F toggles covering the window.
+// Keys in the terminal phil takes: Esc ends a double-clicked script's run, or
+// closes the panel at the shell's prompt (a program running there, vim, less,
+// gets it); Ctrl+F toggles covering the window.
 function terminalKey(e) {
-  if (e.key === "Escape" && scriptRun && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) return endScriptRun(), true;
+  const plainEsc = e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey;
+  if (plainEsc && scriptRun) return endScriptRun(), true;
+  if (plainEsc && !terminal.busy) return setTerminalOpen(false), true;
   if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === "f") {
     return setTerminalCover(!document.body.classList.contains("term-cover")), true;
   }
