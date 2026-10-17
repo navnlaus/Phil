@@ -580,6 +580,7 @@ export function createServer({ profile, controlSocket }) {
     for await (const d of Deno.readDir(dir)) dirents.push(d);
     const who = lookups ? await me() : null;
     const dirStat = lookups ? await Deno.stat(dir).catch(() => null) : null;
+    const counted = lookups && await countsTotals(dir);
     return await mapLimit(dirents, 64, async (d) => {
       const path = join(dir, d.name);
       let stat = null;
@@ -604,7 +605,7 @@ export function createServer({ profile, controlSocket }) {
       if (stat && (kind === "image" || kind === "video" || kind === "pdf")) entry.thumb = await thumbs.lookup(path, stat);
       if (kind === "dir") {
         entry.summary = await folders.get(path);
-        entry.total = await totals.get(path, entry.mtime); // { bytes, stale } or null; the page asks for stale ones
+        entry.total = counted ? await totals.get(path, entry.mtime) : null; // { bytes, stale } or null; the page asks for stale ones
       }
       return entry;
     });
@@ -670,11 +671,14 @@ export function createServer({ profile, controlSocket }) {
     let hookWatch = null; // the shown folder's hooks (hooks.js)
     let tagJob = null; // the shown folder's tagging, aborted when another is asked for
     let backgroundJob = null; // the shown folder's other thumbnails, made in the background
+    let totalsJob = new AbortController(); // the shown folder's folders' totals, dropped when another is shown
     socket.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.watch) {
         watching = watching.then(async () => (watcher = await watchFolder(msg.watch, watcher, send))).catch(() => {});
         if (shown.get(socket) !== msg.watch) {
+          totalsJob.abort();
+          totalsJob = new AbortController();
           hookWatch?.close();
           hookWatch = hooks.watch(msg.watch);
           shown.set(socket, msg.watch);
@@ -696,7 +700,15 @@ export function createServer({ profile, controlSocket }) {
         backgroundJob = new AbortController();
         makeInBackground(Array.isArray(msg.background) ? msg.background : [], backgroundJob.signal, send);
       }
-      for (const path of msg.totals ?? []) totals.refresh(path, (bytes) => send({ totalOf: path, bytes })); // {totals: [folder]}: du, then {totalOf, bytes}
+      if (msg.totals?.length) { // {totals: [folder]}: du, then {totalOf, bytes} (null: none, as on a USB drive unless set otherwise)
+        const signal = totalsJob.signal;
+        countsTotals(msg.totals[0]).then((counted) => {
+          for (const path of msg.totals) {
+            if (counted) totals.refresh(path, (bytes) => send({ totalOf: path, bytes }), signal);
+            else send({ totalOf: path, bytes: null });
+          }
+        });
+      }
       for (const path of msg.cancel ?? []) pending.get(path)?.abort();
       for (const path of msg.want ?? []) {
         if (pending.has(path)) continue;
@@ -745,6 +757,7 @@ export function createServer({ profile, controlSocket }) {
       hookWatch?.close();
       tagJob?.abort();
       backgroundJob?.abort();
+      totalsJob.abort();
       pending.forEach((c) => c.abort());
       watching.then(() => watcher?.close());
     };
@@ -967,6 +980,14 @@ export function createServer({ profile, controlSocket }) {
     await Deno.rename(path, target);
     await folders.moved(path, target).catch(() => {});
     return { path: target };
+  }
+
+  // Whether folders' totals are worked out (du) where `path` is: the
+  // folderSizes setting, "all", "off", or (unset) not on a USB drive.
+  async function countsTotals(path) {
+    const { folderSizes } = await readSettings();
+    if (folderSizes === "all" || folderSizes === "off") return folderSizes === "all";
+    return !await onUsb(path);
   }
 
   async function readSettings() {
@@ -1861,6 +1882,26 @@ function pauseTransfer(id, pause) {
 }
 
 const hasSetpriv = new Deno.Command("setpriv", { args: ["--version"], stdin: "null", stdout: "null", stderr: "null" }).output().then((o) => o.success, () => false);
+
+// Whether `path` is on a drive plugged in by USB (its block device's place in
+// /sys is under a USB controller), remembered by file system.
+const usbByDev = new Map();
+async function onUsb(path) {
+  const dev = await Deno.stat(path).then((s) => s.dev, () => null);
+  if (dev === null) return false;
+  if (usbByDev.has(dev)) return usbByDev.get(dev);
+  let usb = false;
+  try {
+    const out = await new Deno.Command("findmnt", { args: ["-no", "SOURCE", "-T", path], stdin: "null", stdout: "piped", stderr: "null" }).output();
+    const source = new TextDecoder().decode(out.stdout).trim().replace(/\[.*\]$/, ""); // (btrfs: its subvolume, after)
+    if (source.startsWith("/dev/")) { // lsblk -s: it and what it's on (a partition, its disk; LUKS too), with how they're connected
+      const tran = await new Deno.Command("lsblk", { args: ["-sno", "TRAN", "--", source], stdin: "null", stdout: "piped", stderr: "null" }).output();
+      usb = new TextDecoder().decode(tran.stdout).split("\n").some((t) => t.trim() === "usb");
+    }
+  } catch { /* not a block device's */ }
+  usbByDev.set(dev, usb);
+  return usb;
+}
 
 const CLONING_FS = /^(btrfs|xfs|bcachefs)$/; // cp clones files there: a copy is instant
 const NON_POSIX_FS = /^(msdos|vfat|exfat|fuseblk|ntfs3?)$/; // no owners or permissions to keep

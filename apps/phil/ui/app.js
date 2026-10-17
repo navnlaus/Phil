@@ -378,13 +378,22 @@ function onFolderSummary(path, summary) {
 // once its tile is near the view, unless the one known is recent.
 const wantTotal = (entry) => wantTotals([entry]);
 
+// The status bar says how many are being added up (totalsPending).
+const totalsPending = new Set();
 function wantTotals(entries) {
+  if (state.settings.folderSizes === "off") return;
   const asked = entries.filter((e) => !(e.total && !e.total.stale) && !e.totalAsked);
-  for (const e of asked) e.totalAsked = true;
-  if (asked.length) thumbs.wantTotals(asked.map((e) => e.path));
+  for (const e of asked) e.totalAsked = true, totalsPending.add(e.path);
+  if (!asked.length) return;
+  thumbs.wantTotals(asked.map((e) => e.path)), updateProgress();
+  for (const e of asked) {
+    const tile = tiles.get(e.path);
+    if (tile) showFolderInfo(tile, e); // its spinner
+  }
 }
 
 function onFolderTotal(path, bytes) {
+  if (totalsPending.delete(path)) updateProgress(); // (its tile's spinner: showFolderInfo, below)
   const tile = tiles.get(path);
   const entry = tile && state.view[tile.dataset.index];
   if (entry?.path !== path) return;
@@ -740,7 +749,7 @@ async function load(path) {
   state.path = listing.path;
   terminal.follow(listing.path);
   state.entries = listing.entries;
-  if (previous !== listing.path) changedFolders.clear(), autoTags.clear(), tagFilter.clear(), carried.clear(), searchScores.clear();
+  if (previous !== listing.path) changedFolders.clear(), autoTags.clear(), tagFilter.clear(), carried.clear(), searchScores.clear(), totalsPending.clear(); // (the server drops those totals)
   state.listingAutoTags = !!listing.autoTags;
   state.autoTagged = autoTagging(listing);
   thumbs.watch(listing.path);
@@ -1121,8 +1130,10 @@ function showFolderInfo(tile, entry) {
   // being copied into, its size as the copy goes (copySize).
   const live = copySize(entry);
   const total = live?.total ?? entry.total;
-  put(meta, "textContent", live?.text ?? (summary ? folderContents(summary, total) : total?.bytes !== undefined ? formatSize(total.bytes) : ""));
-  put(tile, "title", entry.name + (meta.textContent ? `\n${meta.textContent}` : "") + titleNotes(entry));
+  const sizing = !live && total?.bytes === undefined && totalsPending.has(entry.path); // du at it: a spinner where it goes
+  put(meta, "textContent", live?.text ?? (summary ? folderContents(summary, total, sizing) : total?.bytes !== undefined ? formatSize(total.bytes) : ""));
+  meta.classList.toggle("sizing", sizing && !!summary?.dirs);
+  put(tile, "title", entry.name + (meta.textContent ? `\n${meta.textContent}${meta.classList.contains("sizing") ? " (adding it up…)" : ""}` : "") + titleNotes(entry));
   showMarks(tile, entry);
   tile.classList.toggle("empty-dir", !!summary && !summary.files && !summary.dirs);
 }
@@ -1201,14 +1212,16 @@ function formatShortDate(ms) {
 }
 
 // "3 folders · 17 files · 56 MB / 1.2 GB": the size of the files in it, then
-// of everything, subfolders too (… while it's worked out). Without
-// subfolders the two are the same, so it's said once.
-function folderContents({ files, dirs, size }, total) {
+// of everything, subfolders too (`sizing`: while du works it out, "56 MB /",
+// and the tile's spinner after). Without subfolders the two are the same, so
+// it's said once; without the total (not worked out there), the files' alone.
+function folderContents({ files, dirs, size }, total, sizing = false) {
   const count = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
   const parts = [];
   if (dirs) parts.push(count(dirs, "folder"));
   if (files) parts.push(count(files, "file"));
-  if (dirs && !total?.failed) parts.push(`${formatSize(files ? size : 0)} / ${total?.bytes !== undefined ? formatSize(total.bytes) : "…"}`);
+  if (dirs && total?.bytes !== undefined) parts.push(`${formatSize(files ? size : 0)} / ${formatSize(total.bytes)}`);
+  else if (dirs && sizing) parts.push(`${formatSize(files ? size : 0)} /`);
   else if (files) parts.push(formatSize(size));
   return parts.join(" · ") || "Empty";
 }
@@ -1653,6 +1666,8 @@ function updateProgress() {
   const parts = [];
   if (files) parts.push(`Generating ${files} thumbnail${files === 1 ? "" : "s"}`);
   if (folders) parts.push(`${parts.length ? "reading" : "Reading"} ${folders} folder${folders === 1 ? "" : "s"}`);
+  const sizing = totalsPending.size;
+  if (sizing) parts.push(`${parts.length ? "adding" : "Adding"} up ${sizing} folder${sizing === 1 ? "'s" : "s'"} size${sizing === 1 ? "" : "s"}`);
   if (flashStatus.until > Date.now()) return; // a message showing for a while (it updates this after)
   $("#status-progress").textContent = parts.length ? parts.join(", ") + "…" : "";
 }
@@ -1761,6 +1776,7 @@ async function openPrefsView() {
   browserSelect.querySelector(".other")?.remove();
   if (s.browser && s.browser !== "webkit" && s.browser !== "default") browserSelect.add(Object.assign(new Option(s.browser, s.browser), { className: "other" }));
   browserSelect.value = s.browser === "default" ? "" : s.browser ?? "";
+  folderSizesSelect.value = ["all", "off"].includes(s.folderSizes) ? s.folderSizes : "";
   const r = await api("/api/themes").catch(() => null);
   if (r) {
     const names = r.themes.includes(s.theme) ? r.themes : [...r.themes, s.theme];
@@ -1877,6 +1893,15 @@ function saveSettingsNow() {
   const { chooser: _, ...settings } = state.settings;
   return fetch("/api/settings", { method: "PUT", body: JSON.stringify(settings) }).catch(() => {});
 }
+const folderSizesSelect = $("#prefs-folder-sizes");
+folderSizesSelect.onchange = async () => {
+  if (folderSizesSelect.value) state.settings.folderSizes = folderSizesSelect.value;
+  else delete state.settings.folderSizes;
+  await saveSettingsNow(); // the server reads it when it lists a folder
+  totalsPending.clear(), updateProgress();
+  load(state.path); // the totals shown, or not
+};
+
 browserSelect.onchange = () => {
   if (browserSelect.value) state.settings.browser = browserSelect.value;
   else delete state.settings.browser;

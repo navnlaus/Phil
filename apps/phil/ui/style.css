@@ -563,6 +563,20 @@ main { padding-top: var(--bar-h); }
 .label .name svg.state.locked { color: var(--locked); opacity: 1; }
 .label .meta { font-size: 10px; }
 .label .meta:empty { display: none; }
+/* Its total being added up (du): a small spinner where it'll be */
+.label .meta.sizing::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  opacity: 0.8;
+  animation: spin 0.8s linear infinite;
+}
 .tile.renaming .label .name { display: none; }
 .label .rename {
   order: -1;

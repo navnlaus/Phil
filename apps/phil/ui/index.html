@@ -165,6 +165,15 @@
               <p class="hint">In mediaview, a missing episode gets a link that searches here for it: the show's name and the episode, as in “Stranger Things S03E04”, in place of %s (or at the end). Empty: no links.</p>
               <p class="hint error" hidden></p>
             </div>
+            <label for="prefs-folder-sizes">Folder sizes</label>
+            <div class="tv-field">
+              <select id="prefs-folder-sizes">
+                <option value="">Not on USB drives</option>
+                <option value="all">On every drive</option>
+                <option value="off">Nowhere</option>
+              </select>
+              <p class="hint">A folder's tile shows everything in it added up (du, in the background, at the lowest priority). Network drives never.</p>
+            </div>
             <label for="prefs-theme">Theme</label>
             <div class="tv-field">
               <select id="prefs-theme"></select>

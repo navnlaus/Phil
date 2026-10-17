@@ -15,13 +15,18 @@ const KEEP = 5000; // totals remembered
  *
  * Kept in <thumbs>/folder-totals.json; without a directory (incognito) in
  * memory for the session only.
+ *
+ * du runs at the lowest priority (nice, ionice's idle class): a slow drive
+ * isn't kept from anything else. Asked with a signal (the folder shown), a
+ * total no longer wanted when it's aborted is dropped, its du stopped.
  */
 export class FolderTotals {
   constructor(dir) {
     this.file = dir ? join(dir, "folder-totals.json") : null;
     this.totals = new Map(); // path -> { bytes, mtime, at }
     this.queue = []; // folders waiting, the most recently asked for last (done first)
-    this.waiting = new Map(); // path -> [callbacks]
+    this.waiting = new Map(); // path -> [{ done, signal }]
+    this.stops = new Map(); // path -> AbortController, for its du while it runs
     this.running = 0;
     this.loaded = this.file
       ? Deno.readTextFile(this.file).then((t) => (this.totals = new Map(Object.entries(JSON.parse(t)))), () => {})
@@ -45,29 +50,48 @@ export class FolderTotals {
     if (changed) this.save();
   }
 
-  /** Works the total out (again), calling `done(bytes)`, or done(null) if du fails. */
-  refresh(path, done) {
-    const callbacks = this.waiting.get(path);
-    if (callbacks) {
-      callbacks.push(done);
+  /**
+   * Works the total out (again), calling `done(bytes)`, or done(null) if du fails;
+   * `signal` aborted first: not called, and when nobody else waits, not worked out.
+   */
+  refresh(path, done, signal = null) {
+    if (signal?.aborted) return;
+    const waiter = { done, signal };
+    signal?.addEventListener("abort", () => this.drop(path, waiter), { once: true });
+    const waiters = this.waiting.get(path);
+    if (waiters) {
+      waiters.push(waiter);
       const i = this.queue.indexOf(path);
       if (i !== -1) this.queue.push(...this.queue.splice(i, 1)); // asked again: sooner
       return;
     }
-    this.waiting.set(path, [done]);
+    this.waiting.set(path, [waiter]);
     this.queue.push(path);
     this.next();
+  }
+
+  drop(path, waiter) {
+    const waiters = this.waiting.get(path);
+    if (!waiters?.includes(waiter)) return;
+    waiters.splice(waiters.indexOf(waiter), 1);
+    if (waiters.length) return;
+    const i = this.queue.indexOf(path);
+    if (i !== -1) this.queue.splice(i, 1), this.waiting.delete(path);
+    else this.stops.get(path)?.abort(); // running: its du stopped
   }
 
   next() {
     while (this.running < RUNNING && this.queue.length) {
       const path = this.queue.pop();
       this.running++;
-      this.measure(path)
+      const stop = new AbortController();
+      this.stops.set(path, stop);
+      this.measure(path, stop.signal)
         .then((bytes) => {
-          for (const done of this.waiting.get(path) ?? []) done(bytes);
+          if (!stop.signal.aborted) for (const { done } of this.waiting.get(path) ?? []) done(bytes);
         })
         .finally(() => {
+          this.stops.delete(path);
           this.waiting.delete(path);
           this.running--;
           this.next();
@@ -75,7 +99,7 @@ export class FolderTotals {
     }
   }
 
-  async measure(path) {
+  async measure(path, signal) {
     const mtime = await Deno.stat(path).then((s) => s.mtime?.getTime() ?? 0, () => null);
     if (mtime === null) return null;
     if (await notWorthIt(path)) return null;
@@ -83,18 +107,18 @@ export class FolderTotals {
     try {
       // -s: one total; -b: bytes, the files' sizes; -x: this file system only. Folders
       // it can't read are left out (du says so on stderr and still gives the rest).
-      out = await new Deno.Command("du", {
-        args: ["-sbx", "--", path],
+      out = await new Deno.Command("ionice", {
+        args: ["-c", "3", "nice", "-n", "19", "du", "-sbx", "--", path],
         stdin: "null",
         stdout: "piped",
         stderr: "null",
-        signal: AbortSignal.timeout(TIMEOUT),
+        signal: AbortSignal.any([AbortSignal.timeout(TIMEOUT), signal]),
       }).output();
     } catch {
       return null;
     }
     const bytes = parseInt(new TextDecoder().decode(out.stdout));
-    if (!Number.isFinite(bytes)) return null;
+    if (signal.aborted || !Number.isFinite(bytes)) return null;
     this.totals.delete(path);
     this.totals.set(path, { bytes, mtime, at: Date.now() });
     if (this.totals.size > KEEP) this.totals.delete(this.totals.keys().next().value);
