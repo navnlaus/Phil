@@ -48,11 +48,19 @@ xdg-mime default imageview.desktop $(sed -n 's/^MimeType=//p' data/imageview.des
 busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig >/dev/null 2>&1 || true
 # Omarchy: phil's widget for its bar (long copies, moves and deletes, with
 # their progress), a shell plugin in ~/.config/omarchy/plugins/phil, put
-# before the clock unless it's on the bar already.
+# before the clock unless it's on the bar already. Only when it's changed: the
+# shell reloads its plugins on a change, and a reload gives every widget the
+# settings it had when the bar was built, not what's been changed since (the
+# taskbar's pins vanish, and its next edit writes that back to shell.json).
 omarchy_config=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy
 if [[ -d $omarchy_config ]] && command -v omarchy >/dev/null; then
-  for f in manifest.json BarWidget.qml; do install -Dm644 "data/omarchy-bar/phil/$f" "$omarchy_config/plugins/phil/$f"; done
-  omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+  plugin_changed=
+  for f in manifest.json BarWidget.qml; do
+    cmp -s "data/omarchy-bar/phil/$f" "$omarchy_config/plugins/phil/$f" && continue
+    install -Dm644 "data/omarchy-bar/phil/$f" "$omarchy_config/plugins/phil/$f"
+    plugin_changed=1
+  done
+  [[ -n $plugin_changed ]] && { omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true; }
   omarchy bar put phil --section center --before omarchy.clock >/dev/null 2>&1 || echo "Couldn't put phil's widget on the bar: omarchy bar put phil"
 fi
 # Running engines (and phils from before the engine) keep their open windows
