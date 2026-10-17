@@ -72,10 +72,19 @@ function seekTo(t) {
   showTime();
 }
 
-function startStream(t, play = true) {
+// A copied video's stream starts at the keyframe before `t` (the server's
+// seekpoint), and its offset is that.
+let streamToken = 0;
+async function startStream(t, play = true) {
+  const token = ++streamToken, path = entry().path;
   state.streaming = true;
   state.offset = Math.max(0, t);
-  video.src = `stream?path=${q(entry().path)}&t=${state.offset.toFixed(2)}`;
+  if (t > 0) {
+    const at = await fetch(`api/seekpoint?path=${q(path)}&t=${t.toFixed(3)}`).then((r) => r.json()).catch(() => null);
+    if (token !== streamToken || entry().path !== path) return;
+    if (typeof at?.t === "number") state.offset = at.t;
+  }
+  video.src = `stream?path=${q(path)}&t=${state.offset.toFixed(3)}`;
   if (play) video.play().catch(() => {});
   showInfo();
 }

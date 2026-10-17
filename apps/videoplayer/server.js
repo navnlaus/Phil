@@ -81,6 +81,8 @@ export function createServer({ profile = {} } = {}) {
         case "GET /file":
         case "HEAD /file":
           return serveFile(req, absolute(path), { "content-security-policy": "sandbox" });
+        case "GET /api/seekpoint": // where a stream asked for at `t` really starts (see stream())
+          return json({ t: await seekPoint(absolute(path), Number(url.searchParams.get("t")) || 0) });
         case "GET /stream":
           return stream(absolute(path), Number(url.searchParams.get("t")) || 0, await readSettings());
         case "GET /api/settings": {
@@ -170,25 +172,72 @@ async function probe(path) {
     height: video?.height ?? 0,
     video: video?.codec_name ?? null,
     audio: audio?.codec_name ?? null,
+    sampleRate: Number(audio?.sample_rate) || 0,
+    // How late the first picture comes, in a copy (its frames reordered: B-frames).
+    delay: video ? (video.has_b_frames || 0) / (rate(video.avg_frame_rate) || rate(video.r_frame_rate) || 25) : 0,
     container,
     direct,
   };
+}
+
+const rate = (r) => {
+  const [n, d] = String(r ?? "").split("/").map(Number);
+  return n > 0 && d > 0 ? n / d : 0;
+};
+
+/**
+ * The keyframe at or before `t` in `path`'s video, where seeking there lands (ffprobe's
+ * seek, ffmpeg's): a copied video can only start at one, so its stream does (stream()).
+ * `t` itself when the video is converted (or there's none), or it can't tell.
+ */
+async function seekPoint(path, t, info = null) {
+  if (t <= 0) return 0;
+  const { video } = info ?? await probe(path);
+  if (!VIDEO_COPY.has(video)) return t;
+  const out = await new Deno.Command("ffprobe", {
+    args: ["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time", "-of", "csv=p=0", "-read_intervals", `${t}%+#1`, "--", path],
+    stdin: "null", stdout: "piped", stderr: "null",
+  }).output().catch(() => null);
+  const at = out?.success ? parseFloat(new TextDecoder().decode(out.stdout)) : NaN;
+  return at >= 0 && at <= t + 0.001 ? at : t;
 }
 
 /**
  * `path` from `t` seconds as a fragmented MP4, made as it's read (ffmpeg, to
  * the response): the video and audio copied when the browser plays them,
  * converted when not. Seeking further than it got is a new request (with t).
+ *
+ * A copied video starts at a keyframe (seekPoint()'s), the audio there too: the
+ * browser plays the audio on from its first sample, whatever the gap the MP4
+ * says comes before it, so a gap is filled with silence, as audio (converted,
+ * to do that). Its first picture comes `delay` late (B-frames reordered; an MP4
+ * made as it's read can't say otherwise): the audio starts that late too, less
+ * the AAC encoder's own lead-in (1024 samples).
  * The response cancelled (the player went elsewhere) stops ffmpeg.
  */
 async function stream(path, t, settings) {
-  const { video, audio } = await probe(path);
+  const info = await probe(path);
+  const { video, audio, delay, sampleRate } = info;
   const { preset = "veryfast", crf = 22, maxHeight = 1080 } = settings.transcode ?? {};
-  const args = ["-nostdin", "-loglevel", "error", ...(t > 0 ? ["-ss", String(t)] : []), "-i", path, "-map", "0:v:0?", "-map", "0:a:0?", "-sn", "-dn"];
+  const copy = VIDEO_COPY.has(video);
+  let from = [], pad = null;
+  if (copy) {
+    // ffmpeg seeks 3/23 s before where it's asked with B-frames (fftools): asked
+    // that much past the keyframe, it lands on it either way. Both start there.
+    const key = await seekPoint(path, t, info);
+    const ss = key > 0 ? key + (delay > 0 ? 3 / 23 : 0) + 0.001 : 0;
+    if (ss > 0) from = ["-noaccurate_seek", "-ss", ss.toFixed(3)];
+    // The first audio sample's time (in samples; from ss): the picture's, less the encoder's lead-in.
+    if (audio && sampleRate) pad = Math.min(0, Math.round((key - ss - delay) * sampleRate) + 1024);
+  } else if (t > 0) {
+    from = ["-ss", String(t)];
+  }
+  const args = ["-nostdin", "-loglevel", "error", ...from, "-i", path, "-map", "0:v:0?", "-map", "0:a:0?", "-sn", "-dn"];
   if (!video) args.push("-vn");
   else if (VIDEO_COPY.has(video)) args.push("-c:v", "copy");
   else args.push("-c:v", "libx264", "-preset", String(preset), "-crf", String(crf), "-pix_fmt", "yuv420p", "-vf", `scale=-2:min(ih\\,${Number(maxHeight) || 1080})`);
   if (!audio) args.push("-an");
+  else if (pad !== null) args.push("-af", `aresample=async=1:first_pts=${pad}`, "-c:a", "aac", "-b:a", "192k", "-ac", "2");
   else if (AUDIO_COPY.has(audio)) args.push("-c:a", "copy", ...(audio === "aac" ? ["-bsf:a", "aac_adtstoasc"] : [])); // (MPEG-TS's AAC: ADTS)
   else args.push("-c:a", "aac", "-b:a", "192k", "-ac", "2");
   args.push("-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1");
