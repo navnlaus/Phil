@@ -581,7 +581,8 @@ export function createServer({ profile, controlSocket }) {
     const who = lookups ? await me() : null;
     const dirStat = lookups ? await Deno.stat(dir).catch(() => null) : null;
     const counted = lookups && await countsTotals(dir);
-    return await mapLimit(dirents, 64, async (d) => {
+    const mountPoints = []; // subfolders on another file system: drives mounted there
+    const entries = await mapLimit(dirents, 64, async (d) => {
       const path = join(dir, d.name);
       let stat = null;
       try {
@@ -603,12 +604,17 @@ export function createServer({ profile, controlSocket }) {
         entry.writable = canWrite(stat, folder, who);
       }
       if (stat && (kind === "image" || kind === "video" || kind === "pdf")) entry.thumb = await thumbs.lookup(path, stat);
-      if (kind === "dir") {
-        entry.summary = await folders.get(path);
-        entry.total = counted ? await totals.get(path, entry.mtime) : null; // { bytes, stale } or null; the page asks for stale ones
-      }
+      if (kind === "dir" && !d.isSymlink && dirStat && stat.dev !== dirStat.dev) mountPoints.push(entry);
+      else if (kind === "dir") entry.total = counted ? await totals.get(path, entry.mtime) : null; // { bytes, stale } or null; the page asks for stale ones
+      if (kind === "dir") entry.summary = await folders.get(path);
       return entry;
     });
+    // A drive mounted here: its size and free space ({size, avail}, df's, as the sidebar's), not a total.
+    if (mountPoints.length) {
+      const space = await freeSpace(mountPoints.map((e) => e.path));
+      for (const e of mountPoints) e.space = space[e.path] ?? null, e.total = null;
+    }
+    return entries;
   }
 
   // A text file's preview for its folder's tile, or false if it isn't text.

@@ -382,7 +382,7 @@ const wantTotal = (entry) => wantTotals([entry]);
 const totalsPending = new Set();
 function wantTotals(entries) {
   if (state.settings.folderSizes === "off") return;
-  const asked = entries.filter((e) => !(e.total && !e.total.stale) && !e.totalAsked);
+  const asked = entries.filter((e) => !(e.total && !e.total.stale) && !e.totalAsked && !("space" in e)); // (a drive mounted there: its space instead)
   for (const e of asked) e.totalAsked = true, totalsPending.add(e.path);
   if (!asked.length) return;
   thumbs.wantTotals(asked.map((e) => e.path)), updateProgress();
@@ -861,7 +861,7 @@ function sortEntries(list) {
 }
 
 const folderFirst = (a, b) => (b.kind === "dir") - (a.kind === "dir");
-const sizeOf = (e) => (e.kind === "dir" ? e.total?.bytes ?? e.summary?.size ?? 0 : e.size);
+const sizeOf = (e) => (e.kind === "dir" ? (e.space ? e.space.size - e.space.avail : e.total?.bytes ?? e.summary?.size ?? 0) : e.size); // (a mounted drive: what's used)
 
 function render(selectPath = state.view[state.selected]?.path) {
   const q = filterInput.value.trim().toLowerCase();
@@ -1131,7 +1131,9 @@ function showFolderInfo(tile, entry) {
   const live = copySize(entry);
   const total = live?.total ?? entry.total;
   const sizing = !live && total?.bytes === undefined && totalsPending.has(entry.path); // du at it: a spinner where it goes
-  put(meta, "textContent", live?.text ?? (summary ? folderContents(summary, total, sizing) : total?.bytes !== undefined ? formatSize(total.bytes) : ""));
+  const space = entry.space ? `${formatSize(entry.space.avail)} free of ${formatSize(entry.space.size)}` : ""; // a drive mounted there
+  put(meta, "textContent", live?.text ?? (space ? [summary && folderContents(summary, null, false, { counts: true }), space].filter(Boolean).join(" · ")
+    : summary ? folderContents(summary, total, sizing) : total?.bytes !== undefined ? formatSize(total.bytes) : ""));
   meta.classList.toggle("sizing", sizing && !!summary?.dirs);
   put(tile, "title", entry.name + (meta.textContent ? `\n${meta.textContent}${meta.classList.contains("sizing") ? " (adding it up…)" : ""}` : "") + titleNotes(entry));
   showMarks(tile, entry);
@@ -1215,11 +1217,13 @@ function formatShortDate(ms) {
 // of everything, subfolders too (`sizing`: while du works it out, "56 MB /",
 // and the tile's spinner after). Without subfolders the two are the same, so
 // it's said once; without the total (not worked out there), the files' alone.
-function folderContents({ files, dirs, size }, total, sizing = false) {
+// `counts`: only how many folders and files (a mounted drive's: its space follows).
+function folderContents({ files, dirs, size }, total, sizing = false, { counts = false } = {}) {
   const count = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
   const parts = [];
   if (dirs) parts.push(count(dirs, "folder"));
   if (files) parts.push(count(files, "file"));
+  if (counts) return parts.join(" · ");
   if (dirs && total?.bytes !== undefined) parts.push(`${formatSize(files ? size : 0)} / ${formatSize(total.bytes)}`);
   else if (dirs && sizing) parts.push(`${formatSize(files ? size : 0)} /`);
   else if (files) parts.push(formatSize(size));
