@@ -1,6 +1,8 @@
 import { dirname, join } from "@std/path";
 
-const MAX_AGE = 10 * 60_000; // ms: a total older than this is worked out again when its tile shows
+const MAX_AGE = 10 * 60_000; // ms: a total older than this is worked out again when its tile shows,
+const AGE_PER_MS = 600; // or, when du took long (a big folder, a slow drive), 600 times that,
+const MAX_MAX_AGE = 24 * 3600_000; // up to a day
 const RUNNING = 2; // du processes at once
 const TIMEOUT = 120_000; // ms, for one folder
 const KEEP = 5000; // totals remembered
@@ -11,7 +13,8 @@ const KEEP = 5000; // totals remembered
  * (the files' sizes, as on the tiles; on the folder's own file system, so not
  * /proc or a mount inside it). Remembered with the folder's modification time
  * and when it was worked out: a total is out of date when the folder changed
- * since, or after 10 minutes (a change deep inside doesn't touch the folder).
+ * since, or after 10 minutes (a change deep inside doesn't touch the folder);
+ * one du took long on, after 600 times that (a minute: 10 hours), up to a day.
  *
  * Kept in <thumbs>/folder-totals.json; without a directory (incognito) in
  * memory for the session only.
@@ -23,7 +26,7 @@ const KEEP = 5000; // totals remembered
 export class FolderTotals {
   constructor(dir) {
     this.file = dir ? join(dir, "folder-totals.json") : null;
-    this.totals = new Map(); // path -> { bytes, mtime, at }
+    this.totals = new Map(); // path -> { bytes, mtime, at, took }
     this.queue = []; // folders waiting, the most recently asked for last (done first)
     this.waiting = new Map(); // path -> [{ done, signal }]
     this.stops = new Map(); // path -> AbortController, for its du while it runs
@@ -38,7 +41,8 @@ export class FolderTotals {
     await this.loaded;
     const known = this.totals.get(path);
     if (!known) return null;
-    return { bytes: known.bytes, stale: known.mtime !== mtime || Date.now() - known.at > MAX_AGE };
+    const maxAge = Math.min(MAX_MAX_AGE, Math.max(MAX_AGE, (known.took ?? 0) * AGE_PER_MS));
+    return { bytes: known.bytes, stale: known.mtime !== mtime || Date.now() - known.at > maxAge };
   }
 
   /** Folders deleted: `paths` and everything under them are forgotten. */
@@ -104,6 +108,7 @@ export class FolderTotals {
     if (mtime === null) return null;
     if (await notWorthIt(path)) return null;
     let out;
+    const started = Date.now();
     try {
       // -s: one total; -b: bytes, the files' sizes; -x: this file system only. Folders
       // it can't read are left out (du says so on stderr and still gives the rest).
@@ -120,7 +125,7 @@ export class FolderTotals {
     const bytes = parseInt(new TextDecoder().decode(out.stdout));
     if (signal.aborted || !Number.isFinite(bytes)) return null;
     this.totals.delete(path);
-    this.totals.set(path, { bytes, mtime, at: Date.now() });
+    this.totals.set(path, { bytes, mtime, at: Date.now(), took: Date.now() - started });
     if (this.totals.size > KEEP) this.totals.delete(this.totals.keys().next().value);
     this.save();
     return bytes;
