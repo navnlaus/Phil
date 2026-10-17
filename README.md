@@ -560,7 +560,7 @@ engine that can't run openssl.
   WebKit's processes inherit.
 - WebKit's player never loads Matroska files with embedded subtitles;
   videoplayer gives up on it after eight seconds and plays ffmpeg's conversion
-  (without the subtitles) instead.
+  instead (the subtitles shown over it, as everywhere).
 
 ## Terminal panel
 
@@ -840,6 +840,7 @@ left a video (more than 5 seconds in, not near its end).
 | Page Up / Page Down | previous / next video in the folder |
 | R | repeat |
 | C / Shift+C | the next / previous crop |
+| S | subtitles off, on again |
 | F, double-click | fullscreen |
 | Ctrl+C | copy the file's path |
 | Esc / Q | close the settings, leave fullscreen, close |
@@ -854,6 +855,21 @@ as the window takes, so black bars in the video itself (a 2.39:1 film in a 16:9
 file) are cut off; it stays as you go to the next videos, until the player
 closes.
 
+Subtitles (bottom bar): the video's own (SubRip, ASS, WebVTT, MP4's text; not
+PGS or DVD subtitles, which are pictures, and which mpv shows) and the files that
+go with it: `.srt`, `.vtt`, `.ass` or `.ssa` named as the video is (`Film.srt`,
+`Film.en.srt`), in a `Subs` folder beside it in one named as the video is (a
+season's: `Subs/Show.S01E02/2_English.srt`), or, when it's the only video in its
+folder, any there or in `Subs`. A file that isn't UTF-8 is read in its
+language's Windows encoding (from its name: `Film.rus.srt`), western European
+otherwise. The one shown first is a file named as the video, or the one the
+video says to (often its forced ones: what's said in another language); one you
+choose, its language is chosen from then on (`"subtitles": "English"`), and Off
+stays off. A video's own are spread through it, so all of it is read to find
+them (half a minute for a film on a hard drive): from where it's playing first,
+so they show at once, then the start, at the lowest priority. Restyle them in
+`videoplayer.css` (`#subs .cue`).
+
 The gear: start where you left off, then the next video, repeat.
 `~/.config/phil/videoplayer.json` has those and the rest (the player writes
 only what differs from these):
@@ -867,6 +883,7 @@ only what differs from these):
   "loop": false,
   "seekStep": 5, "seekStepLong": 60,
   "hideControlsAfter": 2,
+  "subtitles": "auto",
   "transcode": { "preset": "veryfast", "crf": 22, "maxHeight": 1080 }
 }
 ```

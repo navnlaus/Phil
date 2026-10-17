@@ -32,14 +32,27 @@ body.idle, body.idle * { cursor: none !important; }
 #btn-speed { min-width: 52px; padding: 0 6px; font-variant-numeric: tabular-nums; }
 #volume { width: 96px; accent-color: var(--accent); }
 
-/* The crop menu, over its button. */
+/* The subtitles' and crop's menus, over their buttons. */
 .menu-anchor { position: relative; }
 #btn-crop { min-width: 58px; font-variant-numeric: tabular-nums; }
-#crop-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 6; min-width: 120px; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
-#crop-menu[hidden] { display: none; }
-#crop-menu li { padding: 5px 10px; border-radius: 5px; cursor: pointer; font-variant-numeric: tabular-nums; }
-#crop-menu li:hover { background: var(--bg-hover); }
-#crop-menu li.on { color: var(--accent); }
+.menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 6; min-width: 120px; max-height: 70vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.menu[hidden] { display: none; }
+.menu li { padding: 5px 10px; border-radius: 5px; cursor: pointer; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.menu li:hover { background: var(--bg-hover); }
+.menu li.on { color: var(--accent); }
+.menu li.off { color: var(--text-dim); cursor: default; }
+.menu li.off:hover { background: none; }
+.menu li .what { margin-left: 8px; color: var(--text-dim); font-size: 12px; }
+#subs-menu { min-width: 200px; max-width: min(420px, 90vw); }
+#subs-menu li { overflow: hidden; text-overflow: ellipsis; }
+#btn-subs.loading svg { animation: blink 1s ease-in-out infinite alternate; }
+@keyframes blink { to { opacity: 0.35; } }
+
+/* The subtitles: at the bottom of the window (above the controls while they're shown),
+   white, outlined in black, their size the window's. */
+#subs { position: fixed; left: 4%; right: 4%; bottom: 6vh; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 0.15em; text-align: center; pointer-events: none; font: 500 clamp(18px, 4.4vh, 64px)/1.25 system-ui, sans-serif; color: #fff; transition: bottom 0.15s; }
+body:has(#controls:hover, #controls.show) #subs { bottom: max(6vh, 84px); }
+#subs .cue { white-space: pre-line; -webkit-text-stroke: 0.18em #000; paint-order: stroke fill; text-shadow: 0 0.04em 0.12em rgba(0, 0, 0, 0.8); }
 
 #btn-play .pause, body.playing #btn-play .play { display: none; }
 body.playing #btn-play .pause { display: inline; }

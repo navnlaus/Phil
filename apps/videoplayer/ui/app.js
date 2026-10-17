@@ -10,7 +10,8 @@ import { closeWindow, copyText, holdFocus, onCloseRequest, ready, tellParent, to
 // seekStepLong), J L 10 s; ↑ ↓ and the wheel the volume; M mutes; [ ] the speed,
 // Backspace back to normal; , . a frame (paused); 0–9 to that tenth; Home the
 // start; Page Up / Page Down the previous / next video in the folder; R repeats;
-// C (Shift+C) the next (previous) crop; F or a double-click fullscreen; Ctrl+C copies the path; Esc / Q closes.
+// C (Shift+C) the next (previous) crop; S subtitles on and off; F or a double-click fullscreen; Ctrl+C
+// copies the path; Esc / Q closes.
 //
 // The settings (~/.config/phil/videoplayer.json, server.js DEFAULTS): the gear
 // changes some; the file has them all. Nothing's kept in the page itself (no
@@ -36,6 +37,7 @@ const state = {
   token: 0, // the video being loaded; earlier loads finishing late are ignored
   seeking: null, // the time dragged to on the timeline
   crop: null, // the aspect ratio cropped to ("2.39:1"), or none
+  subs: { tracks: [], track: null, cues: [], last: null }, // the video's subtitles, the one shown, its cues ([start, end, text]) so far, the one shown before
 };
 
 async function api(path, options) {
@@ -109,6 +111,7 @@ async function show(index) {
   tellParent({ app: "videoplayer", showing: e.path }); // shown in phil: it selects it
   showMessage("");
   spinner(true);
+  setSubtitles([]);
   video.removeAttribute("src");
   video.load();
 
@@ -124,6 +127,7 @@ async function show(index) {
   state.info = info;
   // Where it was left, unless that's nearly the end.
   const start = state.settings.resume && position && (!info.duration || position < info.duration - 10) ? position : 0;
+  setSubtitles(info.subtitles ?? [], start);
   if (info.direct) {
     state.streaming = false;
     state.offset = 0;
@@ -253,7 +257,7 @@ function wake() {
   clearTimeout(idleTimer);
   if (video.paused) return;
   idleTimer = setTimeout(() => {
-    if (video.paused || document.querySelector(".overlay-bar:hover, #settings:hover, #crop-menu:hover")) return;
+    if (video.paused || document.querySelector(".overlay-bar:hover, #settings:hover, .menu:hover")) return;
     document.body.classList.add("idle");
   }, (state.settings.hideControlsAfter ?? 2) * 1000);
 }
@@ -303,6 +307,7 @@ function cycleCrop(dir) {
 }
 
 function toggleCropMenu(show = $("#crop-menu").hidden) {
+  if (show) toggleSubsMenu(false);
   $("#crop-menu").hidden = !show;
   $("#controls").classList.toggle("show", show);
 }
@@ -313,6 +318,181 @@ for (const crop of CROPS) {
   li.textContent = crop === "fill" ? "Fill window" : crop ?? "None";
   li.onclick = () => (setCrop(crop), toggleCropMenu(false));
   $("#crop-menu").append(li);
+}
+
+// ---------------------------------------------------------------- subtitles
+
+// The video's own (the server's probe) and the files that go with it (Movie.srt,
+// Subs/English.srt), shown over the picture, at the bottom (#subs). The one shown
+// first: settings.subtitles' language when it has one (what was chosen last), or
+// "auto": a file named as the video, or the one the video says to show (often its
+// forced ones: what's said in another language). The server sends a track's cues as
+// it reads them, where it's playing first.
+
+const languageNames = new Intl.DisplayNames(["en"], { type: "language", fallback: "none" });
+// ISO 639-2's bibliographic codes (Matroska's: "ger"), as the terminology ones Intl knows.
+const B_CODES = { ger: "deu", fre: "fra", dut: "nld", chi: "zho", cze: "ces", gre: "ell", rum: "ron", slo: "slk", may: "msa", per: "fas", arm: "hye", baq: "eus", bur: "mya", geo: "kat", ice: "isl", mac: "mkd", mao: "mri", alb: "sqi", tib: "bod", wel: "cym", scc: "srp", scr: "hrv" };
+function languageName(code) {
+  code = String(code ?? "").toLowerCase();
+  if (!/^[a-z]{2,3}$/.test(code) || code === "und") return "";
+  try {
+    return languageNames.of(B_CODES[code] ?? code) ?? "";
+  } catch {
+    return "";
+  }
+}
+// Words in subtitle files' names that look like languages' codes and aren't.
+const NOT_LANGUAGES = new Set(["sdh", "hi", "cc", "forced", "full", "sub", "subs", "the", "and", "of", "web", "rip", "dl"]);
+const LANGUAGE_WORDS = new Map(["en", "es", "fr", "de", "it", "pt", "nl", "sv", "no", "da", "fi", "is", "pl", "cs", "sk", "sl", "hu", "ro", "bg", "ru", "uk", "el", "tr", "ar", "he", "hi", "th", "vi", "id", "ms", "zh", "ja", "ko", "et", "lv", "lt", "hr", "sr", "fa", "ta", "te", "ca"]
+  .map((c) => [languageName(c).toLowerCase(), languageName(c)]));
+
+// The menu's name for a track, and its language ("English"; for a file, from its name:
+// Movie.en.srt, Subs/2_English.srt, Subs/SDH.eng.HI.srt).
+function describe(track, videoName) {
+  if (track.file) {
+    const base = track.name.split("/").pop().replace(/\.[^.]+$/, "");
+    const stem = videoName.replace(/\.[^.]+$/, "");
+    const words = (base.toLowerCase().startsWith(stem.toLowerCase()) ? base.slice(stem.length) : base).toLowerCase().split(/[^a-z]+/).filter(Boolean);
+    const code = (n) => words.filter((w) => w.length === n && !NOT_LANGUAGES.has(w)).map(languageName).find(Boolean);
+    const language = code(3) ?? words.map((w) => LANGUAGE_WORDS.get(w)).find(Boolean) ?? code(2) ?? "";
+    const forced = words.includes("forced"), sdh = words.some((w) => w === "sdh" || w === "hi" || w === "cc");
+    const label = language ? [language, sdh ? "SDH" : "", forced ? "Forced" : ""].filter(Boolean).join(" · ") : track.name;
+    return { ...track, id: `f${track.file}`, language, forced, label, what: language ? track.name : "" };
+  }
+  const language = languageName(track.lang), title = track.title;
+  const label = title && language && title.toLowerCase().includes(language.toLowerCase())
+    ? title
+    : [language || "Unknown language", title, track.forced && !/forced/i.test(title) ? "Forced" : ""].filter(Boolean).join(" · ");
+  return { ...track, id: `s${track.stream}`, language, label, what: track.text ? "" : "pictures" };
+}
+
+// The one to show first (settings.subtitles).
+function chooseTrack(pref = state.settings.subtitles) {
+  const text = state.subs.tracks.filter((t) => t.text);
+  if (pref === "off") return null;
+  if (pref && pref !== "auto") {
+    const same = text.filter((t) => t.language === pref && !t.forced);
+    const pick = same.find((t) => t.exact) ?? same.find((t) => t.default) ?? same[0];
+    if (pick) return pick;
+  }
+  return text.find((t) => t.exact) ?? text.find((t) => t.default) ?? text.find((t) => t.forced) ?? null;
+}
+
+// A video's subtitles (the probe's, `at` where it starts): the menu, and the one shown first.
+function setSubtitles(tracks, at = 0) {
+  const name = entry()?.name ?? "";
+  state.subs.tracks = tracks.map((t) => describe(t, name));
+  state.subs.track = state.subs.last = null; // (the last video's)
+  const item = (track) => {
+    const li = document.createElement("li");
+    li.dataset.id = track?.id ?? "";
+    li.textContent = track ? track.label : "Off";
+    if (track?.what) li.append(Object.assign(document.createElement("span"), { className: "what", textContent: track.what }));
+    if (track && !track.text) li.classList.add("off"), (li.title = "Pictures, not text: not shown here (mpv shows them)");
+    else li.onclick = () => (pickSubtitle(track), toggleSubsMenu(false));
+    return li;
+  };
+  $("#subs-menu").replaceChildren(item(null), ...state.subs.tracks.map(item));
+  $("#btn-subs").parentElement.hidden = !state.subs.tracks.length;
+  showSubtitle(tracks.length ? chooseTrack() : null, at);
+}
+
+// Chosen (the menu, S): this one, and its language the one to show first from now on.
+function pickSubtitle(track) {
+  saveSettings({ subtitles: track ? track.language || "auto" : "off" });
+  showSubtitle(track);
+}
+
+// S: the subtitles off, or back on (the ones shown before, or the language's, or the first).
+function toggleSubtitles() {
+  const { track, last, tracks } = state.subs;
+  if (track) return pickSubtitle(null);
+  const text = tracks.filter((t) => t.text);
+  const pick = last ?? chooseTrack(state.subs.language ?? "auto") ?? text.find((t) => !t.forced) ?? text[0];
+  if (pick) pickSubtitle(pick);
+}
+
+let subsJob = null;
+async function showSubtitle(track, at = now()) {
+  subsJob?.abort();
+  subsJob = null;
+  const subs = state.subs, cues = (subs.cues = []);
+  if (subs.track) subs.last = subs.track;
+  subs.track = track;
+  if (track?.language) subs.language = track.language;
+  for (const li of $("#subs-menu").children) li.classList.toggle("on", li.dataset.id === (track?.id ?? ""));
+  $("#btn-subs").classList.toggle("on", !!track);
+  $("#btn-subs").classList.remove("loading");
+  $("#btn-subs").title = track ? `Subtitles: ${track.label} (S: off)` : "Subtitles (S: on)";
+  showSubs();
+  subsLoop();
+  if (!track) return;
+  const job = (subsJob = new AbortController()), path = entry().path;
+  $("#btn-subs").classList.add("loading");
+  const url = track.file
+    ? `api/subtitle?path=${q(path)}&file=${q(track.file)}`
+    : `api/subtitle?path=${q(path)}&stream=${track.stream}&from=${Math.max(0, at - 10).toFixed(1)}`;
+  try {
+    const res = await fetch(url, { signal: job.signal });
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let rest = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const lines = (rest + value).split("\n");
+      rest = lines.pop();
+      for (const line of lines) if (line) cues.push(JSON.parse(line));
+      cues.sort((a, b) => a[0] - b[0]); // (from where it plays, then the start)
+      showSubs();
+    }
+    if (subsJob === job && !cues.length) $("#btn-subs").title = `Subtitles: ${track.label}: none found in it`;
+  } catch (err) {
+    if (job.signal.aborted) return;
+    $("#btn-subs").title = `Subtitles: ${track.label}: can't read them: ${err.message}`;
+  } finally {
+    if (subsJob === job) $("#btn-subs").classList.remove("loading");
+  }
+}
+
+// The cues of now, in #subs (only when they change). WebVTT's <i> <b> <u> kept, its other tags dropped.
+const cueParser = new DOMParser();
+let subsShown = "";
+function showSubs() {
+  const t = now(), on = state.subs.cues.filter((c) => c[0] <= t && t < c[1]);
+  const key = on.map((c) => `${c[0]}\n${c[2]}`).join("\n\n");
+  if (key === subsShown) return;
+  subsShown = key;
+  $("#subs").replaceChildren(...on.map(([, , text]) => {
+    const div = document.createElement("div");
+    div.className = "cue";
+    const copy = (from, to) => {
+      for (const n of from.childNodes) {
+        if (n.nodeType === Node.TEXT_NODE) to.append(n.textContent);
+        else if (n.localName === "br") to.append("\n");
+        else if (["i", "b", "u"].includes(n.localName)) copy(n, to.appendChild(document.createElement(n.localName)));
+        else if (n.nodeType === Node.ELEMENT_NODE) copy(n, to);
+      }
+    };
+    copy(cueParser.parseFromString(text.replace(/<\d[^>]*>/g, ""), "text/html").body, div);
+    return div;
+  }));
+}
+
+// Each frame while it plays (and on each seek, paused).
+let subsFrame = 0;
+function subsLoop() {
+  cancelAnimationFrame(subsFrame);
+  if (state.subs.track && !video.paused) subsFrame = requestAnimationFrame(() => (showSubs(), subsLoop()));
+}
+video.addEventListener("play", subsLoop);
+for (const type of ["seeked", "timeupdate", "emptied"]) video.addEventListener(type, showSubs);
+
+function toggleSubsMenu(show = $("#subs-menu").hidden) {
+  if (show) toggleCropMenu(false);
+  $("#subs-menu").hidden = !show;
+  $("#controls").classList.toggle("show", show);
+  if (show) $("#subs-menu li.on")?.scrollIntoView({ block: "nearest" });
 }
 
 // ---------------------------------------------------------------- doing things
@@ -451,9 +631,11 @@ document.addEventListener("keydown", (e) => {
   if (key === "PageDown") return step(1), handled();
   if (key === "r") return toggleLoop(), handled();
   if (key === "c") return cycleCrop(e.shiftKey ? -1 : 1), handled();
+  if (key === "s") return toggleSubtitles(), handled();
   if (key === "f") return toggleFullscreen(), handled();
   if (key === "Escape" || key === "q") {
-    if (!$("#crop-menu").hidden) toggleCropMenu(false);
+    if (!$("#subs-menu").hidden) toggleSubsMenu(false);
+    else if (!$("#crop-menu").hidden) toggleCropMenu(false);
     else if (!$("#settings").hidden) toggleSettings(false);
     else if (document.fullscreenElement) document.exitFullscreen();
     else close();
@@ -464,6 +646,7 @@ document.addEventListener("keydown", (e) => {
 
 // A click plays and pauses; a double-click (two clicks: unchanged) is fullscreen.
 stage.addEventListener("click", () => {
+  if (!$("#subs-menu").hidden) return toggleSubsMenu(false);
   if (!$("#crop-menu").hidden) return toggleCropMenu(false);
   if (!$("#settings").hidden) return toggleSettings(false);
   togglePlay();
@@ -484,6 +667,7 @@ $("#btn-loop").onclick = toggleLoop;
 $("#btn-full").onclick = toggleFullscreen;
 $("#btn-close").onclick = close;
 $("#btn-crop").onclick = () => toggleCropMenu();
+$("#btn-subs").onclick = () => toggleSubsMenu();
 $("#msg-mpv").onclick = playInMpv;
 $("#btn-settings").onclick = () => toggleSettings();
 $("#prev").onclick = () => step(-1);

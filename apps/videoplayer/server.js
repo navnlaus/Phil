@@ -3,7 +3,8 @@
 // file made into a fragmented MP4 as it plays (stream()), and the settings and
 // where each video was left. Runs in the engine's server worker (engine/server.js).
 //   GET  /api/videos?path=&sort=   the videos in its folder (engine/media.js)
-//   GET  /api/probe?path=          how to play it: {duration, width, height, direct, ...}
+//   GET  /api/probe?path=          how to play it: {duration, width, height, direct, subtitles, ...}
+//   GET  /api/subtitle?path=&stream=&from= | ?file=   a subtitle track's cues, as they're read (NDJSON)
 //   GET  /file?path=               the file (Range: seeking)
 //   GET  /stream?path=&t=          it, from `t` seconds, as fragmented MP4 (ffmpeg)
 //   GET  /api/settings             the settings and where the video was left
@@ -15,9 +16,9 @@
 // Incognito (the engine's profile): the settings are read but changes, and where
 // videos were left, are kept in memory only; nothing's written, and mpv's told
 // not to remember either.
-import { join } from "@std/path";
+import { basename, dirname, extname, join, relative } from "@std/path";
 import { httpError, json, serveFile } from "../../engine/http.js";
-import { mediaInFolder } from "../../engine/media.js";
+import { mediaInFolder, mediaKind } from "../../engine/media.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 
@@ -39,6 +40,7 @@ export const DEFAULTS = {
   seekStep: 5, // ← →, seconds
   seekStepLong: 60, // Shift+← →
   hideControlsAfter: 2, // seconds without the mouse moving, while playing
+  subtitles: "auto", // shown first: "auto" (a file named as the video, or the ones it says to), "off", or a language ("English": the last chosen)
   transcode: { preset: "veryfast", crf: 22, maxHeight: 1080 }, // what the browser can't decode, made into H.264
 };
 
@@ -49,6 +51,10 @@ const CONTAINER_OK = /^(mov,mp4|matroska,webm|ogg)/;
 // Copied as they are into the MP4 stream() makes; the rest is converted.
 const VIDEO_COPY = new Set(["h264", "vp9", "av1"]);
 const AUDIO_COPY = new Set(["aac", "mp3", "opus", "flac"]);
+// Subtitles that are text, which ffmpeg makes into WebVTT (the rest, PGS and DVD's, are pictures).
+const TEXT_SUBS = new Set(["subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text", "microdvd", "subviewer", "mpl2", "realtext", "sami"]);
+const SUB_FILE = /\.(srt|vtt|ass|ssa)$/i;
+const SUBS_DIR = /^(subs?|subtitles)$/i;
 
 export function createServer({ profile = {} } = {}) {
   const incognito = !!profile.incognito;
@@ -76,8 +82,16 @@ export function createServer({ profile = {} } = {}) {
           const { dir, items, index } = await mediaInFolder(absolute(path), "video", url.searchParams.get("sort") ?? "name");
           return json({ dir, videos: items, index });
         }
-        case "GET /api/probe":
-          return json(await probe(absolute(path)));
+        case "GET /api/probe": {
+          const [info, files] = await Promise.all([probe(absolute(path)), subtitleFiles(absolute(path))]);
+          return json({ ...info, subtitles: [...info.subtitles, ...files] });
+        }
+        case "GET /api/subtitle": {
+          const file = url.searchParams.get("file");
+          const stream = Number(url.searchParams.get("stream"));
+          if (!file && !(stream >= 0)) throw httpError(400, "stream or file required");
+          return subtitle(absolute(path), file ? absolute(file) : null, stream, Number(url.searchParams.get("from")) || 0);
+        }
         case "GET /file":
         case "HEAD /file":
           return serveFile(req, absolute(path), { "content-security-policy": "sandbox" });
@@ -136,7 +150,7 @@ export function createServer({ profile = {} } = {}) {
 // The settings the player may change (the rest only by editing the file).
 function pick(changed) {
   const out = {};
-  for (const key of ["volume", "muted", "resume", "playNext", "loop"]) {
+  for (const key of ["volume", "muted", "resume", "playNext", "loop", "subtitles"]) {
     if (typeof changed?.[key] === typeof DEFAULTS[key]) out[key] = changed[key];
   }
   return out;
@@ -173,6 +187,15 @@ async function probe(path) {
     video: video?.codec_name ?? null,
     audio: audio?.codec_name ?? null,
     sampleRate: Number(audio?.sample_rate) || 0,
+    // Its subtitles: {stream, lang, title, forced, default, text (false: pictures, not shown)}.
+    subtitles: streams.filter((s) => s.codec_type === "subtitle").map((s) => ({
+      stream: s.index,
+      lang: s.tags?.language ?? "",
+      title: s.tags?.title ?? "",
+      forced: !!s.disposition?.forced,
+      default: !!s.disposition?.default,
+      text: TEXT_SUBS.has(s.codec_name),
+    })),
     // How late the first picture comes, in a copy (its frames reordered: B-frames).
     delay: video ? (video.has_b_frames || 0) / (rate(video.avg_frame_rate) || rate(video.r_frame_rate) || 25) : 0,
     container,
@@ -258,3 +281,162 @@ async function stream(path, t, settings) {
   });
   return new Response(body, { headers: { "content-type": "video/mp4", "cache-control": "no-store" } });
 }
+
+/**
+ * The subtitle files that go with `path`: beside it, named as it is (Movie.srt,
+ * Movie.en.srt), or in a Subs folder there, in one named as it is (a season's:
+ * Subs/Show.S01E02/2_English.srt). When it's the only video in its folder (a film's),
+ * any there and in Subs. {file, name (from its folder), exact (Movie.srt, beside it)}.
+ */
+async function subtitleFiles(path) {
+  const dir = dirname(path), stem = basename(path, extname(path)).toLowerCase();
+  const list = async (d) => {
+    const out = [];
+    try {
+      for await (const e of Deno.readDir(d)) out.push(e);
+    } catch { /* none */ }
+    return out;
+  };
+  const here = await list(dir);
+  const alone = here.filter((e) => e.isFile && mediaKind(e.name) === "video").length === 1;
+  const found = [];
+  const add = (file, exact = false) => found.push({ file, name: relative(dir, file), lang: "", title: "", forced: false, default: false, text: true, exact });
+  for (const e of here) {
+    const named = e.name.toLowerCase().startsWith(stem);
+    if (e.isFile && SUB_FILE.test(e.name) && (named || alone)) add(join(dir, e.name), named);
+    if (!e.isDirectory || !SUBS_DIR.test(e.name)) continue;
+    for (const s of await list(join(dir, e.name))) {
+      if (s.isFile && SUB_FILE.test(s.name) && (alone || s.name.toLowerCase().startsWith(stem))) add(join(dir, e.name, s.name));
+      if (s.isDirectory && s.name.toLowerCase() === stem) {
+        for (const f of await list(join(dir, e.name, s.name))) if (f.isFile && SUB_FILE.test(f.name)) add(join(dir, e.name, s.name, f.name));
+      }
+    }
+  }
+  return found.sort((a, b) => b.exact - a.exact || a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+// A subtitle file's encoding, when it isn't UTF-8: the one its language's Windows used
+// (from its name: Movie.rus.srt), western European otherwise.
+const CHARSETS = [
+  [/^(rus?|ukr?|bul|bg|srp|sr|mkd|mac|bel|be)$/, "CP1251"],
+  [/^(pol?|pl|cze|ces|cs|slo|slk|sk|hun?|rum|ron|ro|slv|sl|hrv|hr|scr|bos|bs)$/, "CP1250"],
+  [/^(gre|ell|el)$/, "CP1253"],
+  [/^(tur?|tr)$/, "CP1254"],
+  [/^(heb?|he)$/, "CP1255"],
+  [/^(ara?|ar)$/, "CP1256"],
+  [/^(lit|lt|lav|lv|est|et)$/, "CP1257"],
+  [/^(vie|vi)$/, "CP1258"],
+];
+async function charsetOf(file) {
+  const bytes = await Deno.readFile(file);
+  if (bytes[0] === 0xff || bytes[0] === 0xfe) return null; // UTF-16, its BOM says (ffmpeg reads it)
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return null;
+  } catch {
+    const words = basename(file).toLowerCase().split(/[^a-z]+/);
+    return CHARSETS.find(([re]) => words.some((w) => re.test(w)))?.[1] ?? "CP1252";
+  }
+}
+
+// Whole tracks' cues, read before (`${path}\n${track}` -> {mtime, cues}): choosing one again is at once.
+const subtitleCache = new Map();
+const SUBTITLES_KEPT = 40;
+
+/**
+ * A subtitle track's cues, as NDJSON lines ([start, end, text]: seconds, WebVTT's text)
+ * as ffmpeg reads them: the file's `stream`, or the subtitle `file`. The video's own
+ * are spread through it, all of it read to find them (a film's, over a minute
+ * from a slow drive): from `from` (where it's playing) to the end first, then the
+ * start, at the lowest priority (the video's playing from the same drive).
+ * Cancelled (another track, another video), ffmpeg's stopped.
+ */
+function subtitle(path, file, stream, from) {
+  const key = `${path}\n${file ?? stream}`;
+  const stop = new AbortController();
+  async function* cues() {
+    const mtime = (await Deno.stat(file ?? path)).mtime?.getTime();
+    const known = subtitleCache.get(key);
+    if (known?.mtime === mtime) return yield* known.cues;
+    const all = [], seen = new Set();
+    const passes = file
+      ? [[...(await charsetOf(file).then((c) => (c ? ["-sub_charenc", c] : []))), "-i", file, "-map", "0:s:0"]]
+      : from > 1
+      ? [["-ss", String(from), "-copyts", "-i", path, "-map", `0:${stream}`], ["-i", path, "-map", `0:${stream}`, "-t", String(from + 5)]]
+      : [["-i", path, "-map", `0:${stream}`]];
+    for (const args of passes) {
+      for await (const cue of vttCues(args, stop.signal)) {
+        const id = `${cue[0]}\n${cue[2]}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        all.push(cue);
+        yield cue;
+      }
+    }
+    if (stop.signal.aborted) return;
+    subtitleCache.delete(key);
+    subtitleCache.set(key, { mtime, cues: all.sort((a, b) => a[0] - b[0]) });
+    if (subtitleCache.size > SUBTITLES_KEPT) subtitleCache.delete(subtitleCache.keys().next().value);
+  }
+  const it = cues(), enc = new TextEncoder();
+  const body = new ReadableStream({
+    async pull(controller) {
+      try {
+        const { value, done } = await it.next();
+        if (done) controller.close();
+        else controller.enqueue(enc.encode(JSON.stringify(value) + "\n"));
+      } catch (err) {
+        controller.error(err);
+      }
+    },
+    cancel() {
+      stop.abort();
+      it.return();
+    },
+  });
+  return new Response(body, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" } });
+}
+
+// ffmpeg's WebVTT of `args`' input, cue by cue as it comes: [start, end, text]. At the
+// lowest priority (ionice's idle, when there's ionice), stopped with `signal`.
+async function* vttCues(args, signal) {
+  const ffmpeg = ["ffmpeg", "-nostdin", "-v", "error", ...args, "-flush_packets", "1", "-f", "webvtt", "pipe:1"];
+  const options = { stdin: "null", stdout: "piped", stderr: "null", signal };
+  let child;
+  try {
+    child = new Deno.Command("ionice", { ...options, args: ["-c", "3", "nice", "-n", "19", ...ffmpeg] }).spawn();
+  } catch {
+    child = new Deno.Command(ffmpeg[0], { ...options, args: ffmpeg.slice(1) }).spawn();
+  }
+  child.status.catch(() => {});
+  let text = "";
+  try {
+    for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {
+      text += chunk.replaceAll("\r", "");
+      const blocks = text.split("\n\n");
+      text = blocks.pop();
+      for (const b of blocks) {
+        const cue = parseCue(b);
+        if (cue) yield cue;
+      }
+    }
+    const cue = parseCue(text);
+    if (cue) yield cue;
+  } finally {
+    try {
+      child.kill("SIGKILL");
+    } catch { /* done */ }
+  }
+}
+
+function parseCue(block) {
+  const lines = block.split("\n");
+  const at = lines.findIndex((l) => l.includes("-->"));
+  if (at < 0) return null;
+  const [start, end] = lines[at].split("-->").map((s) => seconds(s.trim().split(/\s/)[0]));
+  const text = lines.slice(at + 1).join("\n").trim();
+  return text && end > start ? [start, end, text] : null;
+}
+
+// "01:02:03.456" or "02:03.456" in seconds.
+const seconds = (s) => s.split(":").reduce((t, part) => t * 60 + Number(part), 0);
