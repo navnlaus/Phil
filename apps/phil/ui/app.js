@@ -245,6 +245,7 @@ const thumbs = {
       if ("searched" in msg) return onSearched(msg);
       if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes);
       if (msg.downloads) return onDownloads(msg.downloads);
+      if (msg.processes) return (state.processes = msg.processes), renderProcesses();
       if (msg.browserDownloads) return (state.browserDownloads = msg.browserDownloads), showTransfers();
       if (msg.made) return onMadeInBackground(msg.made, msg.url);
       if (msg.hook) return onHookRan(msg.hook);
@@ -3926,6 +3927,41 @@ function showTransfers() {
     [...host.querySelectorAll(":scope > .transfer-bar")].forEach((bar, i) => put(bar.style, "top", i ? `${8 + i * 24}px` : ""));
   }
   renderTransferList();
+}
+
+// The sidebar's Processes: long work in the background (a folder's total
+// being worked out, after 10 seconds: it goes on when another folder is
+// shown), what and for how long; × stops it, a click shows the folder.
+let processTicker = null;
+function renderProcesses() {
+  const list = state.processes ?? [];
+  keyed($("#processes"), list, { key: (p) => p.id, make: makeProcessRow, show: showProcessRow });
+  $("#processes-panel").hidden = !list.length;
+  if (list.length && !processTicker) processTicker = setInterval(() => [...$("#processes").children].forEach((row) => showProcessRow(row, row.item)), 1000);
+  if (!list.length) clearInterval(processTicker), (processTicker = null);
+}
+
+function makeProcessRow() {
+  const row = document.createElement("div");
+  row.className = "process-row";
+  const cancel = Object.assign(document.createElement("button"), { type: "button", className: "cancel", textContent: "×", title: "Stop it (worked out again when it's asked for)" });
+  cancel.addEventListener("click", (e) => {
+    e.stopPropagation();
+    api("/api/process-cancel", { method: "POST", body: JSON.stringify({ id: row.item.id }) }).catch(() => {});
+  });
+  row.append(Object.assign(document.createElement("span"), { className: "process-name" }), Object.assign(document.createElement("span"), { className: "process-time" }), cancel);
+  row.addEventListener("click", () => load(row.item.path));
+  return row;
+}
+
+function showProcessRow(row, p) {
+  const [name, time] = row.children;
+  const folder = p.path === "/" ? "/" : p.path.split("/").pop();
+  put(name, "textContent", folder); // (what it's doing: in its tip, the sidebar's narrow)
+  put(row, "title", `${p.mode === "check" ? "Looking at the times of the folders in" : "Adding up the size of everything in"} ${p.path}, at the lowest priority`);
+  const s = Math.max(0, Math.floor((Date.now() - p.started) / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, "0");
+  put(time, "textContent", h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`);
 }
 
 // The sidebar's Transfers: every copy, move, delete and download (paused,

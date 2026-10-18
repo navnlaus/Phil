@@ -270,6 +270,17 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 .transfer-row .transfer-bar.downloaded { width: auto; align-self: flex-start; }
 .transfer-row .transfer-bar .cancel { height: 18px; width: 20px; font-size: 12px; }
 .transfer-row .transfer-bar .cancel:hover { background: color-mix(in srgb, var(--text) 15%, transparent); }
+/* The sidebar's Processes: what each is doing, for how long, × to stop it. */
+#processes-panel { margin: 14px 4px 0; padding-top: 10px; border-top: 1px solid var(--border); }
+#processes-panel[hidden] { display: none; }
+#processes-panel > .heading { padding: 0 6px; }
+#processes { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
+.process-row { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+.process-row:hover { background: var(--bg-hover); }
+.process-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.process-time { flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.process-row .cancel { flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text-dim); font-size: 14px; line-height: 1; cursor: pointer; }
+.process-row .cancel:hover { background: color-mix(in srgb, var(--text) 15%, transparent); color: var(--text); }
 #places svg { width: 16px; height: 16px; color: var(--text-dim); }
 #places a.active svg { color: inherit; }
 

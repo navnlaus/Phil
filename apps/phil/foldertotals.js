@@ -5,6 +5,7 @@ const RUNNING = 2; // walks at once
 const STUCK_MS = 60_000; // a walk that's found nothing more for this long is stopped (a drive gone, a share hung); one going on takes as long as it takes (an exFAT drive's big folder: minutes)
 const KEEP = 1_000_000; // folders remembered; past that, the ones worked out longest ago go
 const CHECK_WALKS = 200; // F5: more folders than this (and a quarter of them) changed or not known: one walk through all
+const LONG_MS = 10_000; // a walk going this long goes on when nobody waits for it any more, and is listed (processes)
 const TOUCHED_MS = 3000; // something written in a folder: its total read again once that's been quiet this long
 
 const SCHEMA = `
@@ -53,7 +54,10 @@ const INSERT = "INSERT OR REPLACE INTO totals (path, parent, bytes, own, mtime, 
  *
  * Walks run at the lowest priority (nice, ionice's idle class): a slow drive
  * isn't kept from anything else. Asked with a signal (the folder shown), a
- * total no longer wanted when it's aborted is dropped, its walk stopped.
+ * total no longer wanted when it's aborted is dropped, its walk stopped;
+ * one that's gone on for LONG_MS already goes on (aside: it doesn't hold up the
+ * others), until it's done or cancel()led. Those are the processes(), for the
+ * sidebar; `processesChanged()` when there's one more or one less.
  */
 export class FolderTotals {
   #db;
@@ -65,8 +69,9 @@ export class FolderTotals {
    * `changed(path, bytes)`: a total that changed, for the pages; `counts(path)`:
    * whether totals are worked out there (a USB drive's may not be; incognito's not but on F5).
    */
-  constructor(file, { readOnly = false, changed = () => {}, counts = () => true } = {}) {
+  constructor(file, { readOnly = false, changed = () => {}, counts = () => true, processesChanged = () => {} } = {}) {
     this.changed = changed;
+    this.processesChanged = processesChanged;
     this.counts = counts;
     this.#readOnly = readOnly;
     try {
@@ -91,8 +96,22 @@ export class FolderTotals {
     this.queue = []; // folders waiting, the most recently asked for last (done first)
     this.waiting = new Map(); // path -> [{ done, signal }]
     this.modes = new Map(); // path -> how it's to be worked out, when not "update": "walk" (all of it), "check" (F5)
-    this.stops = new Map(); // path -> AbortController, for its walk while it runs
-    this.running = 0;
+    this.jobs = new Map(); // path -> { started, mode, stop, long, aside, cancelled }, while it runs
+    this.running = 0; // (not those aside)
+  }
+
+  /** The walks that have gone on for a while: [{id, path, mode, started}]. */
+  processes() {
+    return [...this.jobs].filter(([, j]) => j.long).map(([path, j]) => ({ id: path, path, mode: j.mode, started: j.started }));
+  }
+
+  /** Stops one (processes()' id); those waiting for it hear null. */
+  cancel(id) {
+    const job = this.jobs.get(id);
+    if (!job) return false;
+    job.cancelled = true;
+    job.stop.abort();
+    return true;
   }
 
   #q(sql) {
@@ -163,8 +182,13 @@ export class FolderTotals {
     waiters.splice(waiters.indexOf(waiter), 1);
     if (waiters.length) return;
     const i = this.queue.indexOf(path);
-    if (i !== -1) this.queue.splice(i, 1), this.waiting.delete(path), this.modes.delete(path);
-    else this.stops.get(path)?.abort(); // running: its walk stopped
+    if (i !== -1) return void (this.queue.splice(i, 1), this.waiting.delete(path), this.modes.delete(path));
+    const job = this.jobs.get(path);
+    if (!job?.long) return void job?.stop.abort(); // running a moment: its walk stopped
+    if (job.aside) return;
+    job.aside = true; // a long one goes on, aside: the next starts
+    this.running--;
+    this.next();
   }
 
   next() {
@@ -174,16 +198,20 @@ export class FolderTotals {
       this.modes.delete(path);
       this.running++;
       const stop = new AbortController();
-      this.stops.set(path, stop);
+      const job = { started: Date.now(), mode, stop, long: false, aside: false, cancelled: false };
+      job.timer = setTimeout(() => ((job.long = true), this.processesChanged()), LONG_MS);
+      this.jobs.set(path, job);
       (mode === "check" ? this.#check(path, stop.signal) : mode === "walk" ? this.#walk(path, stop.signal) : this.#update(path, stop.signal))
         .catch(() => null)
         .then((bytes) => {
-          if (!stop.signal.aborted) for (const { done } of this.waiting.get(path) ?? []) done(bytes);
+          if (!stop.signal.aborted || job.cancelled) for (const { done } of this.waiting.get(path) ?? []) done(job.cancelled ? null : bytes);
         })
         .finally(() => {
-          this.stops.delete(path);
+          clearTimeout(job.timer);
+          this.jobs.delete(path);
           this.waiting.delete(path);
-          this.running--;
+          if (!job.aside) this.running--;
+          if (job.long) this.processesChanged();
           this.next();
         });
     }

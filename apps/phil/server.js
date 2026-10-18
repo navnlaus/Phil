@@ -47,6 +47,7 @@ export function createServer({ profile, controlSocket }) {
     readOnly: config.incognito,
     changed: (path, bytes) => broadcast({ totalOf: path, bytes }), // phil's own changes: the totals of the folders they're in, and above
     counts: async (path) => !config.incognito && await countsTotals(path), // (a folder copied: walked)
+    processesChanged: () => broadcast({ processes: totals.processes() }), // the sidebar's Processes
   });
   onWrote((path) => totals.touched(dirname(path))); // an editor's save, imageresize's
   // A download whose state changed (done, paused, stopped) or that's gone from
@@ -388,6 +389,8 @@ export function createServer({ profile, controlSocket }) {
         delete result.moved;
         return json(result);
       }
+      case "POST /api/process-cancel": // {id}: stops one of the sidebar's Processes (a folder's total being worked out)
+        return json({ cancelled: totals.cancel(String((await req.json()).id ?? "")) });
       case "POST /api/transfer-cancel": // {id}: stops a copy or move (what's done stays done; it can be resumed)
         return json({ cancelled: cancelTransfer((await req.json()).id) });
       case "PUT /api/drag": // {paths, button}: a phil window started dragging these (for another window's drop)
@@ -788,6 +791,7 @@ export function createServer({ profile, controlSocket }) {
     const stopBrowserDownloads = browserDownloads.use();
     socket.addEventListener("open", () => {
       if (downloads.list.length) send({ downloads: downloads.list });
+      if (totals.processes().length) send({ processes: totals.processes() });
       if (browserDownloads.list.length) send({ browserDownloads: browserDownloads.list });
     });
     socket.onclose = () => {
