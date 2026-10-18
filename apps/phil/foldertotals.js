@@ -6,7 +6,8 @@ const STUCK_MS = 60_000; // a walk that's found nothing more for this long is st
 const KEEP = 1_000_000; // folders remembered; past that, the ones worked out longest ago go
 const CHECK_WALKS = 200; // F5: more folders than this (and a quarter of them) changed or not known: one walk through all
 const LONG_MS = 10_000; // a walk going this long goes on when nobody waits for it any more, and is listed (processes)
-const TOUCHED_MS = 3000; // something written in a folder: its total read again once that's been quiet this long
+const TOUCHED_MS = 3000;
+const PROGRESS_MS = 1000; // a walk tells how far it's added up (its folder's total so far) this often // something written in a folder: its total read again once that's been quiet this long
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS totals (
@@ -156,14 +157,16 @@ export class FolderTotals {
    * Works the total out (again), calling `done(bytes)`, or done(null) if that fails;
    * `signal` aborted first: not called, and when nobody else waits, not worked out.
    * `mode`: "update" (where it changed), "walk" (all of it), "check" (F5: the time
-   * of every folder under it looked at).
+   * of every folder under it looked at). `progress(bytes)`: walked, its total so
+   * far, every PROGRESS_MS.
    */
-  refresh(path, done, signal = null, mode = "update") {
+  refresh(path, done, signal = null, mode = "update", progress = null) {
     if (signal?.aborted) return;
     // A folder it's in being worked out: what's in it is too (a walk, all of it); waits for that.
     const over = [...this.jobs].find(([p]) => p !== path && (p === "/" || path.startsWith(p + "/")));
-    if (over) return void over[1].followers.push({ path, done, signal, mode });
-    const waiter = { done, signal };
+    if (over?.[1].done.has(path) && !(mode === "check" && over[1].mode === "update")) return void done(over[1].done.get(path)); // done with it already
+    if (over) return void over[1].followers.push({ path, done, signal, mode, progress });
+    const waiter = { done, signal, progress };
     signal?.addEventListener("abort", () => this.drop(path, waiter), { once: true });
     const order = ["update", "check", "walk"]; // (asked twice: the one that reads more)
     if (order.indexOf(mode) > order.indexOf(this.modes.get(path) ?? "update")) this.modes.set(path, mode);
@@ -201,10 +204,14 @@ export class FolderTotals {
       this.modes.delete(path);
       this.running++;
       const stop = new AbortController();
-      const job = { started: Date.now(), mode, stop, long: false, aside: false, cancelled: false, followers: [] };
+      const job = { started: Date.now(), mode, stop, long: false, aside: false, cancelled: false, followers: [], done: new Map() }; // done: the folders under it it's done with -> their totals
       job.timer = setTimeout(() => ((job.long = true), this.processesChanged()), LONG_MS);
       this.jobs.set(path, job);
       const found = (p, bytes) => this.#found(job, p, bytes);
+      found.progress = (p, bytes) => { // a folder being walked, its total so far: those waiting for it hear
+        for (const w of p === path ? this.waiting.get(path) ?? [] : []) w.progress?.(bytes);
+        for (const f of job.followers) if (f.path === p && !f.signal?.aborted) f.progress?.(bytes);
+      };
       (mode === "check" ? this.#check(path, stop.signal, found) : mode === "walk" ? this.#walk(path, stop.signal, { found }) : this.#update(path, stop.signal, found))
         .catch(() => null)
         .then((bytes) => {
@@ -224,6 +231,7 @@ export class FolderTotals {
 
   // A folder under the one `job` works out, done: those waiting for it have it now.
   #found(job, path, bytes) {
+    job.done.set(path, bytes);
     for (const f of job.followers.filter((f) => f.path === path && !(f.mode === "check" && job.mode === "update"))) {
       job.followers.splice(job.followers.indexOf(f), 1);
       if (!f.signal?.aborted) f.done(bytes);
@@ -337,7 +345,8 @@ export class FolderTotals {
   // One find: every file's size and every folder's time and file system, in
   // the order it goes (a folder, then what's in it), added up as it goes: a
   // folder is done once find is past it (a line no deeper than it), and
-  // `found(path, bytes)` hears of it then. Every folder's total is kept;
+  // `found(path, bytes)` hears of it then; `found.progress(path, bytes)`, every
+  // PROGRESS_MS, of those it's in (their totals so far). Every folder's total is kept;
   // stopped before the end, those of the folders it was done with. Folders it
   // can't read are left out.
   async #walk(path, signal, { addUp: up = true, found = () => {} } = {}) {
@@ -351,8 +360,14 @@ export class FolderTotals {
         if (open.length) found(done.path, done.bytes); // (the folder itself: when it's all done)
       }
     };
-    let rootDev = null;
+    let rootDev = null, told = Date.now();
+    const tell = () => { // the folders it's in now: what's added up of each (the deeper ones' so far with it)
+      told = Date.now();
+      let deeper = 0;
+      for (let i = open.length - 1; i >= 0; i--) found.progress?.(open[i].path, (deeper += open[i].bytes));
+    };
     const read = await find(path, ["(", "-type", "d", "-printf", "d %d %D %T@ %p\\0", ")", "-o", "-printf", "f %d %s\\0"], signal, (line) => {
+      if (Date.now() - told >= PROGRESS_MS) tell();
       if (line[0] === "d") {
         const [, depth, dev, time] = line.split(" ", 4);
         rootDev ??= Number(dev);

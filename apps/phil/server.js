@@ -748,7 +748,7 @@ export function createServer({ profile, controlSocket }) {
         const signal = totalsJob.signal;
         countsTotals(msg.totals[0]).then(async (counted) => {
           for (const path of msg.totals) {
-            if (counted && (msg.check || !config.incognito)) totals.refresh(path, (bytes) => send({ totalOf: path, bytes }), signal, msg.check ? "check" : "update");
+            if (counted && (msg.check || !config.incognito)) totals.refresh(path, (bytes) => send({ totalOf: path, bytes }), signal, msg.check ? "check" : "update", (bytes) => send({ totalOf: path, bytes, partial: true }));
             else send({ totalOf: path, bytes: counted ? (await totals.get(path, null))?.bytes ?? null : null });
           }
         });

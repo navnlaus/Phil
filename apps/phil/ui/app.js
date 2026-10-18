@@ -243,7 +243,7 @@ const thumbs = {
       if ("changed" in msg) return onFolderChanged(msg);
       if ("tagged" in msg) return onTagged(msg);
       if ("searched" in msg) return onSearched(msg);
-      if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes);
+      if ("totalOf" in msg) return onFolderTotal(msg.totalOf, msg.bytes, msg.partial);
       if (msg.downloads) return onDownloads(msg.downloads);
       if (msg.processes) return (state.processes = msg.processes), renderProcesses();
       if (msg.browserDownloads) return (state.browserDownloads = msg.browserDownloads), showTransfers();
@@ -403,15 +403,16 @@ function wantTotals(entries) {
   }
 }
 
-function onFolderTotal(path, bytes) {
-  if (totalsPending.delete(path)) updateProgress(); // (its tile's spinner: showFolderInfo, below)
+// `partial`: added up so far (a walk going on): shown, its spinner still there.
+function onFolderTotal(path, bytes, partial = false) {
+  if (!partial && totalsPending.delete(path)) updateProgress(); // (its tile's spinner: showFolderInfo, below)
   if (state.settings.folderSizes === "off") return; // (phil's own changes tell every page)
   const tile = tiles.get(path);
   const entry = tile && state.view[tile.dataset.index];
   if (entry?.path !== path) return;
-  entry.total = bytes === null ? { failed: true } : { bytes, stale: false };
+  entry.total = bytes === null ? { failed: true } : { bytes, stale: false, partial };
   showFolderInfo(tile, entry); // with no summary yet, the size alone
-  if (state.settings.sort === "size") resortSoon();
+  if (state.settings.sort === "size" && !partial) resortSoon();
 }
 
 // Sorted by size, folders move as their totals come in: at most once a second
@@ -1144,7 +1145,7 @@ function showFolderInfo(tile, entry) {
   // being copied into, its size as the copy goes (copySize).
   const live = copySize(entry);
   const total = live?.total ?? entry.total;
-  const sizing = !live && total?.bytes === undefined && totalsPending.has(entry.path); // du at it: a spinner where it goes
+  const sizing = !live && (total?.bytes === undefined || total.partial) && totalsPending.has(entry.path); // a walk at it: a spinner where it goes (after what's added up so far)
   const space = entry.space ? `${formatSize(entry.space.avail)} free of ${formatSize(entry.space.size)}` : ""; // a drive mounted there
   put(meta, "textContent", live?.text ?? (space ? [summary && folderContents(summary, null, false, { counts: true }), space].filter(Boolean).join(" · ")
     : summary ? folderContents(summary, total, sizing) : total?.bytes !== undefined ? formatSize(total.bytes) : ""));

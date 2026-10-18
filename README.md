@@ -304,8 +304,11 @@ else in its folder changes.
 
 A total that's taken 10 seconds goes on when another folder is shown (a big
 folder on a slow drive: minutes), aside, so the shown folder's aren't held up
-behind it. Going into it meanwhile, its folders' totals aren't worked out
-again: each comes as the walk is done with it (one folder after another).
+behind it. A folder being walked shows what's added up so far, every
+second, with the spinner after it till it's done. Going into it meanwhile, its
+folders' totals aren't worked out again: those the walk is done with show at
+once, the one it's in shows its total so far, the others come as the walk gets
+to them (one folder after another).
 The sidebar lists those under Processes, with how long each has been going;
 × stops it (the folders it was done with are kept; it's worked out again when
 it's asked for), a click shows its folder.
