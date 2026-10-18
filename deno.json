@@ -7,7 +7,8 @@
     "videoplayer": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run engine/main.js videoplayer --standalone",
     "imageresize": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run engine/main.js imageresize --standalone",
     "compile": "deno compile --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run --include engine/server.js --include engine/ui --include themes --include apps -o phil-engine engine/main.js",
-    "install": "bash scripts/install.sh"
+    "install": "bash scripts/install.sh",
+    "webgpu": "deno run --unstable-webgpu --allow-ffi experiments/webgpu/main.js"
   },
   "imports": {
     "@std/path": "jsr:@std/path@^1"

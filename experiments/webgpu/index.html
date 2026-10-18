@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- particles.js in a browser's canvas: the same as main.js draws in a native
+     window. Served over http (modules aren't loaded from file://):
+       deno run --allow-net --allow-read experiments/webgpu/serve.js
+     ?count=N, ?auto (the pull goes round by itself), ?frames=N (logs how fast N came). -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGPU · browser</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #030305; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  #info { position: fixed; left: 12px; bottom: 10px; font: 13px system-ui, sans-serif; color: #9ab; }
+</style>
+<canvas></canvas>
+<div id="info"></div>
+<script type="module">
+  import { autoPull, createParticles, frameStats } from "./particles.js";
+
+  const params = new URLSearchParams(location.search);
+  const auto = params.has("auto"), maxFrames = Number(params.get("frames")) || Infinity;
+  const canvas = document.querySelector("canvas"), info = document.querySelector("#info");
+  const say = (text) => (info.textContent = text, console.log(text));
+
+  const adapter = await navigator.gpu?.requestAdapter({ powerPreference: "high-performance" });
+  if (!adapter) throw say("No WebGPU here");
+  const device = await adapter.requestDevice();
+  device.lost.then((i) => say(`GPU device lost: ${i.reason} ${i.message}`));
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  const context = canvas.getContext("webgpu");
+  context.configure({ device, format, alphaMode: "opaque" });
+  const gpuName = [adapter.info?.vendor, adapter.info?.architecture, adapter.info?.description].filter(Boolean).join(" ") || "GPU";
+
+  const particles = createParticles(device, format);
+  particles.seed(Number(params.get("count")) || 1 << 18);
+
+  let mouse = [0, 0], pull = 0, strength = 1, paused = false;
+  const toClip = (e) => [(e.clientX / innerWidth) * 2 - 1, 1 - (e.clientY / innerHeight) * 2];
+  canvas.onpointermove = (e) => (mouse = toClip(e));
+  canvas.onpointerdown = (e) => ((mouse = toClip(e)), (pull = e.button === 2 ? -1 : 1));
+  canvas.onpointerup = () => (pull = 0);
+  canvas.oncontextmenu = (e) => e.preventDefault();
+  canvas.onwheel = (e) => (strength = Math.min(8, Math.max(0.125, strength * (e.deltaY < 0 ? 1.25 : 0.8))));
+  onkeydown = (e) => {
+    if (e.key === " ") paused = !paused;
+    else if (e.key === "r") particles.seed(particles.count);
+    else if (e.key === "+" || e.key === "=") particles.seed(Math.min(particles.count * 2, 1 << 23));
+    else if (e.key === "-") particles.seed(Math.max(particles.count >> 1, 1024));
+  };
+
+  const start = performance.now(), frameTimes = [];
+  let last = start, shownAt = start, shownFrames = 0;
+  requestAnimationFrame(function frame(now) {
+    const width = Math.round(canvas.clientWidth * devicePixelRatio), height = Math.round(canvas.clientHeight * devicePixelRatio);
+    if (canvas.width !== width || canvas.height !== height) Object.assign(canvas, { width, height });
+    frameTimes.push(now - last);
+    const dt = Math.min((now - last) / 1000, 1 / 30);
+    last = now;
+    const time = (now - start) / 1000;
+    const pulling = auto ? autoPull(time) : { mouse, pull };
+    particles.frame(context.getCurrentTexture().createView(), { width, height, mouse: pulling.mouse, pull: pulling.pull * strength, dt, time, paused });
+    shownFrames++;
+    if (now - shownAt > 500) {
+      info.textContent = `${particles.count.toLocaleString("en")} particles · ${((shownFrames * 1000) / (now - shownAt)).toFixed(0)} fps${paused ? " · paused" : ""} · ${gpuName}`;
+      shownAt = now, shownFrames = 0;
+    }
+    if (frameTimes.length >= maxFrames) return say(frameStats(frameTimes, (performance.now() - start) / 1000, particles.count));
+    requestAnimationFrame(frame);
+  });
+</script>
