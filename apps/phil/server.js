@@ -41,9 +41,11 @@ export function createServer({ profile, controlSocket }) {
   const sockets = new Set(); // every page's WebSocket, for {theme}
   const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
   const folders = new FolderSummaries(config.incognito ? null : join(thumbs.dir, "folders"));
-  const totals = new FolderTotals(config.incognito ? null : thumbs.dir, {
+  // Incognito: the totals known, read; F5's, and phil's own changes', in memory for the session.
+  const totals = new FolderTotals(join(config.incognito ? join(config.cacheThumbDir, thumbs.name) : thumbs.dir, "folder-totals.sqlite"), {
+    readOnly: config.incognito,
     changed: (path, bytes) => broadcast({ totalOf: path, bytes }), // phil's own changes: the totals of the folders they're in, and above
-    counts: (path) => countsTotals(path),
+    counts: async (path) => !config.incognito && await countsTotals(path), // (a folder copied: walked)
   });
   const speedsFile = join(dirname(config.stateFile), "drive-speeds.json"); // the drives' read speed tests
   // Copies and moves under way, in the metadata of the folder or file being
@@ -719,12 +721,15 @@ export function createServer({ profile, controlSocket }) {
         backgroundJob = new AbortController();
         makeInBackground(Array.isArray(msg.background) ? msg.background : [], backgroundJob.signal, send);
       }
-      if (msg.totals?.length) { // {totals: [folder]}: du, then {totalOf, bytes} (null: none, as on a USB drive unless set otherwise)
+      // {totals: [folder], check}: worked out (foldertotals.js; `check`, F5: the time of every folder
+      // under them looked at), then {totalOf, bytes} (null: none, as on a USB drive unless set otherwise).
+      // Incognito, only on F5: otherwise what's known.
+      if (msg.totals?.length) {
         const signal = totalsJob.signal;
-        countsTotals(msg.totals[0]).then((counted) => {
+        countsTotals(msg.totals[0]).then(async (counted) => {
           for (const path of msg.totals) {
-            if (counted) totals.refresh(path, (bytes) => send({ totalOf: path, bytes }), signal);
-            else send({ totalOf: path, bytes: null });
+            if (counted && (msg.check || !config.incognito)) totals.refresh(path, (bytes) => send({ totalOf: path, bytes }), signal, !!msg.check);
+            else send({ totalOf: path, bytes: counted ? (await totals.get(path, null))?.bytes ?? null : null });
           }
         });
       }

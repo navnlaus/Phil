@@ -209,6 +209,7 @@ export function serverConfig(profile) {
     incognito,
     thumbDir: profile.thumbDir ?? (incognito ? join(scratchDir(), "thumbnails") : join(cacheHome, "phil", "thumbnails")),
     thumbsInMemory: incognito && !profile.thumbDir,
+    cacheThumbDir: profile.thumbDir ?? join(cacheHome, "phil", "thumbnails"), // (incognito's caches: read there, not written)
     thumbSize: profile.thumbSize ?? 384,
     jobs: profile.jobs ?? navigator.hardwareConcurrency ?? 4,
     port: profile.port ?? 0,

@@ -233,7 +233,9 @@ how phil was closed). A folder argument always wins.
 - caches are kept in memory only: thumbnails in a temporary folder in
   `$XDG_RUNTIME_DIR` (a tmpfs, i.e. RAM; `/dev/shm` without it), deleted when
   the incognito engine exits, unless `--thumb-dir` is given; folder summaries
-  and descriptions or hooks set in Properties in the process itself;
+  and descriptions or hooks set in Properties in the process itself; folders'
+  totals are read from phil's, never written, and only F5 works any out (into
+  memory);
 - WebKit runs a private session: no disk cache, cookies or storage (Chromium:
   a throwaway profile in `$XDG_RUNTIME_DIR`, deleted when it closes);
 - imageview and videoplayer, opened from it (or typed in its terminal panel),
@@ -272,13 +274,28 @@ the background, makes those previews and saves the result. The status bar
 counts the folders being read. Summaries live next to the thumbnails
 (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for the
 session. The total (like `du -sb`, a hard-linked file in each place) is worked
-out in the background (… until then), on the folder's own file system, by one
-walk through it that gives every folder under it its total too: going into one,
-its folders' totals are there already. Each is worked out again when its folder
-changed (a change deeper inside doesn't touch it) or on F5. What phil does
-itself (delete, copy, move, rename, a new folder) changes the totals of the
-folders it's in and every one above them, at once, with no walk. They're kept
-in `folder-totals.sqlite` there. Network shares and the kernel's
+out in the background (… until then), on the folder's own file system. A folder
+never counted is walked through once (one `find`), which gives every folder
+under it its total too: going into one, its folders' totals are there already.
+phil keeps each folder's total, its own files' size and its modification time
+(in `folder-totals.sqlite` there), so a total is worked out again only where
+something changed:
+
+- a folder that changed since (a file put in it, deleted or renamed) has its
+  own files read again, and its folders' totals come from what's known (read
+  again the same way where those changed);
+- a change deeper inside doesn't touch a folder's time: F5 looks at the time of
+  every folder under the shown folder's (a `find` of the folders only, a
+  fraction of a walk) and reads again those that changed; a file that grew
+  where it was (a download, a log) changes none: its new size counts once
+  something else in its folder changes;
+- what phil does itself (delete, copy, move, rename, a new folder) changes the
+  totals of the folders it's in and every one above them at once, reading
+  nothing (a folder copied is walked, once);
+- a folder's new total changes those of the folders above it by as much.
+
+Incognito reads the totals known and works none out, except on F5: those go in
+a database in memory, gone when it exits. Network shares and the kernel's
 folders (`/proc`, `/sys`) get none. Sorted by size, folders go by their totals
 (all of them are worked out then, not just those in view), and move as the
 totals come in: at most once a second, only when the order changed, sliding to
@@ -661,7 +678,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | F4 / Ctrl+` | toggle the terminal panel |
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
 | Ctrl + / − / wheel | thumbnail size |
-| F5 | reload folder, its folders' totals worked out again |
+| F5 | reload folder; its folders' totals: every folder's time in them looked at, those changed read again |
 
 **On-change hooks.** A file's Properties can name a command for phil to run
 when the file changes — but only while a phil window shows its folder; with

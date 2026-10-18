@@ -227,7 +227,10 @@ const thumbs = {
       if (this.watching) this.watch(this.watching);
       if (this.tagging) this.tag(this.tagging);
       if (this.backgroundPaths?.length) this.background(this.backgroundPaths);
-      if (this.totals.size) this.send({ totals: [...this.totals] }); // asked for before the connection was up
+      for (const check of [false, true]) { // asked for before the connection was up
+        const paths = [...this.totals].filter(([, c]) => c === check).map(([p]) => p);
+        if (paths.length) this.send({ totals: paths, check });
+      }
       loadTransfers();
       loadStoppedTransfers();
       api("/api/clipboard").then((c) => ((state.clip = c), markClipboard()), () => {});
@@ -286,11 +289,11 @@ const thumbs = {
   send(msg) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   },
-  // Folders' total sizes (foldertotals.js), answered with {totalOf, bytes}.
-  totals: new Set(),
-  wantTotals(paths) {
-    if (this.ws?.readyState === WebSocket.OPEN) this.send({ totals: paths });
-    else paths.forEach((p) => this.totals.add(p));
+  // Folders' total sizes (foldertotals.js), answered with {totalOf, bytes}; `check` (F5): the time of every folder in them looked at.
+  totals: new Map(), // path -> check
+  wantTotals(paths, check = false) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.send({ totals: paths, check });
+    else paths.forEach((p) => this.totals.set(p, check || !!this.totals.get(p)));
   },
   // The shown folder's thumbnails not yet made, made in the background (top first).
   background(paths) {
@@ -376,17 +379,23 @@ function onFolderSummary(path, summary) {
 
 // A folder's total size, with its subfolders' (foldertotals.js): asked for
 // once its tile is near the view, unless the one known is current (the folder
-// unchanged since; F5 asks again).
+// unchanged since); after F5 (`check`), always. Incognito: only after F5 (what's
+// known is shown, out of date or not).
 const wantTotal = (entry) => wantTotals([entry]);
 
 // The status bar says how many are being added up (totalsPending).
 const totalsPending = new Set();
 function wantTotals(entries) {
   if (state.settings.folderSizes === "off") return;
-  const asked = entries.filter((e) => !(e.total && !e.total.stale) && !e.totalAsked && !("space" in e)); // (a drive mounted there: its space instead)
+  const wanted = (e) => e.check || (!state.init.incognito && !(e.total && !e.total.stale));
+  const asked = entries.filter((e) => wanted(e) && !e.totalAsked && !("space" in e)); // (a drive mounted there: its space instead)
   for (const e of asked) e.totalAsked = true, totalsPending.add(e.path);
   if (!asked.length) return;
-  thumbs.wantTotals(asked.map((e) => e.path)), updateProgress();
+  for (const check of [false, true]) {
+    const paths = asked.filter((e) => !!e.check === check).map((e) => e.path);
+    if (paths.length) thumbs.wantTotals(paths, check);
+  }
+  updateProgress();
   for (const e of asked) {
     const tile = tiles.get(e.path);
     if (tile) showFolderInfo(tile, e); // its spinner
@@ -726,7 +735,7 @@ addEventListener("hashchange", () => (closeTransfersView({ resume: false }), clo
 // and which load is the newest (an older one finishing later is dropped).
 let loading = null, loads = 0;
 
-// `recount` (F5): its folders' totals are worked out again, not only those whose folder changed.
+// `recount` (F5): its folders' totals are looked at again, every folder in them, not only those whose own folder changed.
 async function load(path, { recount = false } = {}) {
   if (state.path) scrollPositions.set(state.path, grid.scrollTop);
   const previous = state.path;
@@ -752,7 +761,7 @@ async function load(path, { recount = false } = {}) {
   state.path = listing.path;
   terminal.follow(listing.path);
   state.entries = listing.entries;
-  if (recount) for (const e of listing.entries) if (e.total) e.total.stale = true;
+  if (recount) for (const e of listing.entries) if (e.kind === "dir") e.check = true;
   if (previous !== listing.path) changedFolders.clear(), autoTags.clear(), tagFilter.clear(), carried.clear(), searchScores.clear(), totalsPending.clear(); // (the server drops those totals)
   state.listingAutoTags = !!listing.autoTags;
   state.autoTagged = autoTagging(listing);
