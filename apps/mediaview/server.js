@@ -63,7 +63,8 @@ export function createServer({ profile = {}, controlSocket = null }) {
 
   // Videos being downloaded into the media folders (phil's downloads: panda-dl's,
   // a browser's): [{path, root, progress (0 to 1), total, speed, eta, state, name}].
-  // A torrent's own files as soon as it lists them; before, the download itself (its name).
+  // A torrent's own files as soon as it lists them (not those done: they play while
+  // the rest go on); before, the download itself (its name).
   const mediaRoots = async () => Object.entries(await hooks.all()).filter(([, m]) => m?.media === true).map(([p]) => p).sort();
   function mediaDownloads(roots) {
     const inRoot = (path) => roots.find((r) => path.startsWith(r + "/"));
@@ -77,7 +78,7 @@ export function createServer({ profile = {}, controlSocket = null }) {
       const common = { speed: d.speed ?? null, eta: d.eta ?? null, state: d.state, name: d.name, transfer: `download ${d.id}` };
       const videos = (d.files ?? []).filter((f) => mediaKind(f.path) === "video");
       if (videos.length) {
-        for (const f of videos) add({ path: f.path, progress: f.length ? f.downloaded / f.length : (d.percent ?? 0) / 100, total: f.length ?? null, ...common });
+        for (const f of videos.filter((f) => !(f.length && f.downloaded >= f.length))) add({ path: f.path, progress: f.length ? f.downloaded / f.length : (d.percent ?? 0) / 100, total: f.length ?? null, ...common });
       } else if (!d.files?.length || d.state === "metadata") add({ path: d.path ?? join(d.dir, d.name), progress: (d.percent ?? 0) / 100, total: d.total ?? null, ...common });
     }
     for (const w of feed.browser) {
