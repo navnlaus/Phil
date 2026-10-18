@@ -1145,7 +1145,7 @@ function showFolderInfo(tile, entry) {
   // being copied into, its size as the copy goes (copySize).
   const live = copySize(entry);
   const total = live?.total ?? entry.total;
-  const sizing = !live && (total?.bytes === undefined || total.partial) && totalsPending.has(entry.path); // a walk at it: a spinner where it goes (after what's added up so far)
+  const sizing = !live && (total?.bytes === undefined || !!total.partial) && totalsPending.has(entry.path); // a walk at it: a spinner where it goes (after what's added up so far)
   const space = entry.space ? `${formatSize(entry.space.avail)} free of ${formatSize(entry.space.size)}` : ""; // a drive mounted there
   put(meta, "textContent", live?.text ?? (space ? [summary && folderContents(summary, null, false, { counts: true }), space].filter(Boolean).join(" · ")
     : summary ? folderContents(summary, total, sizing) : total?.bytes !== undefined ? formatSize(total.bytes) : ""));
