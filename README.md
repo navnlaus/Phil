@@ -271,9 +271,14 @@ in the terminal), or the view is sorted differently, phil reads the folder in
 the background, makes those previews and saves the result. The status bar
 counts the folders being read. Summaries live next to the thumbnails
 (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for the
-session. The total is du's, in the background (… until then), on the folder's
-own file system; it's worked out again when the folder changed (a change deep
-inside doesn't touch it) or on F5, kept in `folder-totals.json` there. Network shares and the kernel's
+session. The total (like `du -sb`, a hard-linked file in each place) is worked
+out in the background (… until then), on the folder's own file system, by one
+walk through it that gives every folder under it its total too: going into one,
+its folders' totals are there already. Each is worked out again when its folder
+changed (a change deeper inside doesn't touch it) or on F5. What phil does
+itself (delete, copy, move, rename, a new folder) changes the totals of the
+folders it's in and every one above them, at once, with no walk. They're kept
+in `folder-totals.sqlite` there. Network shares and the kernel's
 folders (`/proc`, `/sys`) get none. Sorted by size, folders go by their totals
 (all of them are worked out then, not just those in view), and move as the
 totals come in: at most once a second, only when the order changed, sliding to

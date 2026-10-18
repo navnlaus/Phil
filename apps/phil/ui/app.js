@@ -395,6 +395,7 @@ function wantTotals(entries) {
 
 function onFolderTotal(path, bytes) {
   if (totalsPending.delete(path)) updateProgress(); // (its tile's spinner: showFolderInfo, below)
+  if (state.settings.folderSizes === "off") return; // (phil's own changes tell every page)
   const tile = tiles.get(path);
   const entry = tile && state.view[tile.dataset.index];
   if (entry?.path !== path) return;

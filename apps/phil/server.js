@@ -41,7 +41,10 @@ export function createServer({ profile, controlSocket }) {
   const sockets = new Set(); // every page's WebSocket, for {theme}
   const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
   const folders = new FolderSummaries(config.incognito ? null : join(thumbs.dir, "folders"));
-  const totals = new FolderTotals(config.incognito ? null : thumbs.dir);
+  const totals = new FolderTotals(config.incognito ? null : thumbs.dir, {
+    changed: (path, bytes) => broadcast({ totalOf: path, bytes }), // phil's own changes: the totals of the folders they're in, and above
+    counts: (path) => countsTotals(path),
+  });
   const speedsFile = join(dirname(config.stateFile), "drive-speeds.json"); // the drives' read speed tests
   // Copies and moves under way, in the metadata of the folder or file being
   // made ({copying: {op, from, percent, bytes, total, started, updated,
@@ -79,13 +82,12 @@ export function createServer({ profile, controlSocket }) {
   };
 
   // What phil kept of things deleted goes too: their thumbnails, documents read
-  // as Markdown (both by path, size and time), and folders' summaries, totals and
-  // tagging. (Their metadata goes with movedHooks.)
+  // as Markdown (both by path, size and time), and folders' summaries and
+  // tagging. (Their metadata goes with movedHooks, their totals with totals.deleting.)
   // The cache folders are listed once, and only what's in them is removed (a
   // big folder is many thousand files, most never seen).
   const forgetDeleted = async (entries) => {
     const dirs = entries.filter((e) => e.type === "d").map((e) => e.path);
-    totals.forget(dirs);
     for (const dir of dirs) await folders.forget(dir), await tagging.forget(dir);
     const names = async (dir) => {
       const set = new Set();
@@ -350,14 +352,18 @@ export function createServer({ profile, controlSocket }) {
       case "POST /api/delete": {
         const paths = (await req.json()).paths ?? [];
         await downloads.deleting(paths); // a download writing them stops (with nothing left of it: it's removed)
-        const result = await deletePaths(paths, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress)), forget: forgetDeleted });
+        const deleted = await totals.deleting(paths);
+        const forget = async (gone) => (await deleted(gone), await forgetDeleted(gone));
+        const result = await deletePaths(paths, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress)), forget });
         await movedHooks(paths, result, () => null);
         return json(result);
       }
       case "POST /api/transfer": { // {op, paths, dest}; progress to every page as {transfer} (see transfer())
         const body = await req.json();
+        const transferred = await totals.transferring(body.op, Array.isArray(body.paths) ? body.paths : [], requirePath(body.dest));
         const result = await transfer(body, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress)), track: copyRecords });
         broadcast({ stoppedTransfers: true }); // cut off (×), or done (a stopped one gone on with)
+        transferred(result).catch((err) => console.error(`phil: folders' totals after a ${body.op}: ${err.message}`)); // (a folder copied: walked, in the background)
         if (body.op === "move") await movedHooks(body.paths ?? [], result, (p) => join(body.dest, basename(p)));
         for (const { from, to } of result.moved ?? []) thumbs.carry(from, to).catch(() => {}); // their thumbnails go along
         delete result.moved;
@@ -431,7 +437,9 @@ export function createServer({ profile, controlSocket }) {
         return json({ ok: true });
       case "POST /api/rename": {
         const body = await req.json();
+        const renamed = await totals.renaming(requirePath(body.path));
         const result = await rename(body);
+        await renamed(result.path);
         await hooks.moved(body.path, result.path);
         await movedPositions(body.path, result.path).catch(() => {});
         thumbs.carry(body.path, result.path).catch(() => {});
@@ -441,8 +449,13 @@ export function createServer({ profile, controlSocket }) {
         return json(await mountDrive(await req.json()));
       case "POST /api/unmount": // {path}: a drive mounted under /run/media
         return json(await unmountDrive(await req.json()));
-      case "POST /api/create": // {dir, kind: "dir" | "file"}: a new folder or file there
-        return json(await create(await req.json()));
+      case "POST /api/create": { // {dir, kind: "dir" | "file"}: a new folder or file there
+        const body = await req.json();
+        const created = await totals.creating(requirePath(body.dir));
+        const result = await create(body);
+        await created(result.path);
+        return json(result);
+      }
       case "GET /api/properties":
         return json({ ...await properties(requirePath(path)), meta: await hooks.get(path) });
       case "GET /api/drive-speeds": { // ?path=...&path=...: the sidebar's drives' last speed tests, {path: {read, at}}
