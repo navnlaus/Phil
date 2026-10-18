@@ -4316,11 +4316,12 @@ function downloadParts(d) {
     const left = f.length === null || f.downloaded < f.length;
     const going = left && !filePaused(d, f);
     for (let path = f.path; path.length > d.dir.length && path.startsWith(d.dir + "/"); path = parentOf(path)) {
-      const part = parts.get(path) ?? parts.set(path, { length: 0, downloaded: 0, left: 0, going: 0 }).get(path);
+      const part = parts.get(path) ?? parts.set(path, { length: 0, downloaded: 0, left: 0, going: 0, marked: 0 }).get(path);
       if (f.length === null || part.length === null) part.length = part.downloaded = null;
       else part.length += f.length, part.downloaded += f.downloaded;
       part.left += left; // its files not done yet,
-      part.going += going; // and those of them being downloaded (not paused)
+      part.going += going; // and those of them being downloaded (not paused),
+      part.marked += left && !!f.paused; // and paused by themselves
     }
   }
   return parts;
@@ -4331,15 +4332,16 @@ const filePaused = (d, f) => f.paused || ["paused", "error", "failed"].includes(
 
 // The torrents under way (panda-dl's, their files listed) that `paths` are
 // files of, or folders in: [{d, paths, pausable, resumable}], where pausable
-// and resumable are those of `paths` with files not done that are being
-// downloaded, or paused.
+// and resumable are those of `paths` with files not done that aren't paused
+// by themselves (all of it paused or being checked, too: they stay paused when
+// it goes on), or are paused (by themselves, or with all of it).
 function torrentsOf(paths) {
   const found = [];
   for (const d of state.downloads) {
     if (d.state === "completed" || !d.files?.length || d.files[0].length === null) continue;
     const mine = paths.filter((p) => p.startsWith(d.dir + "/"));
     const filesOf = (p) => d.files.filter((f) => (f.path === p || f.path.startsWith(p + "/")) && f.downloaded < f.length);
-    const pausable = mine.filter((p) => filesOf(p).some((f) => !filePaused(d, f)));
+    const pausable = mine.filter((p) => filesOf(p).some((f) => !f.paused));
     const resumable = mine.filter((p) => filesOf(p).some((f) => filePaused(d, f)));
     if (pausable.length || resumable.length) found.push({ d, pausable, resumable });
   }
@@ -4414,7 +4416,7 @@ function showDownloadBar(bar, d, part = null) {
     put(bar.querySelector(".fill").style, "width", `${pct}%`);
     put(bar.querySelector(".pct"), "textContent", `${paused && !inSidebar(bar) ? "Paused " : checking ? "Checking… " : ""}${pct}%`);
     put(bar, "title", `${formatSize(part.downloaded)} of ${formatSize(part.length)} of this; “${d.name}”: ${d.percent}%` +
-      (paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}`));
+      (part.marked && part.marked === part.left ? ` (paused by itself${d.state === "paused" || checking ? `: it stays paused when “${d.name}” goes on` : ""})` : paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}`));
     const [toggle, stop] = bar.querySelectorAll(".cancel");
     putIcon(toggle, paused ? "l:play" : "l:pause");
     put(toggle, "title", d.files?.length > 1
