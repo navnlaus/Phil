@@ -704,6 +704,10 @@ main { padding-top: var(--bar-h); }
 #props .phil[hidden], #props .hook[hidden] { display: none; }
 #props .hook { margin-top: 12px; }
 #props .tags-label { margin-top: 10px; }
+#props .drive-options { margin-bottom: 12px; }
+#props .drive-options[hidden] { display: none; }
+#props .drive-options .check { display: flex; margin: 0 0 4px; }
+#props .drive-options .hint { margin-top: 2px; }
 #props .autotag { margin-top: 12px; }
 #props .autotag[hidden] { display: none; }
 #props .autotag .check { display: flex; margin: 0; }

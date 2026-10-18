@@ -14,6 +14,7 @@ import { home, serverConfig } from "./launch.js";
 import { canWrite, driveInfo, driveSpeed, folderSize, me, properties } from "./properties.js";
 import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
+import { DriveOptions } from "./driveoptions.js";
 import { onWrote } from "../../engine/written.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 import { unfinished, watchDownloads } from "./downloads.js";
@@ -42,6 +43,10 @@ export function createServer({ profile, controlSocket }) {
   const sockets = new Set(); // every page's WebSocket, for {theme}
   const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
   const folders = new FolderSummaries(config.incognito ? null : join(thumbs.dir, "folders"));
+  // What phil does on each drive (its Properties): thumbnails, folder sizes.
+  const driveOptions = new DriveOptions(join(dirname(config.settingsFile), "drives.json"), { readOnly: config.incognito });
+  // Whether previews are made where `path` is (pictures', videos', documents'; folders' faces of them).
+  const previewsOn = async (path) => (await driveOptions.get(path)).thumbnails !== false;
   // Incognito: the totals known, read; F5's, and phil's own changes', in memory for the session.
   const totals = new FolderTotals(join(config.incognito ? join(config.cacheThumbDir, thumbs.name) : thumbs.dir, "folder-totals.sqlite"), {
     readOnly: config.incognito,
@@ -488,8 +493,16 @@ export function createServer({ profile, controlSocket }) {
         }));
         return json(out);
       }
-      case "GET /api/drive": // a mount point's drive (Properties of the sidebar's drives), with its last speed test
-        return json(await driveInfo(requirePath(path), speedsFile));
+      case "GET /api/drive": { // a mount point's drive (Properties of the sidebar's drives), with its last speed test, and what phil does on it
+        const drive = requirePath(path);
+        const [info, own] = await Promise.all([driveInfo(drive, speedsFile), driveOptions.get(drive)]);
+        return json({ ...info, options: { thumbnails: own.thumbnails !== false, folderSizes: await countsTotals(drive), own } });
+      }
+      case "PUT /api/drive-options": { // {path, thumbnails, folderSizes}: a drive's (true, false; null: as usual)
+        const { path: drive, ...changes } = await req.json();
+        await driveOptions.set(requirePath(drive), changes);
+        return json({ ok: true });
+      }
       case "POST /api/sudo": { // {password}: for sudo (sudo.js), after a 401; 401 again when it's wrong
         const { password, why } = await req.json();
         if (!(await sudoPassword(password ?? ""))) throw httpError(401, `That password didn't work.${why ? ` ${why}` : ""}\nPassword for sudo:`);
@@ -598,10 +611,11 @@ export function createServer({ profile, controlSocket }) {
         if (counts.size) e.folderTags = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 12);
       }
     }
-    // While we're here, this folder's own summary, from thumbnails already cached.
-    const previewOf = (e) => (e.kind === "file" ? textPreviewOf(e) : typeof e.thumb === "string" ? { url: e.thumb } : e.thumb ?? null);
-    makeSummary({ entries, mtime, sort, previewOf, subfolderPreviewOf: async (e) => (e.summary ? lentPreview(e.summary) ?? false : null) }) // none yet: incomplete, made when its tile shows
-      .then((summary) => folders.save(dir, summary))
+    // While we're here, this folder's own summary, from thumbnails already cached (a drive without previews: none).
+    const previews = await previewsOn(dir);
+    const previewOf = (e) => (!previews ? false : e.kind === "file" ? textPreviewOf(e) : typeof e.thumb === "string" ? { url: e.thumb } : e.thumb ?? null);
+    makeSummary({ entries, mtime, sort, previewOf, subfolderPreviewOf: async (e) => (!previews ? false : e.summary ? lentPreview(e.summary) ?? false : null) }) // none yet: incomplete, made when its tile shows
+      .then((summary) => folders.save(dir, previews ? summary : { ...summary, noPreviews: true }))
       .catch((err) => console.error(`phil: can't save folder summary: ${err.message}`));
     return { path: dir, parent: dir === "/" ? null : dirname(dir), entries, autoTags: !!meta[dir]?.autoTags };
   }
@@ -616,6 +630,7 @@ export function createServer({ profile, controlSocket }) {
     const who = lookups ? await me() : null;
     const dirStat = lookups ? await Deno.stat(dir).catch(() => null) : null;
     const counted = lookups && await countsTotals(dir);
+    const previews = !lookups || await previewsOn(dir);
     const mountPoints = []; // subfolders on another file system: drives mounted there
     const entries = await mapLimit(dirents, 64, async (d) => {
       const path = join(dir, d.name);
@@ -638,10 +653,13 @@ export function createServer({ profile, controlSocket }) {
         const folder = !stat.isFile ? null : d.isSymlink ? await Deno.realPath(path).then((real) => Deno.stat(dirname(real))).catch(() => null) : dirStat;
         entry.writable = canWrite(stat, folder, who);
       }
-      if (stat && (kind === "image" || kind === "video" || kind === "pdf")) entry.thumb = await thumbs.lookup(path, stat);
+      if (stat && (kind === "image" || kind === "video" || kind === "pdf")) entry.thumb = previews ? await thumbs.lookup(path, stat) : false; // (false: none, nothing asked)
       if (kind === "dir" && !d.isSymlink && dirStat && stat.dev !== dirStat.dev) mountPoints.push(entry);
       else if (kind === "dir") entry.total = counted ? await totals.get(path, entry.mtime) : null; // { bytes, stale } or null; the page asks for stale ones
       if (kind === "dir") entry.summary = await folders.get(path);
+      // A drive without previews: its folders' faces without them. One made so, with them again: made again.
+      if (entry.summary && !previews) entry.summary = { ...entry.summary, previews: [] };
+      else if (entry.summary?.noPreviews) entry.summary = null;
       return entry;
     });
     // A drive mounted here: its size and free space ({size, avail}, df's, as the sidebar's), not a total.
@@ -669,6 +687,7 @@ export function createServer({ profile, controlSocket }) {
   async function summarize(path, sort, signal, deep = true) {
     const mtime = (await Deno.stat(path)).mtime?.getTime() ?? 0;
     const entries = await readEntries(path, { lookups: false });
+    const previews = await previewsOn(path); // (a drive without them: its counts and size only)
     signal.throwIfAborted();
     let busy = 0; // a picture in it being written, without a thumbnail yet: asked again (in this many ms) when it may have settled
     const summary = await makeSummary({
@@ -676,6 +695,7 @@ export function createServer({ profile, controlSocket }) {
       mtime,
       sort,
       async previewOf(e) {
+        if (!previews) return false;
         if (e.kind === "file") return await textPreviewOf(e, signal);
         try {
           return { url: await thumbs.get(e.path, signal) };
@@ -685,7 +705,7 @@ export function createServer({ profile, controlSocket }) {
           return false; // can't be thumbnailed: skipped, not retried
         }
       },
-      subfolderPreviewOf: deep
+      subfolderPreviewOf: deep && previews
         ? async (e) => {
           const known = await folders.get(e.path);
           const theirs = known?.mtime === e.mtime ? known : await summarize(e.path, sort, signal, false).catch(() => null);
@@ -694,6 +714,7 @@ export function createServer({ profile, controlSocket }) {
         : null,
     });
     if (busy) summary.busy = true;
+    if (!previews) summary.noPreviews = true; // (made with them when they're on again)
     await folders.save(path, summary);
     return summary;
   }
@@ -759,14 +780,14 @@ export function createServer({ profile, controlSocket }) {
         if (mediaKind(path) === "file") { // other files: the start of their text, if they're text (documents: converted)
           const ctrl = new AbortController();
           pending.set(path, ctrl);
-          textHead(path, { cacheDir: documentCache, signal: ctrl.signal })
+          previewsOn(path).then((on) => (on ? textHead(path, { cacheDir: documentCache, signal: ctrl.signal }) : null))
             .then((text) => send({ path, text }), () => !ctrl.signal.aborted && send({ path, text: null }))
             .finally(() => pending.get(path) === ctrl && pending.delete(path));
           continue;
         }
         const ctrl = new AbortController();
         pending.set(path, ctrl);
-        thumbs.get(path, ctrl.signal)
+        previewsOn(path).then((on) => (on ? thumbs.get(path, ctrl.signal) : false)) // (a drive without them: none, as one that can't be made)
           .then((url) => send({ path, url }))
           .catch((err) => {
             if (ctrl.signal.aborted) return;
@@ -818,7 +839,7 @@ export function createServer({ profile, controlSocket }) {
     const worker = async () => {
       while (next < paths.length && !signal.aborted) {
         const path = paths[next++];
-        if (typeof path !== "string" || mediaKind(path) === "file") continue;
+        if (typeof path !== "string" || mediaKind(path) === "file" || !(await previewsOn(path))) continue;
         const url = await thumbs.get(path, signal, { background: true }).catch(() => null);
         if (url && !signal.aborted) send({ made: path, url });
       }
@@ -1029,9 +1050,12 @@ export function createServer({ profile, controlSocket }) {
     return { path: target };
   }
 
-  // Whether folders' totals are worked out (du) where `path` is: the
-  // folderSizes setting, "all", "off", or (unset) not on a USB drive.
+  // Whether folders' totals are worked out where `path` is: the drive's own
+  // say (its Properties), else the folderSizes setting, "all", "off", or
+  // (unset) not on a USB drive.
   async function countsTotals(path) {
+    const own = (await driveOptions.get(path)).folderSizes; // the drive's (its Properties)
+    if (typeof own === "boolean") return own;
     const { folderSizes } = await readSettings();
     if (folderSizes === "all" || folderSizes === "off") return folderSizes === "all";
     return !await onUsb(path);

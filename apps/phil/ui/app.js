@@ -2589,8 +2589,20 @@ async function showProperties(entry) {
   fact("Owner", p.owner, { dim: `  group ${p.group}` });
   fact("Permissions", { code: permissionString(p) }, { dim: `  ${p.mode.toString(8).padStart(3, "0")}` });
   if (p.access) fact("You", accessText(p));
-  // One of the sidebar's drives or shares: what it is, and how fast it reads.
-  if (state.init.places.some((place) => isMount(place) && place.path === p.path)) showDrive(p.path, fact);
+  // One of the sidebar's drives or shares (or a drive's top folder): what it is, how fast it reads, and what phil does on it.
+  const thumbBox = $p("#props-thumbnails"), sizesBox = $p("#props-foldersizes");
+  const isDrive = p.mountPoint || state.init.places.some((place) => isMount(place) && place.path === p.path);
+  $p(".drive-options").hidden = true;
+  let driveWas = null; // {thumbnails, folderSizes} as they were
+  if (isDrive) {
+    showDrive(p.path, fact).then((d) => {
+      if (!d?.options) return;
+      driveWas = d.options;
+      thumbBox.checked = d.options.thumbnails;
+      sizesBox.checked = d.options.folderSizes;
+      $p(".drive-options").hidden = false;
+    });
+  }
 
   const input = $p("#props-hook"), output = $p(".output"), descInput = $p("#props-desc"), tagsInput = $p("#props-tags");
   tagsInput.value = (p.meta?.tags ?? []).join(", ");
@@ -2666,6 +2678,18 @@ async function showProperties(entry) {
     if (p.kind === "folder" && autoBox.checked !== !!p.meta?.autoTags) changes.autoTags = autoBox.checked;
     if (p.kind === "folder" && mediaBox.checked !== !!p.meta?.media) changes.media = mediaBox.checked;
     if (p.kind === "folder" && iconPick !== (p.meta?.icon ?? "")) changes.icon = iconPick;
+    const drive = {};
+    if (driveWas && thumbBox.checked !== driveWas.thumbnails) drive.thumbnails = thumbBox.checked;
+    if (driveWas && sizesBox.checked !== driveWas.folderSizes) drive.folderSizes = sizesBox.checked;
+    if (Object.keys(drive).length) {
+      try {
+        await api("/api/drive-options", { method: "PUT", body: JSON.stringify({ path: p.path, ...drive }) });
+        flashStatus(`${p.name}: ${[`thumbnails ${thumbBox.checked ? "on" : "off"}`, `folder sizes ${sizesBox.checked ? "on" : "off"}`].join(", ")}`);
+        load(state.path); // its tiles as it now says
+      } catch (err) {
+        alert(`Couldn't save: ${err.message}`);
+      }
+    }
     if (!Object.keys(changes).length) return;
     try {
       await api("/api/meta", { method: "PUT", body: JSON.stringify({ path: p.path, ...changes }) });
@@ -2959,23 +2983,25 @@ async function pickIcon(current, folderName) {
 // The drive part of Properties: the disk (model, how it's connected), the file
 // system, the space, and the read speed (hdparm, run on request, as root: it
 // asks for the password; the last result is kept per disk).
+// The drive's details, as the server gives them (null if it can't).
 async function showDrive(path, fact) {
   const pending = fact("Drive", { dim: "…" });
   const d = await api(`/api/drive?path=${encodeURIComponent(path)}`).catch(() => null);
-  if (!d) return pending.replaceChildren("?");
+  if (!d) return pending.replaceChildren("?"), null;
   const space = state.space[path];
   if (d.network) {
     pending.previousElementSibling.textContent = "Share";
     pending.replaceChildren(d.source, Object.assign(document.createElement("span"), { className: "dim", textContent: `  ${d.fstype}` }));
     if (space) fact("Space", `${formatSize(space.avail)} free of ${formatSize(space.size)}`);
-    return speedRow(path, fact("Speed"), d.speed, true);
+    speedRow(path, fact("Speed"), d.speed, true);
+    return d;
   }
   const how = { nvme: "NVMe", usb: "USB", sata: "SATA", ata: "ATA", mmc: "SD card" }[d.disk?.transport] ?? d.disk?.transport;
   pending.replaceChildren(d.disk?.model ?? d.source, d.disk ? Object.assign(document.createElement("span"), { className: "dim", textContent: `  ${[d.disk.size, how, d.disk.rotational ? "spinning" : null].filter(Boolean).join(" · ")}` }) : "");
   fact("Device", { code: d.disk?.path ?? d.source }, { dim: `  ${d.source !== d.disk?.path ? d.source + " · " : ""}${d.fstype}` });
   if (space) fact("Space", `${formatSize(space.avail)} free of ${formatSize(space.size)}`, { dim: `  ${Math.round((1 - space.avail / space.size) * 100)}% used` });
-  if (!d.disk) return;
-  speedRow(path, fact("Read speed"), d.speed, false);
+  if (d.disk) speedRow(path, fact("Read speed"), d.speed, false);
+  return d;
 }
 
 // "Run speed test" and its last result: a disk's read speed (as root), or a

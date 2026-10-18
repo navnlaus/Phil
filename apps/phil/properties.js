@@ -27,6 +27,8 @@ export async function properties(path) {
     owner: users.get(of.uid) ?? String(of.uid),
     group: groups.get(of.gid) ?? String(of.gid),
     access: stat ? await access(stat, real ?? path) : null,
+    // A drive's (or share's) top folder: another file system than the folder it's in.
+    mountPoint: !!stat?.isDirectory && (path === "/" || (await Deno.stat(dirname(path)).catch(() => null))?.dev !== stat.dev),
   };
 }
 

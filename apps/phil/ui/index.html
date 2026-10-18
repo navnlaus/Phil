@@ -256,6 +256,12 @@
       <dl class="facts"></dl>
       <section class="phil">
         <h3>phil</h3>
+        <!-- A drive's (Properties of its top folder): what phil does on it, wherever it's mounted. -->
+        <div class="drive-options" hidden>
+          <label class="check"><input type="checkbox" id="props-thumbnails"> Thumbnails on this drive: pictures', videos' and documents' previews, and folders' faces made of them</label>
+          <label class="check"><input type="checkbox" id="props-foldersizes"> Folder sizes on this drive: everything in each folder added up</label>
+          <p class="hint">Off, a slow drive is left alone: tiles show icons, folders their counts. Kept for the drive, wherever it's mounted.</p>
+        </div>
         <label for="props-desc">Description</label>
         <input id="props-desc" type="text" autocomplete="off" placeholder="shown above the name">
         <label for="props-tags" class="tags-label">Tags</label>
