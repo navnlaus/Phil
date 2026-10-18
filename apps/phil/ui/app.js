@@ -2357,6 +2357,11 @@ function showContextMenu(x, y, entry) {
   if (entry.kind === "video") items.push(["Play in mpv", () => openExternal(entry.path, "mpv")]);
   if (isJson(entry)) items.push(["Edit in jsonedit", () => openInApp("jsonedit", { file: entry.path })]);
   if (isJson(entry) || tiles.get(entry.path)?.firstElementChild.text) items.push(["Add to Config", () => addToConfig(entry)]);
+  // Those of the selected that a torrent's downloading: paused, or resumed, by themselves.
+  const torrents = torrentsOf(markedEntries().map((e) => e.path));
+  const pausable = torrents.reduce((n, t) => n + t.pausable.length, 0), resumable = torrents.reduce((n, t) => n + t.resumable.length, 0);
+  if (pausable) items.push([pausable > 1 ? `Pause downloading ${pausable} items` : "Pause downloading", () => pauseDownloadFiles("pause_files", torrents)]);
+  if (resumable) items.push([resumable > 1 ? `Resume downloading ${resumable} items` : "Resume downloading", () => pauseDownloadFiles("resume_files", torrents)]);
   items.push(...clipItems(entry));
   if (entry.kind === "dir") items.push(["Paste into", () => pasteFiles(entry.path)]);
   items.push(["Rename…", () => startRename(state.view.indexOf(entry))]);
@@ -4226,7 +4231,9 @@ function makeFileRow() {
   const row = document.createElement("div");
   row.className = "tv-file";
   row.innerHTML = `<span class="tv-file-name"></span><span class="tv-file-size"></span><span class="tv-file-bar"><span class="fill"></span></span><span class="tv-file-pct"></span>`;
-  row.append(barButton("×", "", () => stopDownloadPart({ d: row.d, part: { path: row.item.path } })));
+  const toggle = barButton("", "", () => api("/api/download", { method: "POST", body: JSON.stringify({ action: filePaused(row.d, row.item) ? "resume_files" : "pause_files", id: row.d.id, paths: [row.item.path] }) }).catch((err) => alert(err.message)));
+  toggle.classList.add("pause");
+  row.append(toggle, barButton("×", "", () => stopDownloadPart({ d: row.d, part: { path: row.item.path } })));
   return row;
 }
 
@@ -4239,7 +4246,13 @@ function showFileRow(row, f, d) {
   put(row.querySelector(".fill").style, "width", `${pct}%`);
   put(row.querySelector(".tv-file-pct"), "textContent", pct >= 100 ? "Done" : `${pct}%`);
   row.classList.toggle("done", pct >= 100);
-  put(row.querySelector(".cancel"), "title", d.state === "completed" || d.files.length === 1
+  const paused = pct < 100 && filePaused(d, f);
+  row.classList.toggle("paused", paused);
+  const toggle = row.querySelector(".pause");
+  put(toggle.style, "visibility", pct >= 100 || d.state === "completed" ? "hidden" : "");
+  putIcon(toggle, paused ? "l:play" : "l:pause");
+  put(toggle, "title", paused ? `Resume this${d.state === "paused" ? " (the rest stays paused)" : ""}` : "Pause this (the rest goes on)");
+  put(row.querySelector(".cancel:not(.pause)"), "title", d.state === "completed" || d.files.length === 1
     ? "Drop it (the last of it: the download is closed; the file stays)" : "Stop downloading this (the rest continues; what's downloaded stays)");
 }
 
@@ -4300,13 +4313,46 @@ const barKind = (b) => (b.m ? "media" : b.w ? (b.w.stoppable ? "web-stop" : "web
 function downloadParts(d) {
   const parts = new Map();
   for (const f of d.files ?? []) {
+    const left = f.length === null || f.downloaded < f.length;
+    const going = left && !filePaused(d, f);
     for (let path = f.path; path.length > d.dir.length && path.startsWith(d.dir + "/"); path = parentOf(path)) {
-      const part = parts.get(path) ?? parts.set(path, { length: 0, downloaded: 0 }).get(path);
+      const part = parts.get(path) ?? parts.set(path, { length: 0, downloaded: 0, left: 0, going: 0 }).get(path);
       if (f.length === null || part.length === null) part.length = part.downloaded = null;
       else part.length += f.length, part.downloaded += f.downloaded;
+      part.left += left; // its files not done yet,
+      part.going += going; // and those of them being downloaded (not paused)
     }
   }
   return parts;
+}
+
+// A torrent's file paused: by itself, or with all of it.
+const filePaused = (d, f) => f.paused || ["paused", "error", "failed"].includes(d.state);
+
+// The torrents under way (panda-dl's, their files listed) that `paths` are
+// files of, or folders in: [{d, paths, pausable, resumable}], where pausable
+// and resumable are those of `paths` with files not done that are being
+// downloaded, or paused.
+function torrentsOf(paths) {
+  const found = [];
+  for (const d of state.downloads) {
+    if (d.state === "completed" || !d.files?.length || d.files[0].length === null) continue;
+    const mine = paths.filter((p) => p.startsWith(d.dir + "/"));
+    const filesOf = (p) => d.files.filter((f) => (f.path === p || f.path.startsWith(p + "/")) && f.downloaded < f.length);
+    const pausable = mine.filter((p) => filesOf(p).some((f) => !filePaused(d, f)));
+    const resumable = mine.filter((p) => filesOf(p).some((f) => filePaused(d, f)));
+    if (pausable.length || resumable.length) found.push({ d, pausable, resumable });
+  }
+  return found;
+}
+
+// Some of torrents' files and folders paused or resumed (`action`: pause_files
+// or resume_files), each torrent's together; the rest of each goes on as it was.
+function pauseDownloadFiles(action, torrents) {
+  for (const { d, pausable, resumable } of torrents) {
+    const paths = action === "pause_files" ? pausable : resumable;
+    if (paths.length) api("/api/download", { method: "POST", body: JSON.stringify({ action, id: d.id, paths }) }).catch((err) => alert(`Couldn't ${action === "pause_files" ? "pause" : "resume"} them: ${err.message}`));
+  }
 }
 
 // What downloads under way are still writing (not finished files).
@@ -4362,7 +4408,7 @@ function showDownloadBar(bar, d, part = null) {
   }
   if (part?.length != null) { // one file (or folder) of it: its own progress
     const pct = part.length ? Math.floor((part.downloaded / part.length) * 1000) / 10 : 0;
-    const paused = d.state === "paused", checking = d.checking != null;
+    const paused = !part.going, checking = d.checking != null; // (paused: by itself, or with all of it)
     bar.classList.toggle("paused", paused || checking);
     bar.classList.remove("failed");
     put(bar.querySelector(".fill").style, "width", `${pct}%`);
@@ -4371,7 +4417,9 @@ function showDownloadBar(bar, d, part = null) {
       (paused ? " (paused)" : `${d.speed ? `, ${formatSize(d.speed)}/s` : ""}${d.eta ? `, ${formatDuration(d.eta)} left` : ""}`));
     const [toggle, stop] = bar.querySelectorAll(".cancel");
     putIcon(toggle, paused ? "l:play" : "l:pause");
-    put(toggle, "title", paused ? `Resume “${d.name}”` : `Pause “${d.name}”`);
+    put(toggle, "title", d.files?.length > 1
+      ? (paused ? `Resume this${d.state === "paused" ? ` (the rest of “${d.name}” stays paused)` : ""}` : `Pause this (the rest of “${d.name}” goes on)`)
+      : paused ? `Resume “${d.name}”` : `Pause “${d.name}”`);
     put(stop, "title", d.files?.length > 1 ? "Stop downloading this (the rest continues; what's downloaded stays)" : `Stop and forget “${d.name}” (what's downloaded stays)`);
     return;
   }
@@ -4458,9 +4506,14 @@ function makeTransferBar(kind) {
     if (kind === "web-stop") bar.append(barButton("×", "Stop it (what's downloaded so far is left)", () => api("/api/transfer-report-stop", { method: "POST", body: JSON.stringify({ id: bar.item.w.id }) }).catch(() => {})));
   } else if (kind === "download") {
     bar.classList.add("download");
-    const act = (action) => api("/api/download", { method: "POST", body: JSON.stringify({ action, id: bar.item.d.id }) }).catch((err) => alert(err.message));
+    const act = (body) => api("/api/download", { method: "POST", body: JSON.stringify(body) }).catch((err) => alert(err.message));
     bar.append(
-      barButton("", "", () => act(["paused", "error", "failed"].includes(bar.item.d.state) ? "resume" : "pause")),
+      barButton("", "", () => {
+        const { d, part } = bar.item;
+        // On one of a torrent's files (or a folder in it): that one, by itself.
+        if (part?.path && part.length != null && d.files?.length > 1) return act({ action: part.going ? "pause_files" : "resume_files", id: d.id, paths: [part.path] });
+        act({ action: ["paused", "error", "failed"].includes(d.state) ? "resume" : "pause", id: d.id });
+      }),
       barButton("×", "", () => stopDownloadPart(bar.item)),
     );
   } else if (kind === "media") {

@@ -199,14 +199,16 @@ export function watchDownloads(onChange) {
       return answer;
     },
     /**
-     * pause, resume or remove (`deleteFile`: its files too) a download, or skip
-     * some of a torrent's files (`paths`: theirs, or folders of them; the last
-     * of them skipped, it's removed); then asked again at once.
+     * pause, resume or remove (`deleteFile`: its files too) a download, or
+     * skip, pause_files or resume_files some of a torrent's files (`paths`:
+     * theirs, or folders of them; the last of them skipped, it's removed; all
+     * of them paused, it's paused); then asked again at once.
      */
     async act(action, id, { deleteFile = false, paths = [] } = {}) {
-      if (!["pause", "resume", "remove", "skip"].includes(action) || typeof id !== "string") throw new Error("pause, resume, remove or skip, and a download's id");
-      if (action === "skip" && (!Array.isArray(paths) || !paths.length || !paths.every((p) => typeof p === "string" && p.startsWith("/")))) throw new Error("Which of its files to skip");
-      const answer = await request({ action, id, ...(action === "remove" && deleteFile ? { delete_file: true } : {}), ...(action === "skip" ? { paths } : {}) });
+      const ofFiles = ["skip", "pause_files", "resume_files"].includes(action);
+      if (!(ofFiles || ["pause", "resume", "remove"].includes(action)) || typeof id !== "string") throw new Error("pause, resume, remove, skip, pause_files or resume_files, and a download's id");
+      if (ofFiles && (!Array.isArray(paths) || !paths.length || !paths.every((p) => typeof p === "string" && p.startsWith("/")))) throw new Error("Which of its files");
+      const answer = await request({ action, id, ...(action === "remove" && deleteFile ? { delete_file: true } : {}), ...(ofFiles ? { paths } : {}) });
       if (answer.status === "error") throw new Error(answer.message ?? "panda-dl couldn't");
       clearTimeout(timer);
       timer = null;
@@ -282,7 +284,7 @@ function describe(d) {
     // A torrent's files, as panda-dl lists them ([]: not known yet, a magnet's metadata); null: not
     // listed (a web download: itself; a panda-dl without phil's change: guessed, see filesOf).
     files: d.kind === "torrent" && Array.isArray(d.files)
-      ? d.files.filter((f) => f.selected !== false).map((f) => ({ path: String(f.path), length: f.length ?? 0, downloaded: f.downloaded ?? 0 })) // (not those skipped)
+      ? d.files.filter((f) => f.selected !== false).map((f) => ({ path: String(f.path), length: f.length ?? 0, downloaded: f.downloaded ?? 0, paused: f.paused === true })) // (not those skipped; paused: by itself)
       : null,
     peers: d.torrent_info?.peers ?? null,
     seeds: d.torrent_info?.seeds ?? null,

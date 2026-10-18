@@ -426,7 +426,7 @@ export function createServer({ profile, controlSocket }) {
         const { id, pause } = await req.json();
         return json({ paused: pauseTransfer(id, !!pause) });
       }
-      case "POST /api/download": // {action: pause|resume|remove, id, deleteFile} / {action: skip, id, paths} / {action: add, uri, dir}: a download (panda-dl's)
+      case "POST /api/download": // {action: pause|resume|remove, id, deleteFile} / {action: skip|pause_files|resume_files, id, paths} / {action: add, uri, dir}: a download (panda-dl's)
         try {
           const { action, id, deleteFile, uri, dir, paths } = await req.json();
           if (action === "add") {
