@@ -375,7 +375,8 @@ function onFolderSummary(path, summary) {
 }
 
 // A folder's total size, with its subfolders' (foldertotals.js): asked for
-// once its tile is near the view, unless the one known is recent.
+// once its tile is near the view, unless the one known is current (the folder
+// unchanged since; F5 asks again).
 const wantTotal = (entry) => wantTotals([entry]);
 
 // The status bar says how many are being added up (totalsPending).
@@ -724,7 +725,8 @@ addEventListener("hashchange", () => (closeTransfersView({ resume: false }), clo
 // and which load is the newest (an older one finishing later is dropped).
 let loading = null, loads = 0;
 
-async function load(path) {
+// `recount` (F5): its folders' totals are worked out again, not only those whose folder changed.
+async function load(path, { recount = false } = {}) {
   if (state.path) scrollPositions.set(state.path, grid.scrollTop);
   const previous = state.path;
   let listing;
@@ -749,6 +751,7 @@ async function load(path) {
   state.path = listing.path;
   terminal.follow(listing.path);
   state.entries = listing.entries;
+  if (recount) for (const e of listing.entries) if (e.total) e.total.stale = true;
   if (previous !== listing.path) changedFolders.clear(), autoTags.clear(), tagFilter.clear(), carried.clear(), searchScores.clear(), totalsPending.clear(); // (the server drops those totals)
   state.listingAutoTags = !!listing.autoTags;
   state.autoTagged = autoTagging(listing);
@@ -4720,7 +4723,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "F9") return toggleSidebar(), handled();
   if (ctrl && (e.key === "=" || e.key === "+")) return setZoom(state.settings.zoom + 16), handled();
   if (ctrl && e.key === "-") return setZoom(state.settings.zoom - 16), handled();
-  if (e.key === "F5" || (ctrl && e.key === "r")) return load(state.path), handled();
+  if (e.key === "F5" || (ctrl && e.key === "r")) return load(state.path, { recount: true }), handled();
 
   // Files: Ctrl+C / Ctrl+X (and Super+C...) copy or cut the selection, Ctrl+V pastes here.
   const clip = clipboardKey(e);

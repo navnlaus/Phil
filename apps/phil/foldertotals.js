@@ -1,8 +1,5 @@
 import { dirname, join } from "@std/path";
 
-const MAX_AGE = 10 * 60_000; // ms: a total older than this is worked out again when its tile shows,
-const AGE_PER_MS = 600; // or, when du took long (a big folder, a slow drive), 600 times that,
-const MAX_MAX_AGE = 24 * 3600_000; // up to a day
 const RUNNING = 2; // du processes at once
 const TIMEOUT = 120_000; // ms, for one folder
 const KEEP = 5000; // totals remembered
@@ -11,10 +8,9 @@ const KEEP = 5000; // totals remembered
  * Folders' total sizes, everything in them and in their subfolders (like
  * `du -s`), for their tiles: worked out by du in the background, in bytes
  * (the files' sizes, as on the tiles; on the folder's own file system, so not
- * /proc or a mount inside it). Remembered with the folder's modification time
- * and when it was worked out: a total is out of date when the folder changed
- * since, or after 10 minutes (a change deep inside doesn't touch the folder);
- * one du took long on, after 600 times that (a minute: 10 hours), up to a day.
+ * /proc or a mount inside it). Remembered with the folder's modification time:
+ * a total is out of date when the folder changed since. A change deep inside
+ * doesn't touch the folder; F5 has the page ask for its folders' totals again.
  *
  * Kept in <thumbs>/folder-totals.json; without a directory (incognito) in
  * memory for the session only.
@@ -41,8 +37,7 @@ export class FolderTotals {
     await this.loaded;
     const known = this.totals.get(path);
     if (!known) return null;
-    const maxAge = Math.min(MAX_MAX_AGE, Math.max(MAX_AGE, (known.took ?? 0) * AGE_PER_MS));
-    return { bytes: known.bytes, stale: known.mtime !== mtime || Date.now() - known.at > maxAge };
+    return { bytes: known.bytes, stale: known.mtime !== mtime };
   }
 
   /** Folders deleted: `paths` and everything under them are forgotten. */

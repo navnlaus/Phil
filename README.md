@@ -272,8 +272,8 @@ the background, makes those previews and saves the result. The status bar
 counts the folders being read. Summaries live next to the thumbnails
 (`<thumb-dir>/<W>x<H>/folders/`); incognito keeps them in memory for the
 session. The total is du's, in the background (… until then), on the folder's
-own file system; it's worked out again when the folder changed or after 10
-minutes, kept in `folder-totals.json` there. Network shares and the kernel's
+own file system; it's worked out again when the folder changed (a change deep
+inside doesn't touch it) or on F5, kept in `folder-totals.json` there. Network shares and the kernel's
 folders (`/proc`, `/sys`) get none. Sorted by size, folders go by their totals
 (all of them are worked out then, not just those in view), and move as the
 totals come in: at most once a second, only when the order changed, sliding to
@@ -656,7 +656,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | F4 / Ctrl+` | toggle the terminal panel |
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
 | Ctrl + / − / wheel | thumbnail size |
-| F5 | reload folder |
+| F5 | reload folder, its folders' totals worked out again |
 
 **On-change hooks.** A file's Properties can name a command for phil to run
 when the file changes — but only while a phil window shows its folder; with
