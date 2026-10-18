@@ -3,7 +3,8 @@
 What it's like to draw with WebGPU in a native window from Deno, phil's
 runtime, and whether the same code runs in a browser too. One million
 particles, moved by a compute shader and drawn as instanced quads
-(`particles.js`), in:
+(`particles.js`; its shaders in `common.wgsl`, `step.wgsl`, `draw.wgsl`, which
+`../cef`'s Rust host draws with too), in:
 
 - **a native window** (`main.js`): Deno's own WebGPU (wgpu: Vulkan here,
   Direct3D 12 on Windows, Metal on macOS), a window from SDL3 over FFI

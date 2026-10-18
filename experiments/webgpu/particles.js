@@ -3,72 +3,27 @@
 // moved by a compute shader and drawn as instanced quads, added up (glowing
 // where they crowd).
 
-const UNIFORMS_WGSL = /* wgsl */ `
-struct Particle { pos: vec2f, vel: vec2f };
-struct Uniforms { mouse: vec2f, pull: f32, dt: f32, size: vec2f, aspect: f32, time: f32 };
-@group(0) @binding(0) var<uniform> u: Uniforms;
-`;
-
-const STEP_WGSL = UNIFORMS_WGSL + /* wgsl */ `
-@group(0) @binding(1) var<storage, read_write> particles: array<Particle>;
-
-@compute @workgroup_size(256)
-fn step(@builtin(global_invocation_id) id: vec3u) {
-  let i = id.x;
-  if (i >= arrayLength(&particles)) { return; }
-  var p = particles[i];
-  // Toward the mouse (or away), in units that are the same both ways on screen.
-  var d = (u.mouse - p.pos) * vec2f(u.aspect, 1.0);
-  let r2 = dot(d, d) + 0.003;
-  var a = d * (u.pull / (r2 * sqrt(r2))) * 0.05;
-  // A slow swirl about the middle, so they're never still.
-  a += vec2f(-p.pos.y, p.pos.x * u.aspect) * 0.15;
-  p.vel = (p.vel + (a / vec2f(u.aspect, 1.0)) * u.dt) * exp(-0.9 * u.dt);
-  let speed = length(p.vel);
-  if (speed > 4.0) { p.vel *= 4.0 / speed; }
-  p.pos += p.vel * u.dt;
-  // Bounced off the edges.
-  if (abs(p.pos.x) > 1.0) { p.pos.x = clamp(p.pos.x, -1.0, 1.0); p.vel.x = -p.vel.x * 0.5; }
-  if (abs(p.pos.y) > 1.0) { p.pos.y = clamp(p.pos.y, -1.0, 1.0); p.vel.y = -p.vel.y * 0.5; }
-  particles[i] = p;
+/**
+ * The shaders (common.wgsl before each), fetched from beside this file: over
+ * http in a browser, from disk in Deno (--allow-read). {step, draw}.
+ */
+export async function loadShaders() {
+  const text = (name) => fetch(new URL(name, import.meta.url)).then((r) => r.ok ? r.text() : Promise.reject(new Error(`${name}: ${r.status}`)));
+  const [common, step, draw] = await Promise.all(["common.wgsl", "step.wgsl", "draw.wgsl"].map(text));
+  return { step: common + step, draw: common + draw };
 }
-`;
-
-const DRAW_WGSL = UNIFORMS_WGSL + /* wgsl */ `
-@group(0) @binding(1) var<storage, read> particles: array<Particle>;
-
-struct Out { @builtin(position) pos: vec4f, @location(0) corner: vec2f, @location(1) color: vec3f };
-
-@vertex
-fn vs(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> Out {
-  let corner = vec2f(f32(v & 1u), f32(v >> 1u)) * 2.0 - 1.0; // (a strip of 4)
-  let p = particles[i];
-  var out: Out;
-  out.pos = vec4f(p.pos + corner * u.size, 0.0, 1.0);
-  out.corner = corner;
-  let fast = clamp(length(p.vel) * 0.8, 0.0, 1.0);
-  out.color = mix(vec3f(0.10, 0.30, 1.0), vec3f(1.0, 0.50, 0.15), fast);
-  return out;
-}
-
-@fragment
-fn fs(in: Out) -> @location(0) vec4f {
-  let a = max(0.0, 1.0 - dot(in.corner, in.corner));
-  return vec4f(in.color * a * 0.25, 1.0);
-}
-`;
 
 const ADD = { srcFactor: "one", dstFactor: "one", operation: "add" };
 
 /**
- * The particles on `device`, drawn into textures of `format`:
+ * The particles on `device`, drawn into textures of `format`, with `shaders` (loadShaders()):
  * {seed(count), frame(view, {width, height, mouse: [x, y] (-1 to 1), pull, dt, time, paused}), count}.
  */
-export function createParticles(device, format) {
+export function createParticles(device, format, shaders) {
   const uniforms = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const uniformData = new Float32Array(8);
-  const stepPipeline = device.createComputePipeline({ layout: "auto", compute: { module: device.createShaderModule({ code: STEP_WGSL }), entryPoint: "step" } });
-  const drawModule = device.createShaderModule({ code: DRAW_WGSL });
+  const stepPipeline = device.createComputePipeline({ layout: "auto", compute: { module: device.createShaderModule({ code: shaders.step }), entryPoint: "step" } });
+  const drawModule = device.createShaderModule({ code: shaders.draw });
   const drawPipeline = device.createRenderPipeline({
     layout: "auto",
     vertex: { module: drawModule, entryPoint: "vs" },

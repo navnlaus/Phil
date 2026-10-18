@@ -1,0 +1,91 @@
+<!doctype html>
+<!-- The page over the particles in cef-host's window: drawn by CEF off screen,
+     handed over as a GPU texture, laid over the native WebGPU scene. It talks to
+     the host through console messages ("hud:" + JSON: what was asked, where its
+     panels are, for the mouse); the host calls hud.stats() with how it's going. -->
+<meta charset="utf-8">
+<title>HUD</title>
+<style>
+  :root { color-scheme: dark; --panel: rgb(14 16 24 / 0.72); --line: rgb(255 255 255 / 0.10); --text: #dfe6f3; --dim: #8f9bb3; --accent: #ff9a4a; }
+  html, body { margin: 0; height: 100%; background: transparent; color: var(--text); font: 13px/1.4 system-ui, sans-serif; overflow: hidden; user-select: none; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; backdrop-filter: blur(8px); box-shadow: 0 8px 30px rgb(0 0 0 / 0.35); }
+  #main { left: 16px; top: 16px; width: 270px; }
+  h1 { font-size: 14px; margin: 0 0 8px; font-weight: 600; letter-spacing: 0.01em; }
+  h1 span { color: var(--accent); }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0 0 10px; }
+  dt { color: var(--dim); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+  .row { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+  button { flex: 1; background: rgb(255 255 255 / 0.07); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 5px 0; font: inherit; cursor: pointer; }
+  button:hover { background: rgb(255 255 255 / 0.14); }
+  button:active { background: var(--accent); color: #111; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  input[type=text] { flex: 1; background: rgb(0 0 0 / 0.35); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; font: inherit; user-select: text; }
+  input[type=text]:focus { outline: 1px solid var(--accent); }
+  #said { color: var(--accent); min-height: 1.4em; margin-top: 6px; word-break: break-word; }
+  #keys { left: 16px; bottom: 16px; color: var(--dim); font-size: 12px; padding: 8px 12px; }
+  kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; color: var(--text); }
+</style>
+
+<div class="panel" id="main">
+  <h1>CEF <span>over</span> WebGPU</h1>
+  <dl>
+    <dt>Window</dt><dd id="fps">–</dd>
+    <dt>This page</dt><dd id="paints">–</dd>
+    <dt>Handed over as</dt><dd id="path">–</dd>
+    <dt>Particles</dt><dd id="count">–</dd>
+    <dt>GPU</dt><dd id="gpu">–</dd>
+  </dl>
+  <div class="row"><button data-cmd="pause" id="pause">Pause</button><button data-cmd="reset">Again</button><button data-cmd="fewer">−</button><button data-cmd="more">+</button></div>
+  <div class="row"><span style="color: var(--dim)">Pull</span><input type="range" id="pull" min="-3" max="3" step="0.25" value="0"></div>
+  <div class="row"><input type="text" id="say" placeholder="Type here (keys go through CEF)" spellcheck="false"></div>
+  <div id="said"></div>
+</div>
+<div class="panel" id="keys">
+  Left button: pull · right: push · wheel: how hard · <kbd>Space</kbd> pause · <kbd>R</kbd> again · <kbd>+</kbd>/<kbd>−</kbd> · <kbd>Esc</kbd> quit
+</div>
+
+<script>
+  const send = (msg) => console.log("hud:" + JSON.stringify(msg));
+  const $ = (id) => document.getElementById(id);
+
+  // Where the panels are (CSS pixels), so the host sends the mouse here only over them;
+  // and its controls, by name, for tests (--click more@60). Again when they move.
+  const centre = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+  const rects = () => send({
+    rects: [...document.querySelectorAll(".panel")].map((p) => { const r = p.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }),
+    controls: Object.fromEntries([...document.querySelectorAll("button[data-cmd]")].map((b) => [b.dataset.cmd, centre(b)]).concat([["say", centre($("say"))], ["pull", centre($("pull"))]])),
+  });
+  addEventListener("resize", rects);
+  const panels = new ResizeObserver(rects);
+  for (const p of document.querySelectorAll(".panel")) panels.observe(p);
+
+  for (const b of document.querySelectorAll("button[data-cmd]")) b.onclick = () => send({ cmd: b.dataset.cmd });
+  $("pull").oninput = (e) => send({ strength: 2 ** Number(e.target.value) });
+  $("say").onkeydown = (e) => {
+    if (e.key === "Enter") ($("said").textContent = e.target.value), send({ said: e.target.value }), (e.target.value = "");
+    e.stopPropagation(); // (typed, not shortcuts)
+  };
+  addEventListener("keydown", (e) => {
+    if (e.key === " ") send({ cmd: "pause" });
+    else if (e.key === "r") send({ cmd: "reset" });
+    else if (e.key === "+" || e.key === "=") send({ cmd: "more" });
+    else if (e.key === "-") send({ cmd: "fewer" });
+    else return;
+    e.preventDefault();
+  });
+
+  // From the host, every half second.
+  window.hud = {
+    stats(s) {
+      $("fps").textContent = `${s.fps.toFixed(0)} fps`;
+      $("paints").textContent = `${s.paints.toFixed(0)} paints/s`;
+      $("path").textContent = s.path;
+      $("count").textContent = s.count.toLocaleString("en");
+      $("gpu").textContent = s.gpu;
+      $("pause").textContent = s.paused ? "Go on" : "Pause";
+    },
+  };
+  send({ ready: true, webgpu: !!navigator.gpu, webgl: !!document.createElement("canvas").getContext("webgl2") });
+  rects();
+</script>

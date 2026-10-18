@@ -10,7 +10,7 @@
 // --frames N: quits after N frames, saying how fast they came (for tests);
 // --auto: the pull goes round by itself (no mouse needed).
 import { KEY, Window } from "./sdl.js";
-import { autoPull, createParticles, frameStats } from "./particles.js";
+import { autoPull, createParticles, frameStats, loadShaders } from "./particles.js";
 
 const args = Deno.args;
 const arg = (name, fallback) => {
@@ -40,7 +40,7 @@ const configure = () => context.configure({ device, format, alphaMode: "opaque" 
 configure();
 console.log(`${win.driver} window, ${width}×${height} px; ${gpuName}${adapter.info?.architecture ? ` (${adapter.info.architecture})` : ""}; ${format}`);
 
-const particles = createParticles(device, format);
+const particles = createParticles(device, format, await loadShaders());
 particles.seed(arg("--count", 1 << 18));
 
 let mouse = [0, 0], pull = 0, strength = 1, paused = false;
