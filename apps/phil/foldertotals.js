@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { basename, dirname, join } from "@std/path";
 
 const RUNNING = 2; // walks at once
-const TIMEOUT = 120_000; // ms, for one folder
+const STUCK_MS = 60_000; // a walk that's found nothing more for this long is stopped (a drive gone, a share hung); one going on takes as long as it takes (an exFAT drive's big folder: minutes)
 const KEEP = 1_000_000; // folders remembered; past that, the ones worked out longest ago go
 const CHECK_WALKS = 200; // F5: more folders than this (and a quarter of them) changed or not known: one walk through all
 const TOUCHED_MS = 3000; // something written in a folder: its total read again once that's been quiet this long
@@ -527,28 +527,34 @@ function addUp(list) {
 }
 
 // find `path` -xdev `expr`, at the lowest priority, `each` line it prints
-// (\0-ended); whether it got through (not stopped; a folder it couldn't read
-// is left out, as du does).
+// (\0-ended); whether it got through (not stopped, nor stuck: STUCK_MS
+// without a line; a folder it couldn't read is left out, as du does).
 async function find(path, expr, signal, each) {
+  const stuck = new AbortController();
+  let timer = setTimeout(() => stuck.abort(), STUCK_MS);
   try {
     const child = new Deno.Command("ionice", {
       args: ["-c", "3", "nice", "-n", "19", "find", path, "-xdev", ...expr],
       stdin: "null",
       stdout: "piped",
       stderr: "null",
-      signal: AbortSignal.any([AbortSignal.timeout(TIMEOUT), signal]),
+      signal: AbortSignal.any([stuck.signal, signal]),
     }).spawn();
     let buffer = "";
     for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {
+      clearTimeout(timer);
+      timer = setTimeout(() => stuck.abort(), STUCK_MS);
       buffer += chunk;
       const lines = buffer.split("\0");
       buffer = lines.pop();
       for (const line of lines) each(line);
     }
     const status = await child.status;
-    return !status.signal && !signal.aborted;
+    return !status.signal && !signal.aborted && !stuck.signal.aborted;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
