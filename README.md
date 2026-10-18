@@ -304,9 +304,11 @@ else in its folder changes.
 
 A total that's taken 10 seconds goes on when another folder is shown (a big
 folder on a slow drive: minutes), aside, so the shown folder's aren't held up
-behind it. The sidebar lists those under Processes, with how long each has
-been going; × stops it (it's worked out again when it's asked for), a click
-shows its folder.
+behind it. Going into it meanwhile, its folders' totals aren't worked out
+again: each comes as the walk is done with it (one folder after another).
+The sidebar lists those under Processes, with how long each has been going;
+× stops it (the folders it was done with are kept; it's worked out again when
+it's asked for), a click shows its folder.
 
 Incognito reads the totals known and works none out, except on F5: those go in
 a database in memory, gone when it exits. Network shares and the kernel's

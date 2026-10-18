@@ -160,6 +160,9 @@ export class FolderTotals {
    */
   refresh(path, done, signal = null, mode = "update") {
     if (signal?.aborted) return;
+    // A folder it's in being worked out: what's in it is too (a walk, all of it); waits for that.
+    const over = [...this.jobs].find(([p]) => p !== path && (p === "/" || path.startsWith(p + "/")));
+    if (over) return void over[1].followers.push({ path, done, signal, mode });
     const waiter = { done, signal };
     signal?.addEventListener("abort", () => this.drop(path, waiter), { once: true });
     const order = ["update", "check", "walk"]; // (asked twice: the one that reads more)
@@ -198,10 +201,11 @@ export class FolderTotals {
       this.modes.delete(path);
       this.running++;
       const stop = new AbortController();
-      const job = { started: Date.now(), mode, stop, long: false, aside: false, cancelled: false };
+      const job = { started: Date.now(), mode, stop, long: false, aside: false, cancelled: false, followers: [] };
       job.timer = setTimeout(() => ((job.long = true), this.processesChanged()), LONG_MS);
       this.jobs.set(path, job);
-      (mode === "check" ? this.#check(path, stop.signal) : mode === "walk" ? this.#walk(path, stop.signal) : this.#update(path, stop.signal))
+      const found = (p, bytes) => this.#found(job, p, bytes);
+      (mode === "check" ? this.#check(path, stop.signal, found) : mode === "walk" ? this.#walk(path, stop.signal, { found }) : this.#update(path, stop.signal, found))
         .catch(() => null)
         .then((bytes) => {
           if (!stop.signal.aborted || job.cancelled) for (const { done } of this.waiting.get(path) ?? []) done(job.cancelled ? null : bytes);
@@ -212,9 +216,30 @@ export class FolderTotals {
           this.waiting.delete(path);
           if (!job.aside) this.running--;
           if (job.long) this.processesChanged();
+          for (const f of job.followers) this.#follow(f, job);
           this.next();
         });
     }
+  }
+
+  // A folder under the one `job` works out, done: those waiting for it have it now.
+  #found(job, path, bytes) {
+    for (const f of job.followers.filter((f) => f.path === path && !(f.mode === "check" && job.mode === "update"))) {
+      job.followers.splice(job.followers.indexOf(f), 1);
+      if (!f.signal?.aborted) f.done(bytes);
+    }
+  }
+
+  // One that waited for a folder it's in (`job`): what that found of it, if
+  // it's up to date (the folder's time the same; for F5, that one read all of
+  // it), or worked out now.
+  async #follow({ path, done, signal, mode }, job) {
+    if (signal?.aborted) return;
+    const known = this.#row(path);
+    const mtime = known && (await Deno.stat(path).catch(() => null))?.mtime?.getTime();
+    if (signal?.aborted) return;
+    if (!job.cancelled && known && known.mtime === mtime && (mode !== "check" || job.mode !== "update")) return done(known.bytes);
+    this.refresh(path, done, signal, mode);
   }
 
   /**
@@ -239,9 +264,9 @@ export class FolderTotals {
   }
 
   // Not known: walked; known: read again where it changed.
-  async #update(path, signal) {
-    if (!this.#row(path)) return await this.#walk(path, signal);
-    const bytes = await this.#reread(path, signal);
+  async #update(path, signal, found) {
+    if (!this.#row(path)) return await this.#walk(path, signal, { found });
+    const bytes = await this.#reread(path, signal, null, found);
     if (bytes !== null) this.#addUp(dirname(path));
     return bytes;
   }
@@ -249,7 +274,7 @@ export class FolderTotals {
   // A folder read again: its own files' sizes, and its folders' totals, known
   // (their time the same), read again (changed) or walked (not known). Its
   // folders no longer there are forgotten.
-  async #reread(dir, signal, dev = null) {
+  async #reread(dir, signal, dev = null, found = () => {}) {
     const st = await Deno.stat(dir).catch(() => null);
     if (!st || signal.aborted) return null;
     dev ??= st.dev;
@@ -268,10 +293,11 @@ export class FolderTotals {
         if (s.dev !== dev) continue; // a drive mounted here: not counted
         folders.add(path);
         const known = this.#row(path);
-        const bytes = !known ? await this.#walk(path, signal, { addUp: false })
+        const bytes = !known ? await this.#walk(path, signal, { addUp: false, found })
           : known.mtime === (s.mtime?.getTime() ?? 0) ? known.bytes
-          : await this.#reread(path, signal, dev);
+          : await this.#reread(path, signal, dev, found);
         if (bytes === null) return null;
+        found(path, bytes);
         inside += bytes;
       }
     } catch { /* can't be read: as du, nothing in it counted */ }
@@ -286,7 +312,7 @@ export class FolderTotals {
   // only); those changed, or not known, have their own files read again, the
   // rest are as they were, and the totals are added up again from the bottom.
   // Many of them: one walk through all instead.
-  async #check(path, signal) {
+  async #check(path, signal, found) {
     if (await notWorthIt(path)) return null;
     const list = []; // { path, depth, mtime, dev, known }, a folder before what's in it
     let rootDev = null;
@@ -299,7 +325,7 @@ export class FolderTotals {
     });
     if (!read || list[0]?.path !== path) return null;
     const changed = list.filter((d) => !d.known || d.known.mtime !== d.mtime);
-    if (changed.length > CHECK_WALKS && changed.length > list.length / 4) return await this.#walk(path, signal);
+    if (changed.length > CHECK_WALKS && changed.length > list.length / 4) return await this.#walk(path, signal, { found });
     for (const d of list) d.own = d.known?.own ?? 0;
     for (const d of changed) {
       d.own = await ownBytes(d.path);
@@ -309,30 +335,58 @@ export class FolderTotals {
   }
 
   // One find: every file's size and every folder's time and file system, in
-  // the order it goes (a folder, then what's in it, a file at depth n in the
-  // last folder at depth n - 1), added up from the bottom; every folder's
-  // total is kept. Folders it can't read are left out.
-  async #walk(path, signal, { addUp: up = true } = {}) {
+  // the order it goes (a folder, then what's in it), added up as it goes: a
+  // folder is done once find is past it (a line no deeper than it), and
+  // `found(path, bytes)` hears of it then. Every folder's total is kept;
+  // stopped before the end, those of the folders it was done with. Folders it
+  // can't read are left out.
+  async #walk(path, signal, { addUp: up = true, found = () => {} } = {}) {
     if (await notWorthIt(path)) return null;
-    const list = []; // { path, depth, mtime, dev, own }
-    const open = []; // depth -> the folder at it now
+    const open = [], rows = []; // the folders it's in now (deepest last), and those done (in the order they were)
+    const close = (depth) => { // the folders at `depth` and deeper are done
+      while (open.length && open.at(-1).depth >= depth) {
+        const done = open.pop();
+        rows.push(done);
+        if (open.length) open.at(-1).bytes += done.bytes;
+        if (open.length) found(done.path, done.bytes); // (the folder itself: when it's all done)
+      }
+    };
     let rootDev = null;
     const read = await find(path, ["(", "-type", "d", "-printf", "d %d %D %T@ %p\\0", ")", "-o", "-printf", "f %d %s\\0"], signal, (line) => {
       if (line[0] === "d") {
         const [, depth, dev, time] = line.split(" ", 4);
         rootDev ??= Number(dev);
         if (Number(dev) !== rootDev) return; // a drive mounted here (find doesn't go into it)
-        const folder = { path: line.slice(depth.length + dev.length + time.length + 5), depth: Number(depth), mtime: ms(time), dev: rootDev, own: 0 };
-        list.push(folder);
-        open[folder.depth] = folder;
+        close(Number(depth));
+        open.push({ path: line.slice(depth.length + dev.length + time.length + 5), depth: Number(depth), mtime: ms(time), dev: rootDev, own: 0, bytes: 0 });
       } else {
         const [, depth, size] = line.split(" ", 3);
-        const folder = open[Number(depth) - 1];
-        if (folder) folder.own += Number(size);
+        close(Number(depth)); // (a file at depth n is in the folder at depth n - 1)
+        if (open.length) open.at(-1).own += Number(size), (open.at(-1).bytes += Number(size));
       }
     });
-    if (!read || list[0]?.path !== path) return null;
-    return this.#keep(path, addUp(list), { addUp: up });
+    if (!read) return void this.#keepDone(rows), null;
+    close(0);
+    if (rows.at(-1)?.path !== path) return null;
+    return this.#keep(path, rows, { addUp: up });
+  }
+
+  // A walk stopped: the folders it was done with (each with all that's in it), kept.
+  #keepDone(rows) {
+    const done = new Set(rows.map((r) => r.path));
+    const tops = rows.filter((r) => !done.has(dirname(r.path)));
+    if (!tops.length) return;
+    const at = Date.now();
+    this.#run("BEGIN");
+    try {
+      for (const top of tops) this.#forgetUnder(top.path);
+      for (const r of rows) this.#put(r.path, r.bytes, r.own, r.mtime, r.dev, at);
+      this.#run("COMMIT");
+    } catch {
+      this.#run("ROLLBACK");
+      return;
+    }
+    for (const dir of new Set(tops.map((r) => dirname(r.path)))) this.#addUp(dir);
   }
 
   // A walk's or check's totals (the folder last), in place of everything
