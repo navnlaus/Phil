@@ -14,6 +14,7 @@ import { home, serverConfig } from "./launch.js";
 import { canWrite, driveInfo, driveSpeed, folderSize, me, properties } from "./properties.js";
 import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
+import { onWrote } from "../../engine/written.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 import { unfinished, watchDownloads } from "./downloads.js";
 import { watchBrowserDownloads } from "./browserdownloads.js";
@@ -47,6 +48,20 @@ export function createServer({ profile, controlSocket }) {
     changed: (path, bytes) => broadcast({ totalOf: path, bytes }), // phil's own changes: the totals of the folders they're in, and above
     counts: async (path) => !config.incognito && await countsTotals(path), // (a folder copied: walked)
   });
+  onWrote((path) => totals.touched(dirname(path))); // an editor's save, imageresize's
+  // A download whose state changed (done, paused, stopped) or that's gone from
+  // the list: the folder it's in, read again (a folder it makes: all of it).
+  const downloadStates = { panda: new Map(), browser: new Map() }; // id -> {state, path, dir}
+  const downloadsChanged = (source, list) => {
+    const was = downloadStates[source], now = new Map(list.map((d) => [d.id, { state: d.state, path: d.target ?? d.path, dir: d.dir }]));
+    for (const [id, d] of was) {
+      if (now.get(id)?.state === d.state) continue;
+      const path = d.path ?? d.dir;
+      if (!path) continue;
+      isDir(path).then((folder) => totals.touched(folder ? path : dirname(path), { walk: folder }));
+    }
+    downloadStates[source] = now;
+  };
   const speedsFile = join(dirname(config.stateFile), "drive-speeds.json"); // the drives' read speed tests
   // Copies and moves under way, in the metadata of the folder or file being
   // made ({copying: {op, from, percent, bytes, total, started, updated,
@@ -179,6 +194,7 @@ export function createServer({ profile, controlSocket }) {
   let barDownloadsChanged = () => {}; // (set with the bar's file, below)
   const browserDownloads = watchBrowserDownloads(async (list) => {
     setDownloads("browser", list); // (for mediaview's server: downloadfeed.js)
+    downloadsChanged("browser", list);
     for (const socket of sockets) if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ browserDownloads: list }));
     browserWriting = list.map((d) => d.path);
     thumbs.downloading([...pandaWriting, ...browserWriting]); // (no thumbnails of them till they're done)
@@ -199,6 +215,7 @@ export function createServer({ profile, controlSocket }) {
   }, { incognito: config.incognito });
   const downloads = watchDownloads((list) => {
     setDownloads("panda", list); // (for mediaview's server: downloadfeed.js)
+    downloadsChanged("panda", list);
     pandaWriting = list.flatMap(unfinished);
     barDownloadsChanged();
     thumbs.downloading([...pandaWriting, ...browserWriting]);
@@ -728,7 +745,7 @@ export function createServer({ profile, controlSocket }) {
         const signal = totalsJob.signal;
         countsTotals(msg.totals[0]).then(async (counted) => {
           for (const path of msg.totals) {
-            if (counted && (msg.check || !config.incognito)) totals.refresh(path, (bytes) => send({ totalOf: path, bytes }), signal, !!msg.check);
+            if (counted && (msg.check || !config.incognito)) totals.refresh(path, (bytes) => send({ totalOf: path, bytes }), signal, msg.check ? "check" : "update");
             else send({ totalOf: path, bytes: counted ? (await totals.get(path, null))?.bytes ?? null : null });
           }
         });
@@ -868,6 +885,8 @@ export function createServer({ profile, controlSocket }) {
     const folders = new Set();
     const flush = () => {
       timer = null;
+      if (changed) totals.touched(dir); // (what's in the folders shown, too: their totals)
+      for (const folder of folders) totals.touched(folder);
       send({ changed: changed ? dir : null, folders: [...folders] });
       changed = false;
       folders.clear();

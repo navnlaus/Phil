@@ -12,6 +12,7 @@
 // encodes again.
 import { basename, dirname, extname, join } from "@std/path";
 import { httpError, json } from "../../engine/http.js";
+import { wrote } from "../../engine/written.js";
 import { workDir } from "./launch.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
@@ -291,5 +292,6 @@ async function save(job) {
     if (err instanceof Deno.errors.PermissionDenied) throw httpError(403, `You can't write in ${dirname(dest)}`);
     throw err;
   }
+  wrote(dest);
   return { path: dest, bytes: bytes.length, width, height, quality };
 }

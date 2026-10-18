@@ -5,19 +5,22 @@ const RUNNING = 2; // walks at once
 const TIMEOUT = 120_000; // ms, for one folder
 const KEEP = 1_000_000; // folders remembered; past that, the ones worked out longest ago go
 const CHECK_WALKS = 200; // F5: more folders than this (and a quarter of them) changed or not known: one walk through all
+const TOUCHED_MS = 3000; // something written in a folder: its total read again once that's been quiet this long
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS totals (
     path TEXT PRIMARY KEY,
-    bytes INTEGER NOT NULL, -- everything in it
-    own INTEGER, -- its own files (not its folders'); null: not known (a total from before), walked again
-    mtime INTEGER NOT NULL, -- the folder's when it was worked out (ms); -1: out of date
+    parent TEXT NOT NULL, -- the folder it's in (its total adds this one's up)
+    bytes INTEGER NOT NULL, -- everything in it: own, and its folders' (those on its file system)
+    own INTEGER NOT NULL, -- its own files
+    mtime INTEGER NOT NULL, -- the folder's when it was read (ms); -1: out of date
     dev INTEGER NOT NULL, -- its file system (st_dev)
-    at INTEGER NOT NULL -- when it was worked out
+    at INTEGER NOT NULL -- when it was read
   ) WITHOUT ROWID;
+  CREATE INDEX IF NOT EXISTS totals_parent ON totals (parent);
   CREATE INDEX IF NOT EXISTS totals_at ON totals (at);
 `;
-const INSERT = "INSERT OR REPLACE INTO totals (path, bytes, own, mtime, dev, at) VALUES (?, ?, ?, ?, ?, ?)";
+const INSERT = "INSERT OR REPLACE INTO totals (path, parent, bytes, own, mtime, dev, at) VALUES (?, ?, ?, ?, ?, ?, ?)";
 
 /**
  * Folders' total sizes, everything in them and in their subfolders (like
@@ -25,22 +28,23 @@ const INSERT = "INSERT OR REPLACE INTO totals (path, bytes, own, mtime, dev, at)
  * file hard-linked in two places in each), on the folder's own file system (not
  * /proc or a drive mounted inside it).
  *
- * Each folder is kept with its total, the size of its own files and its
- * modification time. A folder never counted is walked (one find), which gives
- * every folder under it its total too: going into one, its folders' totals are
- * known. One that changed since (something put in it, deleted or renamed) has
- * its own files read again; what's in its folders comes from what's known of
- * them, read again the same way where they changed. A change deeper doesn't
- * touch a folder's time: F5 (`check`) has the time of every folder under it
- * looked at (a find of the folders only) and those that changed read again. A
- * file that grew where it was changes no folder's time: its new size counts
- * once something else in its folder changes.
+ * Every folder is kept with the size of its own files, its total (that and
+ * its folders' totals) and its modification time. A folder never counted is
+ * walked (one find), which gives every folder under it its total too: going
+ * into one, its folders' totals are known. One that changed since (something
+ * put in it, deleted or renamed) has its own files read again; its folders'
+ * totals are what's known of them, read again the same way where they changed.
+ * A change deeper doesn't touch a folder's time: F5 (`check`) has the time of
+ * every folder under it looked at (a find of the folders only) and those that
+ * changed read again.
  *
- * A folder's new total changes those of the folders above it (on the same
- * file system) by as much. What phil does itself (a delete, copy, move,
- * rename, new folder or file) changes the totals of the folders it's in and
- * every one above them by what it added or took away, with nothing read; the
- * pages hear of the new totals ({totalOf, bytes}, through `changed`).
+ * A folder's total changed, those of the folders above it are added up again
+ * from what's known of what's in them (nothing read). What phil does itself
+ * keeps them up to date: a delete, copy, move, rename, new folder or file
+ * changes what's known of the folders it's in, and those are added up again;
+ * a file written (an editor's save, imageresize's, a download done, something
+ * changed in the folder shown: `touched`) has its folder read again. The pages
+ * hear of the new totals ({totalOf, bytes}, through `changed`).
  *
  * Kept in an SQLite database (node:sqlite, <thumbs>/folder-totals.sqlite).
  * `readOnly` (incognito): read, never written; its first change (F5, or a
@@ -55,10 +59,11 @@ export class FolderTotals {
   #db;
   #readOnly;
   #statements = new Map();
+  #touched = new Map(); // folder -> its timer (touched)
 
   /**
-   * `changed(path, bytes)`: a total phil's own change made, for the pages;
-   * `counts(path)`: whether totals are worked out there (a USB drive's may not be).
+   * `changed(path, bytes)`: a total that changed, for the pages; `counts(path)`:
+   * whether totals are worked out there (a USB drive's may not be; incognito's not but on F5).
    */
   constructor(file, { readOnly = false, changed = () => {}, counts = () => true } = {}) {
     this.changed = changed;
@@ -68,13 +73,15 @@ export class FolderTotals {
       if (!file) throw new Error("in memory");
       if (readOnly) {
         this.#db = new DatabaseSync(file, { readOnly: true });
-        this.#db.prepare("SELECT 1 FROM totals LIMIT 1").get();
+        this.#db.prepare("SELECT parent, own FROM totals LIMIT 1").get(); // (one from before: not read)
       } else {
         Deno.mkdirSync(dirname(file), { recursive: true });
         this.#db = new DatabaseSync(file);
-        this.#db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 3000;" + SCHEMA);
-        if (!this.#db.prepare("PRAGMA table_info(totals)").all().some((c) => c.name === "own")) this.#db.exec("ALTER TABLE totals ADD COLUMN own INTEGER");
-        Deno.remove(join(dirname(file), "folder-totals.json")).catch(() => {}); // what was kept before (no file systems in it): worked out again
+        this.#db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 3000;");
+        const columns = this.#db.prepare("PRAGMA table_info(totals)").all().map((c) => c.name);
+        if (columns.length && !columns.includes("parent")) this.#db.exec("DROP TABLE totals"); // kept before without what's in them: worked out again
+        this.#db.exec(SCHEMA);
+        Deno.remove(join(dirname(file), "folder-totals.json")).catch(() => {}); // (from before that)
       }
     } catch {
       this.#db = new DatabaseSync(":memory:");
@@ -83,7 +90,7 @@ export class FolderTotals {
     }
     this.queue = []; // folders waiting, the most recently asked for last (done first)
     this.waiting = new Map(); // path -> [{ done, signal }]
-    this.checks = new Set(); // those waiting that F5 asked for: the time of every folder under them looked at
+    this.modes = new Map(); // path -> how it's to be worked out, when not "update": "walk" (all of it), "check" (F5)
     this.stops = new Map(); // path -> AbortController, for its walk while it runs
     this.running = 0;
   }
@@ -100,7 +107,7 @@ export class FolderTotals {
       memory.exec(SCHEMA);
       const insert = memory.prepare(INSERT);
       memory.exec("BEGIN");
-      for (const r of this.#db.prepare("SELECT * FROM totals").all()) insert.run(r.path, r.bytes, r.own ?? null, r.mtime, r.dev, r.at);
+      for (const r of this.#db.prepare("SELECT * FROM totals").all()) insert.run(r.path, r.parent, r.bytes, r.own, r.mtime, r.dev, r.at);
       memory.exec("COMMIT");
       this.#db.close();
       this.#db = memory;
@@ -112,8 +119,11 @@ export class FolderTotals {
   }
 
   #row(path) {
-    const r = this.#q("SELECT * FROM totals WHERE path = ?").get(path);
-    return r && { ...r, own: r.own ?? null };
+    return this.#q("SELECT * FROM totals WHERE path = ?").get(path);
+  }
+
+  #put(path, bytes, own, mtime, dev, at = Date.now()) {
+    this.#run(INSERT, path, dirname(path), bytes, own, mtime, dev, at);
   }
 
   /** The total known for `path` (bytes), or null; `stale` when it should be worked out again. */
@@ -126,13 +136,15 @@ export class FolderTotals {
   /**
    * Works the total out (again), calling `done(bytes)`, or done(null) if that fails;
    * `signal` aborted first: not called, and when nobody else waits, not worked out.
-   * `check` (F5): the time of every folder under it looked at, not only its own.
+   * `mode`: "update" (where it changed), "walk" (all of it), "check" (F5: the time
+   * of every folder under it looked at).
    */
-  refresh(path, done, signal = null, check = false) {
+  refresh(path, done, signal = null, mode = "update") {
     if (signal?.aborted) return;
     const waiter = { done, signal };
     signal?.addEventListener("abort", () => this.drop(path, waiter), { once: true });
-    if (check) this.checks.add(path);
+    const order = ["update", "check", "walk"]; // (asked twice: the one that reads more)
+    if (order.indexOf(mode) > order.indexOf(this.modes.get(path) ?? "update")) this.modes.set(path, mode);
     const waiters = this.waiting.get(path);
     if (waiters) {
       waiters.push(waiter);
@@ -151,18 +163,19 @@ export class FolderTotals {
     waiters.splice(waiters.indexOf(waiter), 1);
     if (waiters.length) return;
     const i = this.queue.indexOf(path);
-    if (i !== -1) this.queue.splice(i, 1), this.waiting.delete(path), this.checks.delete(path);
+    if (i !== -1) this.queue.splice(i, 1), this.waiting.delete(path), this.modes.delete(path);
     else this.stops.get(path)?.abort(); // running: its walk stopped
   }
 
   next() {
     while (this.running < RUNNING && this.queue.length) {
       const path = this.queue.pop();
-      const check = this.checks.delete(path);
+      const mode = this.modes.get(path) ?? "update";
+      this.modes.delete(path);
       this.running++;
       const stop = new AbortController();
       this.stops.set(path, stop);
-      (check ? this.#check(path, stop.signal) : this.#update(path, stop.signal))
+      (mode === "check" ? this.#check(path, stop.signal) : mode === "walk" ? this.#walk(path, stop.signal) : this.#update(path, stop.signal))
         .catch(() => null)
         .then((bytes) => {
           if (!stop.signal.aborted) for (const { done } of this.waiting.get(path) ?? []) done(bytes);
@@ -176,12 +189,32 @@ export class FolderTotals {
     }
   }
 
-  // Not known (or from before own files were kept): walked; known: read again where it changed.
+  /**
+   * Something phil wrote in `dir` (a file saved, a download done, a change seen
+   * in the folder shown): once it's been quiet a moment, its total is worked out
+   * again (its own files read; `walk`: all of it), and those above it added up
+   * again. Where nothing above is known, nothing's done.
+   */
+  touched(dir, { walk = false } = {}) {
+    clearTimeout(this.#touched.get(dir));
+    this.#touched.set(dir, setTimeout(async () => {
+      this.#touched.delete(dir);
+      if (!(await this.counts(dir))) return;
+      let known = dir; // the nearest known, it or a folder it's in
+      while (!this.#row(known) && known !== "/") known = dirname(known);
+      if (!this.#row(known)) return;
+      let target = dir; // not known: the folder under the known one it's in, walked
+      while (target !== known && dirname(target) !== known) target = dirname(target);
+      const was = this.#row(target)?.bytes;
+      this.refresh(target, (bytes) => bytes !== null && bytes !== was && this.changed(target, bytes), null, target === dir && !walk ? "update" : "walk");
+    }, TOUCHED_MS));
+  }
+
+  // Not known: walked; known: read again where it changed.
   async #update(path, signal) {
-    const known = this.#row(path);
-    if (!known || known.own === null) return await this.#walk(path, signal);
+    if (!this.#row(path)) return await this.#walk(path, signal);
     const bytes = await this.#reread(path, signal);
-    if (bytes !== null) this.#addUp(path, bytes - known.bytes, known.dev);
+    if (bytes !== null) this.#addUp(dirname(path));
     return bytes;
   }
 
@@ -207,18 +240,17 @@ export class FolderTotals {
         if (s.dev !== dev) continue; // a drive mounted here: not counted
         folders.add(path);
         const known = this.#row(path);
-        const bytes = !known || known.own === null ? await this.#walk(path, signal, { addUp: false })
+        const bytes = !known ? await this.#walk(path, signal, { addUp: false })
           : known.mtime === (s.mtime?.getTime() ?? 0) ? known.bytes
           : await this.#reread(path, signal, dev);
         if (bytes === null) return null;
         inside += bytes;
       }
     } catch { /* can't be read: as du, nothing in it counted */ }
-    const [from, to] = under(dir);
-    for (const { path } of this.#q("SELECT path FROM totals WHERE path >= ? AND path < ? AND instr(substr(path, ?), '/') = 0").all(from, to, from.length + 1)) {
+    for (const { path } of this.#q("SELECT path FROM totals WHERE parent = ?").all(dir)) {
       if (!folders.has(path)) this.#forgetUnder(path); // gone
     }
-    this.#run(INSERT, dir, own + inside, own, st.mtime?.getTime() ?? 0, dev, Date.now());
+    this.#put(dir, own + inside, own, st.mtime?.getTime() ?? 0, dev);
     return own + inside;
   }
 
@@ -238,9 +270,9 @@ export class FolderTotals {
       list.push({ path: p, depth: Number(depth), mtime: ms(time), dev: rootDev, known: this.#row(p) });
     });
     if (!read || list[0]?.path !== path) return null;
-    const changed = list.filter((d) => !d.known || d.known.own === null || d.known.mtime !== d.mtime);
+    const changed = list.filter((d) => !d.known || d.known.mtime !== d.mtime);
     if (changed.length > CHECK_WALKS && changed.length > list.length / 4) return await this.#walk(path, signal);
-    for (const d of list) d.own = d.known?.own ?? null;
+    for (const d of list) d.own = d.known?.own ?? 0;
     for (const d of changed) {
       d.own = await ownBytes(d.path);
       if (signal.aborted) return null;
@@ -276,44 +308,66 @@ export class FolderTotals {
   }
 
   // A walk's or check's totals (the folder last), in place of everything
-  // known under `path`; the folders above it change by as much as it did.
+  // known under `path`; the folders above it added up again.
   #keep(path, rows, { addUp: up = true } = {}) {
-    const before = this.#row(path);
     const at = Date.now();
     this.#run("BEGIN");
     try {
       this.#forgetUnder(path);
-      for (const r of rows) this.#run(INSERT, r.path, r.bytes, r.own, r.mtime, r.dev, at);
+      for (const r of rows) this.#put(r.path, r.bytes, r.own, r.mtime, r.dev, at);
       this.#run("COMMIT");
     } catch {
       this.#run("ROLLBACK");
       return null;
     }
+    this.#evict();
+    if (up) this.#addUp(dirname(path));
+    return rows.at(-1).bytes;
+  }
+
+  // Past KEEP, the folders read longest ago go, and the folders they're in (a
+  // total is added up from all that's in it: one missing would be short).
+  #evict() {
     const { n } = this.#q("SELECT count(*) AS n FROM totals").get();
-    if (n > KEEP) this.#run("DELETE FROM totals WHERE path IN (SELECT path FROM totals ORDER BY at LIMIT ?)", n - KEEP);
-    const total = rows.at(-1).bytes;
-    if (up && before) this.#addUp(path, total - before.bytes, before.dev);
-    return total;
+    if (n <= KEEP) return;
+    const gone = new Set();
+    for (const { path } of this.#q("SELECT path FROM totals ORDER BY at LIMIT ?").all(n - KEEP + 1000)) {
+      for (let p = path; !gone.has(p); p = dirname(p)) {
+        gone.add(p);
+        if (p === "/") break;
+      }
+    }
+    this.#run("BEGIN");
+    for (const p of gone) this.#run("DELETE FROM totals WHERE path = ?", p);
+    this.#run("COMMIT");
   }
 
-  // The folders above `path` (on file system `dev`), `delta` bytes more; the pages hear.
-  #addUp(path, delta, dev) {
-    if (!delta || path === "/") return;
-    for (const p of this.#chain(dirname(path), delta, dev)) this.changed(p, this.#row(p).bytes);
+  // `dir` and the folders above it: their totals added up again, their own
+  // files' and what's known of their folders' (nothing read); the pages hear of
+  // those that changed. Up to the first not known, or not changed.
+  #addUp(dir) {
+    for (let p = dir;; p = dirname(p)) {
+      const known = this.#row(p);
+      if (!known) return;
+      const { inside } = this.#q("SELECT coalesce(sum(bytes), 0) AS inside FROM totals WHERE parent = ? AND dev = ? AND path != ?").get(p, known.dev, p);
+      const bytes = known.own + inside;
+      if (bytes === known.bytes && p !== dir) return;
+      if (bytes !== known.bytes) {
+        this.#run("UPDATE totals SET bytes = ? WHERE path = ?", bytes, p);
+        this.changed(p, bytes);
+      }
+      if (p === "/") return;
+    }
   }
 
-  // `dir` and the folders above it on file system `dev`: `delta` bytes more
-  // (null: not known, out of date). The folders changed.
-  #chain(dir, delta, dev) {
-    const changed = [];
+  // `dir` and the folders above it on file system `dev`: out of date (read again when shown).
+  #outdated(dir, dev) {
     for (let p = dir;; p = dirname(p)) { // (one not known is passed over)
       const known = this.#row(p);
       if (known && known.dev !== dev) break; // above the drive it's on: its total doesn't count it
-      if (known && delta === null) this.#run("UPDATE totals SET mtime = -1 WHERE path = ?", p);
-      else if (known && delta) this.#run("UPDATE totals SET bytes = bytes + ? WHERE path = ?", delta, p), changed.push(p);
+      if (known) this.#run("UPDATE totals SET mtime = -1 WHERE path = ?", p);
       if (p === "/") break;
     }
-    return changed;
   }
 
   // `path` and everything under it.
@@ -326,49 +380,49 @@ export class FolderTotals {
   #rename(from, to) {
     this.#forgetUnder(to);
     const [lo, hi] = under(from);
-    this.#run("UPDATE totals SET path = ? || substr(path, ?) WHERE path = ? OR (path >= ? AND path < ?)", to, from.length + 1, from, lo, hi);
+    this.#run(
+      "UPDATE totals SET path = ? || substr(path, ?), parent = CASE WHEN path = ? THEN ? ELSE ? || substr(parent, ?) END WHERE path = ? OR (path >= ? AND path < ?)",
+      to, from.length + 1, from, dirname(to), to, from.length + 1, from, lo, hi,
+    );
   }
 
   // The folders whose contents phil is about to change: their file system, and
-  // whether their total is up to date (then, their new time is taken after).
+  // whether what's known of them is up to date (then, their new time is taken after).
   async #before(dirs) {
     const out = new Map();
     for (const dir of new Set(dirs)) {
       const st = await Deno.stat(dir).catch(() => null);
       const known = st && this.#row(dir);
-      out.set(dir, { dev: st?.dev ?? null, current: !!known && known.own !== null && known.mtime === (st.mtime?.getTime() ?? 0) });
+      out.set(dir, { dev: st?.dev ?? null, current: !!known && known.mtime === (st.mtime?.getTime() ?? 0) });
     }
     return out;
   }
 
-  // Done: `deltas` (folder -> bytes added, negative taken away; null: not
-  // known, their totals are out of date) go to those folders and every one above
-  // them on their file system; `owns` (folder -> bytes) is what of that was its
-  // own files. Those up to date before have their new time.
-  async #after(before, deltas, owns = new Map()) {
+  // Done: `owns` (folder -> bytes its own files have more, or fewer) go to the
+  // folders that were up to date, with their new time; those in `unknown`
+  // (what changed isn't known) and every one above are out of date. All are
+  // added up again.
+  async #after(before, owns = new Map(), unknown = new Set()) {
     const folders = new Map(before);
-    for (const dir of deltas.keys()) {
+    for (const dir of [...owns.keys(), ...unknown]) {
       if (!folders.has(dir)) folders.set(dir, { dev: (await Deno.stat(dir).catch(() => null))?.dev ?? null, current: false });
     }
-    const times = new Map();
-    for (const [dir, { current }] of folders) {
-      if (current) times.set(dir, (await Deno.stat(dir).catch(() => null))?.mtime?.getTime() ?? -1);
-    }
-    const changed = new Set();
-    for (const [dir, { dev }] of folders) {
+    for (const [dir, { dev, current }] of folders) {
       if (dev === null) continue;
-      const delta = deltas.get(dir) ?? 0;
-      for (const p of this.#chain(dir, delta, dev)) changed.add(p);
-      if (delta !== null && times.has(dir)) this.#run("UPDATE totals SET mtime = ?, own = own + ? WHERE path = ?", times.get(dir), owns.get(dir) ?? 0, dir);
+      if (unknown.has(dir)) this.#outdated(dir, dev);
+      else if (current) {
+        const mtime = (await Deno.stat(dir).catch(() => null))?.mtime?.getTime() ?? -1;
+        this.#run("UPDATE totals SET mtime = ?, own = own + ? WHERE path = ?", mtime, owns.get(dir) ?? 0, dir);
+      }
+      this.#addUp(dir);
     }
-    for (const path of changed) this.changed(path, this.#row(path).bytes);
   }
 
   // A folder's total now (a walk, through the queue: one the page asked for is
   // the same walk), or null where totals aren't worked out.
   async #measureNow(path) {
     if (!(await this.counts(path))) return null;
-    return await new Promise((done) => this.refresh(path, done));
+    return await new Promise((done) => this.refresh(path, done, null, "walk"));
   }
 
   /**
@@ -379,24 +433,16 @@ export class FolderTotals {
     const before = await this.#before(paths.map(dirname));
     return async (gone) => {
       const dirs = new Set(gone.filter((e) => e.type === "d").map((e) => e.path));
-      const keptOf = new Map(); // a folder gone -> the folder it was in that's still there
-      const kept = (path) => {
-        const parent = dirname(path);
-        if (!dirs.has(parent)) return parent;
-        if (!keptOf.has(parent)) keptOf.set(parent, kept(parent));
-        return keptOf.get(parent);
-      };
-      const deltas = new Map(), owns = new Map();
+      const owns = new Map(), unknown = new Set();
       for (const e of gone) {
-        const dir = kept(e.path);
-        if (e.type === "?" || deltas.get(dir) === null) deltas.set(dir, null); // (find couldn't say)
-        else if (e.type !== "d") {
-          deltas.set(dir, (deltas.get(dir) ?? 0) - e.size);
-          if (dirname(e.path) === dir) owns.set(dir, (owns.get(dir) ?? 0) - e.size); // one of its own files
-        }
-        if (e.type === "d" && !dirs.has(dirname(e.path)) && this.#row(e.path)) this.#forgetUnder(e.path);
+        const dir = dirname(e.path);
+        if (dirs.has(dir)) continue; // in a folder gone (forgotten with it)
+        if (!before.has(dir) || e.type === "?") unknown.add(dir); // (in a folder only partly deleted; find couldn't say)
+        else if (e.type === "d") this.#forgetUnder(e.path);
+        else owns.set(dir, (owns.get(dir) ?? 0) - e.size);
       }
-      await this.#after(before, deltas, owns);
+      for (const dir of dirs) if (!before.has(dirname(dir)) && !dirs.has(dirname(dir))) this.#forgetUnder(dir);
+      await this.#after(before, owns, unknown);
     };
   }
 
@@ -406,39 +452,36 @@ export class FolderTotals {
    */
   async transferring(op, paths, dest) {
     const before = await this.#before([dest, ...(op === "move" ? paths.map(dirname) : [])]);
-    const known = new Map(); // a folder moved whose total's up to date: it goes along (on the same file system)
+    const known = new Set(); // a folder moved, what's known of it up to date: it goes along (on the same file system)
     if (op === "move") {
       for (const path of paths) {
         const st = await Deno.lstat(path).catch(() => null);
         const row = st?.isDirectory && this.#row(path);
-        if (row && row.own !== null && row.mtime === st.mtime?.getTime() && row.dev === before.get(dest)?.dev) known.set(path, row.bytes);
+        if (row && row.mtime === st.mtime?.getTime() && row.dev === before.get(dest)?.dev) known.add(path);
       }
     }
     return async ({ moved = [], errors = [] }) => {
-      const deltas = new Map(), owns = new Map();
-      const add = (dir, bytes, file = false) => {
-        deltas.set(dir, bytes === null || deltas.get(dir) === null ? null : (deltas.get(dir) ?? 0) + bytes);
-        if (file && bytes !== null) owns.set(dir, (owns.get(dir) ?? 0) + bytes);
-      };
+      const owns = new Map(), unknown = new Set();
+      const own = (dir, bytes) => owns.set(dir, (owns.get(dir) ?? 0) + bytes);
       for (const { from, to } of moved) {
         const st = await Deno.lstat(to).catch(() => null);
-        const file = !!st && !st.isDirectory;
-        let bytes = null;
-        if (file) bytes = st.size; // (a link: its own, as find's)
-        else if (st && known.has(from)) this.#rename(from, to), (bytes = known.get(from));
-        else if (st) {
-          if (op === "move" && this.#row(from)) this.#forgetUnder(from);
-          bytes = await this.#measureNow(to);
+        if (st && !st.isDirectory) { // (a link: its own size, as find's)
+          own(dirname(to), st.size);
+          if (op === "move") own(dirname(from), -st.size);
+          continue;
         }
-        add(dirname(to), bytes, file);
-        if (op === "move") add(dirname(from), bytes === null ? null : -bytes, file);
+        if (st && known.has(from)) this.#rename(from, to);
+        else {
+          if (op === "move") this.#forgetUnder(from);
+          if (!st || (await this.#measureNow(to)) === null) unknown.add(dirname(to));
+        }
       }
       for (const { path } of errors) { // stopped or failed: part of it may be there
         if (!(await Deno.lstat(join(dest, basename(path))).then(() => true, () => false))) continue;
-        add(dest, null);
-        if (op === "move") add(dirname(path), null);
+        unknown.add(dest);
+        if (op === "move") unknown.add(dirname(path));
       }
-      await this.#after(before, deltas, owns);
+      await this.#after(before, owns, unknown);
     };
   }
 
@@ -447,7 +490,7 @@ export class FolderTotals {
     const before = await this.#before([dirname(path)]);
     return async (to) => {
       if (to !== path && this.#row(path)) this.#rename(path, to);
-      await this.#after(before, new Map());
+      await this.#after(before);
     };
   }
 
@@ -456,9 +499,8 @@ export class FolderTotals {
     const before = await this.#before([dir]);
     return async (path) => {
       const st = await Deno.lstat(path).catch(() => null);
-      if (st?.isDirectory && before.get(dir)?.current) this.#run(INSERT, path, 0, 0, st.mtime?.getTime() ?? 0, st.dev, Date.now());
-      const bytes = st ? (st.isDirectory ? 0 : st.size) : null;
-      await this.#after(before, new Map([[dir, bytes]]), new Map([[dir, bytes ?? 0]]));
+      if (st?.isDirectory && before.get(dir)?.current) this.#put(path, 0, 0, st.mtime?.getTime() ?? 0, st.dev);
+      await this.#after(before, new Map([[dir, st && !st.isDirectory ? st.size : 0]]), st ? new Set() : new Set([dir]));
     };
   }
 }

@@ -286,13 +286,21 @@ something changed:
   again the same way where those changed);
 - a change deeper inside doesn't touch a folder's time: F5 looks at the time of
   every folder under the shown folder's (a `find` of the folders only, a
-  fraction of a walk) and reads again those that changed; a file that grew
-  where it was (a download, a log) changes none: its new size counts once
-  something else in its folder changes;
-- what phil does itself (delete, copy, move, rename, a new folder) changes the
-  totals of the folders it's in and every one above them at once, reading
-  nothing (a folder copied is walked, once);
-- a folder's new total changes those of the folders above it by as much.
+  fraction of a walk) and reads again those that changed;
+- what phil does itself (delete, copy, move, rename, a new folder) changes
+  what's known of the folders it's in, reading nothing (a folder copied is
+  walked, once); a file it writes (textedit's or jsonedit's save,
+  imageresize's), a download it follows (panda-dl's, one saved through its
+  file chooser) done, paused or stopped, and anything changed in the folder
+  shown or the folders in it (a file growing too) has its folder read again,
+  a moment after;
+- a folder's total changed, those of the folders above it are added up again
+  from what's known of what's in them: their own files and their folders'
+  totals.
+
+A file that grows elsewhere (a log, another program's download) changes no
+folder's time: it counts once phil sees it (its folder shown) or something
+else in its folder changes.
 
 Incognito reads the totals known and works none out, except on F5: those go in
 a database in memory, gone when it exits. Network shares and the kernel's

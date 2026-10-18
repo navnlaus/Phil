@@ -6,6 +6,7 @@
 import { basename, dirname, join } from "@std/path";
 import { documentMarkdown, documentType, isDocument } from "./documents.js";
 import { httpError, json } from "./http.js";
+import { wrote } from "./written.js";
 
 const MAX_SIZE = 64 * 1024 * 1024;
 
@@ -151,6 +152,7 @@ async function write({ path, text, mtime = null, force = false, sudo, encoding, 
     if (!(err instanceof Deno.errors.PermissionDenied)) throw err;
     await sudoWrite(real, bytes, sudo);
   }
+  wrote(real);
   return { path, mtime: (await Deno.stat(path)).mtime?.getTime() ?? 0 };
 }
 
