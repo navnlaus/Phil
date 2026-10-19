@@ -1,5 +1,5 @@
 import { appUrl, askPassword, clipboardKey, closeWindow, copyText, embedOf, holdFocus, openOver, pasteText, ready, tooltips } from "/engine/ui/kit.js";
-import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
+import { isBackgroundKey, isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
 import "/ui/vendor/dayjs.min.js"; // (UMD: globalThis.dayjs; MIT)
 import "/ui/vendor/dayjs-relativeTime.js";
 
@@ -2151,6 +2151,7 @@ function closeApp() {
   appAside = false;
   appView.hidden = true;
   appView.replaceChildren();
+  document.body.classList.remove("term-over-app"); // (the terminal back in its place, if it's open)
   showMediaPlace();
   const back = focusBeforeApp?.isConnected && focusBeforeApp !== document.body ? focusBeforeApp : grid;
   back.focus({ preventScroll: true });
@@ -2166,6 +2167,8 @@ addEventListener("message", (e) => {
     frame.focus();
     frame.contentWindow.focus();
     frame.contentWindow.postMessage({ engine: "focus" }, "*"); // now it can focus its view (kit.js holdFocus)
+  } else if (e.data?.engine === "terminal") { // the terminal's keys, pressed in the app (kit.js)
+    e.data.key === "background" ? backgroundTerminal() : toggleTerminal();
   } else if (e.data?.engine === "close") {
     closeApp();
   } else if (e.data?.app === "mediaview" && e.data.transfer) { // a download's %: it in the Transfers view, mediaview behind it
@@ -3978,20 +3981,36 @@ function makeProcessRow() {
   const row = document.createElement("div");
   row.className = "process-row";
   const cancel = Object.assign(document.createElement("button"), { type: "button", className: "cancel", textContent: "×", title: "Stop it (worked out again when it's asked for)" });
-  cancel.addEventListener("click", (e) => {
+  cancel.addEventListener("click", async (e) => {
     e.stopPropagation();
-    api("/api/process-cancel", { method: "POST", body: JSON.stringify({ id: row.item.id }) }).catch(() => {});
+    const p = row.item;
+    if (p.kind === "terminal" && !await askConfirm({ title: `End “${p.command}”?`, detail: `The terminal in the background is closed: what runs there is hung up (in ${p.cwd}).`, ok: "End it" })) return;
+    api("/api/process-cancel", { method: "POST", body: JSON.stringify({ id: p.id }) }).catch(() => {});
   });
   row.append(Object.assign(document.createElement("span"), { className: "process-name" }), Object.assign(document.createElement("span"), { className: "process-time" }), cancel);
-  row.addEventListener("click", () => load(row.item.path));
+  row.addEventListener("click", () => (row.item.kind === "terminal" ? showBackgroundTerminal(row.item.term) : load(row.item.path)));
   return row;
 }
 
 function showProcessRow(row, p) {
-  const [name, time] = row.children;
+  const [name, time, cancel] = row.children;
+  showProcessTime(time, p);
+  if (p.kind === "terminal") {
+    // A terminal in the background: what runs there (its program without its path), where.
+    const [program = "bash", ...args] = (p.command || "bash").split(/\s+/);
+    put(name, "textContent", [program.split("/").pop().replace(/^-/, ""), ...args].join(" "));
+    put(row, "title", `A terminal in the background: ${p.command || "bash"}, in ${p.cwd || "?"}. A click shows it in the terminal panel`);
+    put(cancel, "title", "End it (what runs there is hung up)");
+    return;
+  }
   const folder = p.path === "/" ? "/" : p.path.split("/").pop();
   put(name, "textContent", folder); // (what it's doing: in its tip, the sidebar's narrow)
   put(row, "title", `${p.mode === "check" ? "Looking at the times of the folders in" : "Adding up the size of everything in"} ${p.path}, at the lowest priority`);
+  put(cancel, "title", "Stop it (worked out again when it's asked for)");
+}
+
+// How long it's been going (h:mm:ss).
+function showProcessTime(time, p) {
   const s = Math.max(0, Math.floor((Date.now() - p.started) / 1000));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, "0");
   put(time, "textContent", h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`);
@@ -4730,8 +4749,15 @@ let initialSelect = null;
 function setTerminalOpen(open, { focus = true } = {}) {
   if (open) terminal.show(state.path, { focus });
   else terminal.hide(), setTerminalCover(false), (scriptRun = null);
+  terminalShown(open);
+  // Closed: the keyboard back to the folder view, or to the app shown over it.
+  if (!open) (appView.hidden ? grid : appView.querySelector("iframe") ?? grid).focus({ preventScroll: true });
+}
+
+// The panel open or closed: its button, and the setting (it's opened again in the next window).
+function terminalShown(open) {
   $("#btn-terminal").setAttribute("aria-pressed", String(open));
-  if (!open) grid.focus({ preventScroll: true });
+  document.body.classList.toggle("term-over-app", open && !appView.hidden);
   if (state.settings.termOpen !== open) {
     state.settings.termOpen = open;
     saveSettings(0); // right away: quitting is often the next thing that happens
@@ -4739,7 +4765,27 @@ function setTerminalOpen(open, { focus = true } = {}) {
 }
 
 function toggleTerminal() {
+  // Open, but under an app shown since: over it now.
+  if (terminal.isOpen && !appView.hidden && !document.body.classList.contains("term-over-app")) return setTerminalOpen(true);
   setTerminalOpen(!terminal.isOpen);
+}
+
+const inTerminal = () => !!document.activeElement?.closest?.("#term-panel");
+
+// Super+°: the terminal's shell, and what runs in it, into the background (the
+// sidebar's Processes; a click there shows it again); the panel closes, its
+// next shell a new one.
+async function backgroundTerminal() {
+  if (!terminal.isRunning) return flashStatus("No terminal to put in the background");
+  if (!(await terminal.background())) return flashStatus("Terminals don't go to the background in incognito windows");
+  setTerminalOpen(false);
+  flashStatus("The terminal is in the background: the sidebar's Processes show it");
+}
+
+// A terminal in the background (one of the sidebar's Processes), in the panel again.
+async function showBackgroundTerminal(id) {
+  await terminal.restore(id, state.path);
+  terminalShown(true);
 }
 
 // The terminal covering the whole window (a double-clicked script runs like
@@ -4798,13 +4844,17 @@ function terminalKey(e) {
 // toggle the panel, Alt+↓ / Alt+↑ move focus to the terminal (opening it) / the
 // folder view.
 document.addEventListener("keydown", (e) => {
-  if (!appView.hidden && e.key === "Escape") return askAppToClose(), e.preventDefault(), e.stopPropagation();
+  // The terminal's keys, wherever the keyboard is (an app shown here too: the terminal over it).
+  if ((isToggleKey(e) || isBackgroundKey(e)) && !dialogOpen()) {
+    isToggleKey(e) ? toggleTerminal() : backgroundTerminal();
+    return e.preventDefault(), e.stopPropagation();
+  }
+  if (!appView.hidden && e.key === "Escape" && !inTerminal()) return askAppToClose(), e.preventDefault(), e.stopPropagation();
   // Esc closes the Transfers view, wherever the keyboard is (not a menu or dialog over it).
   if (!transfersView.hidden && e.key === "Escape" && contextMenu.hidden && !dialogOpen()) return closeTransfersView(), e.preventDefault(), e.stopPropagation();
   if (!prefsView.hidden && e.key === "Escape" && contextMenu.hidden && !dialogOpen()) return closePrefsView(), e.preventDefault(), e.stopPropagation();
   if (!appView.hidden || dialogOpen()) return;
-  if (isToggleKey(e)) toggleTerminal();
-  else if (isFocusKey(e) && e.key === "ArrowDown") setTerminalOpen(true);
+  if (isFocusKey(e) && e.key === "ArrowDown") setTerminalOpen(true);
   else if (isFocusKey(e)) grid.focus({ preventScroll: true });
   else return;
   e.preventDefault();

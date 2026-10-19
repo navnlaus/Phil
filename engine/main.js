@@ -10,6 +10,8 @@
 //   phil-engine --install-themes  copies the built-in themes to ~/.config/phil/themes
 //                              (engine/themes.js; scripts/install.sh runs it)
 //   phil-engine --serve JSON   the background engine itself (internal)
+//   phil-engine --term-host JSON  a terminal panel's shell, apart from the engine
+//                              (termhost.js; internal)
 //
 // Engine options, given with any app: --browser, --standalone, --quit (see
 // HELP). Everything else on the command line is the app's.
@@ -49,6 +51,7 @@ const trace = Deno.env.get("PHIL_TRACE")
 trace("main.js running");
 
 if (Deno.args[0] === "--serve") await serve(JSON.parse(Deno.args[1]));
+else if (Deno.args[0] === "--term-host") await (await import("./termhost.js")).termHost(JSON.parse(Deno.args[1]));
 else await launch(Deno.args);
 
 async function launch(argv) {

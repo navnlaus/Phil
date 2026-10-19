@@ -7,6 +7,17 @@
 const embedId = new URLSearchParams(location.search).get("embedded");
 export const embedded = globalThis.parent !== globalThis && !!embedId;
 
+// Shown in phil: its terminal's keys go to it, wherever the keyboard is here too: Ctrl+` (the key
+// left of 1: Ctrl+° on an Icelandic keyboard) opens and closes it, Super+` puts it in the background.
+if (embedded) {
+  addEventListener("keydown", (e) => {
+    if (!(e.code === "Backquote" || e.key === "`" || e.key === "°") || e.altKey || e.shiftKey || e.ctrlKey === e.metaKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    parent.postMessage({ engine: "terminal", key: e.metaKey ? "background" : "toggle", embed: embedId }, location.origin);
+  }, true);
+}
+
 // Messages between an app and the one it's shown in (see appUrl) are told
 // apart by origin and the embedded view's id.
 const ours = (e) => e.origin === location.origin;

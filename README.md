@@ -337,7 +337,8 @@ once, the one it's in shows its total so far, the others come as the walk gets
 to them (one folder after another).
 The sidebar lists those under Processes, with how long each has been going;
 × stops it (the folders it was done with are kept; it's worked out again when
-it's asked for), a click shows its folder.
+it's asked for), a click shows its folder. Terminals in the background are
+there too (see [Terminal panel](#terminal-panel)).
 
 Incognito reads the totals known and works none out, except on F5: those go in
 a database in memory, gone when it exits. Network shares and the kernel's
@@ -534,6 +535,7 @@ engine/server.js    the apps' 127.0.0.1 HTTP servers (a worker): session, static
 engine/tls.js       the servers' certificate, made at each start (HTTPS, for HTTP/2)
 engine/http.js      responses, files with Range
 engine/pty.js       pseudo-terminals via libc FFI (Deno has no PTY API)
+engine/termhost.js  a terminal's shell in a process of its own, apart from the engine (--term-host)
 engine/apps.js      the apps, and what an app consists of
 engine/ui/          scripts every app's pages share: kit.js (windows, showing
                     another app inside a window, the clipboard), syntax
@@ -544,7 +546,7 @@ themes/             the built-in themes: styles every app's pages share
                     to ~/.config/phil/themes on install; engine/themes.js serves
                     and watches them
 apps/phil/          launch.js (options, window URL), server.js (listing, files,
-                    thumbnails, terminal), thumbs.js (cache + LIFO job pool:
+                    thumbnails, terminal), terms.js (the terminals' hosts), thumbs.js (cache + LIFO job pool:
                     vipsthumbnail / ffmpegthumbnailer), folders.js (folder
                     summaries), texthead.js (text tiles), dbus.js
                     (FileManager1), shell-init.bash, ui/ (ui/vendor: xterm.js 6, MIT; Lucide's icons, ISC; Day.js, MIT, for "5 minutes ago")
@@ -616,8 +618,24 @@ engine that can't run openssl.
 
 ## Terminal panel
 
-F4 (or Ctrl+`) opens bash in a panel under the grid; drag its top edge to resize.
-Ctrl+F in it toggles between covering the whole window and its own height.
+F4 (or Ctrl+`: the key left of 1, Ctrl+° on an Icelandic keyboard) opens bash
+in a panel under the grid, wherever the keyboard is in the window (an app shown
+in it too, jsonedit's, textedit's, the media view: the panel opens over it);
+drag its top edge to resize. Ctrl+F in it toggles between covering the whole
+window and its own height.
+
+**In the background** (Super+°, Super+` elsewhere): the shell, and whatever
+runs in it, goes on without the panel, as in screen or tmux. The panel closes;
+its next shell is a new one. The sidebar's Processes list those, what runs
+there (`vim notes.md`, `sleep 600`, `bash` at its prompt) and for how long; a
+click shows one in the panel again, as it was (its screen and scrollback: the
+last megabyte it wrote), and the panel's shell till then goes to the background
+in its place (one at an empty prompt is closed instead); × ends one (what runs
+there is hung up). Shown again, it stays one: closing its window puts it back.
+They outlive the window and the engine (a new phil lists them): each panel's
+shell runs in a process of its own (`phil-engine --term-host`, detached), on a
+Unix socket in `$XDG_RUNTIME_DIR/phil/main.terms/`. One that's never been in
+the background ends with its window, as before. Not in incognito windows.
 
 Double-clicking a script or program runs it there: a file with a `#!` line, a
 shell script by its name (`.sh`, `.bash`, `.zsh`, `.fish`), or an executable
@@ -705,7 +723,8 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | right-click a folder in the sidebar → Remove from sidebar | it's no longer listed (the folder itself stays) |
 | double-click a camera at the bottom of the sidebar | shows it live in this window, with its pan, tilt and zoom (camview, below); right-click: Rename, Log in, Forget, Look for cameras, Add camera… |
 | click a dimmed drive in the sidebar | mount it and open it: partitions nothing has mounted (an internal drive's, like Windows': only removable ones are mounted by themselves), by udisks under /run/media, a system drive's with sudo (the password box, unless sudo remembers it); right-click a drive in /run/media → Unmount |
-| F4 / Ctrl+` | toggle the terminal panel |
+| F4 / Ctrl+` (Ctrl+°) | toggle the terminal panel, wherever the keyboard is (over an app shown in the window too) |
+| Super+` (Super+°) | the terminal's shell, and what runs in it, into the background: the sidebar's Processes (a click: back in the panel) |
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
 | Ctrl + / − / wheel | thumbnail size |
 | F5 | reload folder; its folders' totals: every folder's time in them looked at, those changed read again |

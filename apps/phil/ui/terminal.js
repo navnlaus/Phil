@@ -36,6 +36,9 @@ export class TerminalPanel {
     this.dropEcho = false; // swallow the newline bash echoes for a silent cd's Enter
     this.hideLine = false; // swallow what the shell echoes up to the end of the line (a command run quietly)
     this.exited = false;
+    this.replaying = false; // an earlier shell's screen being given again (restore)
+    this.needsShell = false; // the last one went to the background: a new one when shown
+    this.backgrounded = null; // (answer) => …: waiting for the server's word on {background}
   }
 
   get isOpen() {
@@ -54,6 +57,11 @@ export class TerminalPanel {
   async show(cwd, { focus = true } = {}) {
     this.panel.hidden = false;
     await (this.starting ??= this.start(cwd));
+    if (this.needsShell) {
+      this.needsShell = false;
+      this.term.reset();
+      this.connect(cwd);
+    }
     requestAnimationFrame(() => {
       this.fit.fit();
       if (focus) this.term.focus();
@@ -69,7 +77,7 @@ export class TerminalPanel {
     if (this.fit && !this.panel.hidden) this.fit.fit();
   }
 
-  async start(cwd) {
+  async start(cwd, session = null) {
     // xterm.js is big; it's only loaded once the panel is first opened.
     const [{ Terminal }, { FitAddon }] = await Promise.all([
       import("/ui/vendor/xterm.mjs"),
@@ -96,6 +104,8 @@ export class TerminalPanel {
     this.fit.fit();
 
     this.term.parser.registerOscHandler(7, (data) => {
+      // An earlier shell's screen given again: where it was is all that counts (applied once given).
+      if (this.replaying) return (this.cwd = data), true;
       let path, host;
       try {
         const url = new URL(data);
@@ -136,7 +146,7 @@ export class TerminalPanel {
     // Copying and pasting (Ctrl+Insert / Shift+Insert) go through the desktop's
     // clipboard (kit.js); xterm.js pastes into the shell as a paste.
     this.term.attachCustomKeyEventHandler((e) => {
-      if (isToggleKey(e) || isFocusKey(e)) return false;
+      if (isToggleKey(e) || isFocusKey(e) || isBackgroundKey(e)) return false;
       if (e.type === "keydown" && this.onKey?.(e)) {
         e.preventDefault();
         return false;
@@ -151,20 +161,26 @@ export class TerminalPanel {
     });
     new ResizeObserver(() => !this.panel.hidden && this.fit.fit()).observe(this.container);
 
-    this.connect(cwd);
+    this.connect(cwd, session);
   }
 
-  connect(cwd) {
+  // A new shell in `cwd`, or (`session`) an earlier one, in the background, shown here again.
+  connect(cwd, session = null) {
     this.exited = false;
     this.idle = false;
+    this.running = false;
+    this.typedAt = null;
     this.cwd = null;
-    const params = new URLSearchParams({ cwd, cols: this.term.cols, rows: this.term.rows });
+    this.replaying = !!session;
+    const params = new URLSearchParams({ ...(session ? { session } : { cwd }), cols: this.term.cols, rows: this.term.rows });
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/term?${params}`);
     ws.binaryType = "arraybuffer";
     ws.onmessage = (e) => {
-      if (typeof e.data === "string") { // not terminal output: {open: {app, params}}
-        const { open } = JSON.parse(e.data);
+      if (typeof e.data === "string") { // not terminal output: {open: {app, params}}, {replayed}, {background}
+        const { open, replayed, atPrompt, background } = JSON.parse(e.data);
         if (open) this.onOpen?.(open);
+        if (replayed) this.replayed(atPrompt);
+        if (background !== undefined) this.backgrounded?.(background);
         return;
       }
       let data = new Uint8Array(e.data);
@@ -181,7 +197,7 @@ export class TerminalPanel {
       this.term.write(data);
     };
     ws.onclose = () => {
-      if (this.ws !== ws) return;
+      if (this.ws !== ws) return; // (one that went to the background: closed on purpose)
       this.exited = true;
       this.term.write("\r\n\x1b[2m[shell exited, press Enter to start a new one]\x1b[0m\r\n");
     };
@@ -190,6 +206,76 @@ export class TerminalPanel {
 
   send(data) {
     if (this.isRunning) this.ws.send(new TextEncoder().encode(data));
+  }
+
+  // An earlier shell's screen is all there: where it is (the last OSC 7) followed by the view.
+  // What's on its command line isn't known, so nothing's typed there for it (follow, run)
+  // till its next prompt; a program running there (not at its prompt): busy.
+  replayed(atPrompt) {
+    this.replaying = false;
+    this.running = !atPrompt;
+    const at = this.cwd;
+    this.cwd = null;
+    if (at) {
+      // (as its OSC 7 would have done; this.cwd as it said, then)
+      try {
+        const url = new URL(at);
+        const host = url.hostname, path = decodeURIComponent(url.pathname);
+        this.remote = host && !this.isLocal(host) ? host : null;
+        this.cwd = this.remote ? this.toLocal(host, path) ?? `ssh://${host}${path}` : path;
+        if (this.cwd.startsWith("/")) this.onCwd(this.cwd);
+      } catch { /* not a URL */ }
+    }
+  }
+
+  /**
+   * Puts this shell in the background (Super+°): it goes on without the panel, the window and
+   * the engine (the sidebar's Processes show it); the panel's next shell is a new one. Resolves
+   * to whether it went (not in incognito).
+   */
+  background() {
+    if (!this.isRunning || this.backgrounded) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => this.backgrounded?.(false), 3000);
+      this.backgrounded = (ok) => {
+        clearTimeout(timer);
+        this.backgrounded = null;
+        if (ok) this.letGo();
+        resolve(ok);
+      };
+      this.ws.send(JSON.stringify({ background: true }));
+    });
+  }
+
+  // This shell no longer shown here (in the background, or ended at an empty prompt).
+  letGo() {
+    const ws = this.ws;
+    this.ws = null;
+    ws?.close();
+    this.needsShell = true;
+    this.cwd = null;
+    this.idle = false;
+    this.running = false;
+  }
+
+  /**
+   * Shows `session` (a shell in the background) in the panel. The one shown till now: ended if
+   * it's at an empty prompt, else put in the background too.
+   */
+  async restore(session, cwd) {
+    this.panel.hidden = false;
+    if (!this.starting) await (this.starting = this.start(cwd, session));
+    else {
+      await this.starting;
+      if (!this.isRunning || this.atEmptyPrompt || !(await this.background())) this.letGo();
+      this.needsShell = false;
+      this.term.reset();
+      this.connect(cwd, session);
+    }
+    requestAnimationFrame(() => {
+      this.fit.fit();
+      this.term.focus();
+    });
   }
 
   // Keys (or text) about to go to the shell. The first ones at a prompt note
@@ -301,8 +387,14 @@ function clipboardAction(e) {
   return e.ctrlKey ? "copy" : "paste";
 }
 
+// Ctrl+` is the key left of 1, wherever a layout has it (Ctrl+° on an Icelandic one).
 export function isToggleKey(e) {
-  return e.type === "keydown" && (e.key === "F4" || (e.ctrlKey && e.key === "`"));
+  return e.type === "keydown" && (e.key === "F4" || (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "`" || e.code === "Backquote")));
+}
+
+/** Super+` (Super+°): the terminal's shell, and what runs there, into the background. */
+export function isBackgroundKey(e) {
+  return e.type === "keydown" && e.metaKey && !e.ctrlKey && !e.altKey && (e.code === "Backquote" || e.key === "`" || e.key === "°");
 }
 
 /** Alt+↑ / Alt+↓: focus the folder view / the terminal (Tab belongs to the shell). */

@@ -4,8 +4,8 @@ import { basename, dirname, join, normalize } from "@std/path";
 import { httpError, json, serveFile, text } from "../../engine/http.js";
 import { imagePreview } from "../../engine/media.js";
 import { currentTheme, themeNames, themesDir } from "../../engine/themes.js";
-import { Pty } from "../../engine/pty.js";
 import { FolderSummaries, makeSummary } from "./folders.js";
+import { createTerms } from "./terms.js";
 import { Hooks, metadataFile, runHook } from "./hooks.js";
 import * as cameras from "../camview/cameras.js";
 import { requireSudo, sudo, sudoPassword, sudoWanted } from "./sudo.js";
@@ -42,6 +42,7 @@ export function createServer({ profile, controlSocket }) {
   setTimeout(() => thumbs.pruneContent().catch(() => {}), 60_000); // content entries left by deleted files
   // Incognito leaves no traces, so its folder summaries last for the session only.
   const sockets = new Set(); // every page's WebSocket, for {theme}
+  let terms = null; // the terminal panels' shells (below)
   const terminals = new Map(); // terminal panel id (PHIL_TERMINAL) -> its WebSocket
   const folders = new FolderSummaries(config.incognito ? null : join(thumbs.dir, "folders"));
   // What phil does on each drive (its Properties): thumbnails, folder sizes.
@@ -53,8 +54,14 @@ export function createServer({ profile, controlSocket }) {
     readOnly: config.incognito,
     changed: (path, bytes) => broadcast({ totalOf: path, bytes }), // phil's own changes: the totals of the folders they're in, and above
     counts: async (path) => !config.incognito && await countsTotals(path), // (a folder copied: walked)
-    processesChanged: () => broadcast({ processes: totals.processes() }), // the sidebar's Processes
+    processesChanged: () => broadcast({ processes: processes() }), // the sidebar's Processes
   });
+  // The terminal panels' shells (terms.js): those in the background (Super+°) are Processes too.
+  terms = createTerms({ controlSocket, incognito: config.incognito, onChange: () => broadcast({ processes: processes() }) });
+  // The sidebar's Processes: folders' totals being worked out, terminals in the background.
+  function processes() {
+    return [...totals.processes(), ...(terms?.list() ?? []).map((t) => ({ ...t, id: `term:${t.id}`, term: t.id, kind: "terminal" }))];
+  }
   onWrote((path) => totals.touched(dirname(path))); // an editor's save, imageresize's
   // A download whose state changed (done, paused, stopped) or that's gone from
   // the list: the folder it's in, read again (a folder it makes: all of it).
@@ -395,8 +402,11 @@ export function createServer({ profile, controlSocket }) {
         delete result.moved;
         return json(result);
       }
-      case "POST /api/process-cancel": // {id}: stops one of the sidebar's Processes (a folder's total being worked out)
-        return json({ cancelled: totals.cancel(String((await req.json()).id ?? "")) });
+      case "POST /api/process-cancel": { // {id}: stops one of the sidebar's Processes (a folder's total being worked out; a terminal in the background: ended)
+        const id = String((await req.json()).id ?? "");
+        if (id.startsWith("term:")) return json({ cancelled: (await terms.kill(id.slice(5)), true) });
+        return json({ cancelled: totals.cancel(id) });
+      }
       case "POST /api/transfer-cancel": // {id}: stops a copy or move (what's done stays done; it can be resumed)
         return json({ cancelled: cancelTransfer((await req.json()).id) });
       case "PUT /api/drag": // {paths, button}: a phil window started dragging these (for another window's drop)
@@ -815,7 +825,7 @@ export function createServer({ profile, controlSocket }) {
     const stopBrowserDownloads = browserDownloads.use();
     socket.addEventListener("open", () => {
       if (downloads.list.length) send({ downloads: downloads.list });
-      if (totals.processes().length) send({ processes: totals.processes() });
+      if (processes().length) send({ processes: processes() });
       if (browserDownloads.list.length) send({ browserDownloads: browserDownloads.list });
     });
     socket.onclose = () => {
@@ -939,48 +949,78 @@ export function createServer({ profile, controlSocket }) {
     return { key, close: () => (clearTimeout(timer), fsWatcher.close()) };
   }
 
-  // Terminal panel: one bash on a pseudo-terminal per WebSocket. Binary frames
-  // carry terminal data both ways; text frames carry {resize: [cols, rows]} or
-  // {cd: path}, which changes the shell's directory without typing a command
-  // (see __phil_follow in shell-init.bash).
+  // Terminal panel: one bash per WebSocket, on a pseudo-terminal in a host of
+  // its own (terms.js; ?session=: an earlier one's, in the background, shown
+  // again). Binary frames carry terminal data both ways; text frames carry
+  // {resize: [cols, rows]}, {cd: path}, which changes the shell's directory
+  // without typing a command (see __phil_follow in shell-init.bash), and
+  // {background: true} (Super+°: it goes on without the panel); back, {open}
+  // (phil-editor's), {replayed} (an earlier one's screen given), {background}.
+  const cdFileOf = (terminal) => join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-cd-${terminal}`);
   async function terminalSocket(req, url) {
     if (req.headers.get("upgrade") !== "websocket") return text(400, "Bad request");
-    const cwd = await isDir(url.searchParams.get("cwd") ?? "") ? url.searchParams.get("cwd") : home();
     const size = (name, fallback) => Math.max(1, Number(url.searchParams.get(name)) || fallback);
-    const cdFile = join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-cd-${crypto.randomUUID()}`);
+    const cols = size("cols", 80), rows = size("rows", 24);
     // PHIL_TERMINAL and PHIL_ENGINE_SOCKET: so phil-editor run in this shell
     // can have its editor shown in this window (see control()).
-    const terminal = crypto.randomUUID();
-    const pty = new Pty(["bash", "--rcfile", await shellInit, "-i"], {
-      cwd,
-      cols: size("cols", 80),
-      rows: size("rows", 24),
-      env: {
-        PHIL_CD_FILE: cdFile,
-        PHIL_TERMINAL: terminal,
-        ...(controlSocket ? { PHIL_ENGINE_SOCKET: controlSocket } : {}),
-        ...(config.incognito ? { PHIL_INCOGNITO: "1" } : {}),
+    let terminal = url.searchParams.get("session");
+    if (!terminal) {
+      const cwd = await isDir(url.searchParams.get("cwd") ?? "") ? url.searchParams.get("cwd") : home();
+      terminal = crypto.randomUUID();
+      try {
+        await terms.start({
+          id: terminal,
+          command: ["bash", "--rcfile", await shellInit, "-i"],
+          cwd,
+          cols,
+          rows,
+          env: {
+            PHIL_CD_FILE: cdFileOf(terminal),
+            PHIL_TERMINAL: terminal,
+            ...(controlSocket ? { PHIL_ENGINE_SOCKET: controlSocket } : {}),
+            ...(config.incognito ? { PHIL_INCOGNITO: "1" } : {}),
+          },
+        });
+      } catch (err) {
+        return text(500, err.message);
+      }
+    }
+    const cdFile = cdFileOf(terminal);
+    const { socket, response } = Deno.upgradeWebSocket(req);
+    socket.binaryType = "arraybuffer";
+    // (What comes before the page's end is open: kept for it.)
+    const outbox = [];
+    const out = (m) => (socket.readyState === WebSocket.OPEN ? socket.send(m) : socket.readyState === WebSocket.CONNECTING && outbox.push(m));
+    socket.onopen = () => outbox.splice(0).forEach((m) => socket.send(m));
+    const host = await terms.attach(terminal, {
+      onData: (bytes) => out(bytes),
+      onMessage: (m) => out(JSON.stringify(m)),
+      onClose: () => {
+        if (socket.readyState === WebSocket.OPEN) socket.close(1000, "shell exited");
+        else if (socket.readyState === WebSocket.CONNECTING) socket.onopen = () => socket.close(1000, "shell exited");
       },
     });
-    const { socket, response } = Deno.upgradeWebSocket(req);
+    if (!host) {
+      socket.onopen = () => socket.close(1000, "no such terminal");
+      return response;
+    }
+    host.send({ resize: [cols, rows] }); // (an earlier one: this panel's size)
     terminals.set(terminal, socket);
-    socket.binaryType = "arraybuffer";
-    socket.onopen = async () => {
-      for await (const chunk of pty.output()) {
-        if (socket.readyState !== WebSocket.OPEN) break;
-        socket.send(chunk);
-      }
-      if (socket.readyState === WebSocket.OPEN) socket.close(1000, "shell exited");
-    };
     // Handled strictly in order, so keystrokes sent right after a {cd} can't
     // overtake its key sequence + Enter and end up executed as a command.
     let queue = Promise.resolve();
     socket.onmessage = (e) => {
       queue = queue.then(async () => {
-        if (typeof e.data !== "string") return pty.write(new Uint8Array(e.data));
-        const { resize, cd, host } = JSON.parse(e.data);
-        if (resize) pty.resize(resize[0], resize[1]);
-        if (cd && host) {
+        if (typeof e.data !== "string") return host.write(new Uint8Array(e.data));
+        const { resize, cd, host: remote, background } = JSON.parse(e.data);
+        if (resize) host.send({ resize });
+        if (background) {
+          // Super+°: on without the panel (not incognito's, nor a run with no engine of its own).
+          if (!terms.persistent) return out(JSON.stringify({ background: false }));
+          await host.send({ keep: true });
+          return out(JSON.stringify({ background: true }));
+        }
+        if (cd && remote) {
           // The shell is ssh'd in (phil's ssh, shell-init.bash): leave the
           // target in its cd file over the session's own connection, then the
           // empty Enter, as below.
@@ -988,20 +1028,19 @@ export function createServer({ profile, controlSocket }) {
           const write = `printf '%s\\000%s\\000' "$(date +%s)" ${shq(cd)} > /tmp/phil-cd-${terminal}`;
           const socketPath = join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-ssh-${terminal}`);
           const done = await new Deno.Command("ssh", {
-            args: ["-S", socketPath, "-o", "ControlMaster=no", "-o", "BatchMode=yes", host, write],
+            args: ["-S", socketPath, "-o", "ControlMaster=no", "-o", "BatchMode=yes", remote, write],
             stdin: "null", stdout: "null", stderr: "null",
           }).output().catch(() => ({ success: false }));
-          if (done.success) await pty.write("\r");
+          if (done.success) await host.write(new TextEncoder().encode("\r"));
         } else if (cd && await isDir(cd)) {
           await Deno.writeTextFile(cdFile, `${Math.floor(Date.now() / 1000)}\0${cd}\0`);
-          await pty.write("\r");
+          await host.write(new TextEncoder().encode("\r"));
         }
       }).catch(() => {});
     };
     socket.onclose = () => {
-      terminals.delete(terminal);
-      pty.close();
-      Deno.remove(cdFile).catch(() => {});
+      if (terminals.get(terminal) === socket) terminals.delete(terminal);
+      host.close(); // (its host goes, unless it's in the background)
     };
     return response;
   }

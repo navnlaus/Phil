@@ -313,6 +313,9 @@ main {
 /* Covering the whole window: a double-clicked script, or Ctrl+F in the terminal. */
 body.term-cover #term-panel { position: fixed; inset: 0; z-index: 9; height: auto !important; padding-top: 6px; border-top: none; }
 body.term-cover #term-resize { display: none; }
+/* Opened over an app shown in the window (Ctrl+° there): at the bottom, over it. */
+body.term-over-app #term-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; }
+body.term-over-app.term-cover #term-panel { z-index: 11; }
 #term { height: 100%; }
 #term-resize {
   position: absolute;
