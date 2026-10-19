@@ -319,7 +319,10 @@ body.term-cover #term-resize { display: none; }
 /* Opened over an app shown in the window (Ctrl+° there): at the bottom, over it. */
 body.term-over-app #term-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; }
 body.term-over-app.term-cover #term-panel { z-index: 11; }
-#term { height: 100%; }
+#term { position: relative; height: 100%; }
+/* The panel's own shell, and one from the background shown in its place (terminal.js). */
+#term .term-box { position: absolute; inset: 0; }
+#term .term-box[hidden] { display: none; }
 #term-resize {
   position: absolute;
   inset: -4px 0 auto 0;

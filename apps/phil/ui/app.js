@@ -4833,6 +4833,7 @@ let scriptRun = null; // { wasOpen }
 
 async function runInTerminal(argv) {
   const wasOpen = terminal.isOpen;
+  terminal.showMain(); // (in the panel's own shell, one from the background shown or not)
   setTerminalCover(true);
   setTerminalOpen(true);
   // A new shell: wait for its prompt. Busy means a program runs there (Esc a script, or Ctrl+C).

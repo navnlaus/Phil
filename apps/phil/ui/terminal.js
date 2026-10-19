@@ -3,7 +3,8 @@ import { copyText, pasteText } from "/engine/ui/kit.js";
 export const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
 
 /**
- * Bash in a panel under the grid. The shell reports its directory after every
+ * One bash in the terminal panel (TerminalPanel, below, has two: its own, and
+ * one in the background shown). The shell reports its directory after every
  * command (OSC 7, see src/shell-init.bash):
  *  - when the shell's directory changes, the file view follows (onCwd)
  *  - when the file view changes folder and the shell sits at an empty prompt,
@@ -12,10 +13,12 @@ export const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
  *    empty Enter, and the old prompt is erased so the new one replaces it.
  *    The prompt counts as empty again when what was typed is erased.
  */
-export class TerminalPanel {
-  constructor({ panel, container, onCwd, onBack, onOpen, onKey, isLocal, toLocal, toRemote }) {
+class Shell {
+  constructor({ panel, container, onCwd, onBack, onOpen, onKey, isLocal, toLocal, toRemote, viewer = false, onExit }) {
     this.panel = panel;
-    this.container = container;
+    this.container = container; // (its own box, in the panel)
+    this.viewer = viewer; // it shows those in the background (not the panel's own)
+    this.onExit = onExit; // (viewer) its shell's gone, or shown in another window now
     this.onCwd = onCwd;
     this.onBack = onBack; // the shell is back on this machine after ssh
     this.onOpen = onOpen; // phil-editor in the shell asks for an app in this window
@@ -44,10 +47,6 @@ export class TerminalPanel {
     this.onSession = null; // () => …: which it is changed
   }
 
-  get isOpen() {
-    return !this.panel.hidden;
-  }
-
   /** A command is running (entered, and its prompt hasn't come back). */
   get busy() {
     return this.running;
@@ -57,27 +56,35 @@ export class TerminalPanel {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  async show(cwd, { focus = true } = {}) {
-    this.panel.hidden = false;
+  // On screen (the panel open, its box the one shown).
+  get visible() {
+    return !this.panel.hidden && !this.container.hidden;
+  }
+
+  /** Its shell, started (in `cwd`) if it has none. */
+  async ensure(cwd) {
     await (this.starting ??= this.start(cwd));
     if (this.needsShell) {
       this.needsShell = false;
       this.term.reset();
       this.connect(cwd);
     }
-    requestAnimationFrame(() => {
-      this.fit.fit();
-      if (focus) this.term.focus();
-    });
   }
 
-  hide() {
-    this.panel.hidden = true;
+  /** Shell `session` (one in the background) shown in it (the one it showed let go). */
+  async attach(session, cwd) {
+    if (!this.starting) return void await (this.starting = this.start(cwd, session));
+    await this.starting;
+    if (this.session === session && this.isRunning) return;
+    this.letGo();
+    this.needsShell = false;
+    this.term.reset();
+    this.connect(cwd, session);
   }
 
   /** Fits the terminal to its panel now (after the panel changed size), not on the next frame. */
   fitNow() {
-    if (this.fit && !this.panel.hidden) this.fit.fit();
+    if (this.fit && this.visible) this.fit.fit();
   }
 
   async start(cwd, session = null) {
@@ -162,7 +169,7 @@ export class TerminalPanel {
       }
       return !action;
     });
-    new ResizeObserver(() => !this.panel.hidden && this.fit.fit()).observe(this.container);
+    new ResizeObserver(() => this.visible && this.fit.fit()).observe(this.container);
 
     this.connect(cwd, session);
   }
@@ -188,6 +195,7 @@ export class TerminalPanel {
         if (taken) {
           // Shown in another panel now (another window's): not here.
           this.letGo();
+          if (this.viewer) return void this.onExit?.();
           this.term.write("\r\n\x1b[2m[shown in another window now: Enter or Alt+1 for a new shell here]\x1b[0m\r\n");
           this.exited = true;
           this.restartCwd ??= cwd;
@@ -209,6 +217,7 @@ export class TerminalPanel {
     };
     ws.onclose = () => {
       if (this.ws !== ws) return; // (one that went to the background: closed on purpose)
+      if (this.viewer) return void (this.letGo(), (this.needsShell = false), this.onExit?.()); // (the panel's own shown again)
       this.exited = true;
       this.term.write("\r\n\x1b[2m[shell exited, press Enter to start a new one]\x1b[0m\r\n");
     };
@@ -276,32 +285,11 @@ export class TerminalPanel {
     this.running = false;
   }
 
-  /**
-   * Shows `session` (a shell in the background) in the panel; null: a new shell, in `cwd` (the
-   * panel's own, Alt+1: the one it has, if it's no background one). The one shown till now: one
-   * in the background goes back there; the panel's own is put there too if something runs in
-   * it, else it's ended.
-   */
-  async restore(session, cwd) {
-    this.panel.hidden = false;
-    if (!this.starting) await (this.starting = this.start(cwd, session));
-    else {
-      await this.starting;
-      if (session ? this.session === session : this.isRunning && !this.kept) return this.focusSoon(); // (shown already)
-      if (this.isRunning && !this.kept && !this.atEmptyPrompt) {
-        if (!(await this.background())) this.letGo();
-      } else this.letGo();
-      this.needsShell = false;
-      this.term.reset();
-      this.connect(cwd, session);
-    }
-    this.focusSoon();
-  }
-
-  focusSoon() {
+  focusSoon(focus = true) {
     requestAnimationFrame(() => {
+      if (!this.term) return;
       this.fit.fit();
-      this.term.focus();
+      if (focus) this.term.focus();
     });
   }
 
@@ -403,6 +391,136 @@ export class TerminalPanel {
     this.typed(text);
     this.send(text);
     this.term.focus();
+  }
+}
+
+/**
+ * Bash in a panel under the grid: its own shell (the main one: the file view
+ * and it follow each other, scripts run in it; it ends with the window), and,
+ * in its place for a while, one of those in the background (Super+°, Alt+2…),
+ * which goes back there when another's shown, the panel's own again (Alt+1),
+ * or when it ends. The panel's own stays as it was meanwhile, its place 1.
+ */
+export class TerminalPanel {
+  constructor(options) {
+    const { panel, container } = options;
+    this.panel = panel;
+    const box = () => container.appendChild(Object.assign(document.createElement("div"), { className: "term-box" }));
+    this.main = new Shell({ ...options, container: box() });
+    this.view = new Shell({ ...options, container: box(), viewer: true, onCwd: () => {}, onBack: () => {}, onExit: () => this.showMain({ focus: true }) });
+    this.view.container.hidden = true;
+    this.viewing = false; // the box shown: the view's (one from the background), not the main one
+    this.onSession = null; // () => …: which one's shown changed
+    this.view.onSession = () => this.onSession?.();
+  }
+
+  get current() {
+    return this.viewing ? this.view : this.main;
+  }
+
+  get isOpen() {
+    return !this.panel.hidden;
+  }
+
+  /** What's shown runs a command (its prompt hasn't come back). */
+  get busy() {
+    return this.current.busy;
+  }
+
+  get isRunning() {
+    return this.current.isRunning;
+  }
+
+  // The panel's own shell's: where it is, its prompt (the file view and it follow each other).
+  get cwd() {
+    return this.main.cwd;
+  }
+  get remote() {
+    return this.main.remote;
+  }
+  get atEmptyPrompt() {
+    return this.main.atEmptyPrompt;
+  }
+  follow(path) {
+    this.main.follow(path);
+  }
+
+  /** Runs a command in the panel's own shell (shown, if one from the background was). */
+  run(command, options) {
+    this.showMain();
+    return this.main.run(command, options);
+  }
+
+  send(data) {
+    this.current.send(data);
+  }
+
+  insert(text) {
+    this.current.insert(text);
+  }
+
+  /** The one from the background shown (its host's id), if one is. */
+  get session() {
+    return this.viewing ? this.view.session : null;
+  }
+
+  get kept() {
+    return this.viewing;
+  }
+
+  async show(cwd, { focus = true } = {}) {
+    this.panel.hidden = false;
+    if (this.viewing && this.view.isRunning) return this.view.focusSoon(focus);
+    this.showMain();
+    await this.main.ensure(cwd);
+    this.main.focusSoon(focus);
+  }
+
+  hide() {
+    this.panel.hidden = true;
+  }
+
+  fitNow() {
+    this.current.fitNow();
+  }
+
+  /** The panel's own shell in it again (the one from the background let go: back there). */
+  showMain({ focus = false } = {}) {
+    if (!this.viewing) return;
+    this.viewing = false;
+    this.view.letGo();
+    this.view.needsShell = false;
+    this.view.container.hidden = true;
+    this.main.container.hidden = false;
+    this.onSession?.();
+    this.main.focusSoon(focus);
+  }
+
+  /**
+   * Shows `session` (one in the background) in the panel, opening it, the panel's own shell
+   * kept as it is meanwhile; null: the panel's own (a new one, in `cwd`, if it has none).
+   */
+  async restore(session, cwd) {
+    this.panel.hidden = false;
+    if (!session) {
+      this.showMain();
+      await this.main.ensure(cwd);
+      return this.main.focusSoon();
+    }
+    this.viewing = true;
+    this.main.container.hidden = true;
+    this.view.container.hidden = false;
+    await this.view.attach(session, cwd);
+    this.view.focusSoon();
+  }
+
+  /**
+   * Super+°: the panel's own shell into the background (its next one a new one); one from
+   * the background shown: back there. Resolves to whether it went (not in incognito).
+   */
+  background() {
+    if (this.viewing) return this.showMain(), Promise.resolve(true);
+    return this.main.background();
   }
 }
 

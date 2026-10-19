@@ -624,28 +624,31 @@ in it too, jsonedit's, textedit's, the media view: the panel opens over it);
 drag its top edge to resize. Ctrl+F in it toggles between covering the whole
 window and its own height.
 
-**In the background** (Super+°, Super+` elsewhere): the shell, and whatever
-runs in it, goes on without the panel, as in screen or tmux. The panel closes;
-its next shell is a new one. The sidebar's Processes list those, what runs
-there (`vim notes.md`, `sleep 600`; a shell at its prompt: the folder it's in)
-and for how long; a
-click shows one in the panel again, as it was (its screen and scrollback: the
-last megabyte it wrote), and the panel's shell till then goes to the background
-in its place (one at an empty prompt is closed instead); × ends one (what runs
-there is hung up). Shown again, it stays one: closing its window puts it back.
-The one the panel shows is marked there (one another window's shows: dimmed;
-shown here, it's taken from there).
-They outlive the window and the engine (a new phil lists them): each panel's
-shell runs in a process of its own (`phil-engine --term-host`, detached), on a
-Unix socket in `$XDG_RUNTIME_DIR/phil/main.terms/`. One that's never been in
-the background ends with its window, as before. Not in incognito windows.
+**The panel's own shell** (the main one) is the terminal you get: it and the
+file view follow each other, scripts run in it, and it ends with its window
+(or the engine), as before.
 
-Switching (the panel opens): **Alt+1** the panel's own shell (a new one in the
-folder shown, when it's showing one from the background), **Alt+2** the first
-in the background, **Alt+3** the next…, in the order they went there (the
-sidebar's); **Ctrl+Tab** (Shift: back) the next of those, round to the panel's
-own. `phil --terminal [folder]` opens a window with the terminal covering it,
-the keyboard in it.
+**In the background** (Super+°, Super+` elsewhere): the main shell, and
+whatever runs in it, goes on without the panel, as in screen or tmux. The panel
+closes; its next main shell is a new one. The sidebar's Processes list those,
+what runs there (`vim notes.md`, `sleep 600`; a shell at its prompt: the
+folder it's in) and for how long; × ends one (what runs there is hung up). A
+click shows one in the panel, in the main shell's place, as it was (its screen
+and scrollback: the last megabyte it wrote); the main shell stays as it is
+meanwhile, and comes back when that one ends (`exit`), when Alt+1 asks for it,
+or when Super+° sends the one shown back to the background. The one shown is
+marked in Processes (one another window shows: dimmed; shown here, it's taken
+from there). They outlive the window and the engine (a new phil lists them):
+each shell runs in a process of its own (`phil-engine --term-host`, detached),
+on a Unix socket in `$XDG_RUNTIME_DIR/phil/main.terms/`. Not in incognito
+windows.
+
+Switching (the panel opens): **Alt+1** the main shell (a new one in the folder
+shown if there's none), **Alt+2** the first in the background, **Alt+3** the
+next…, in the order they went there (the sidebar's: their numbers stay theirs);
+**Ctrl+Tab** (Shift: back) the next, round to the main one.
+`phil --terminal [folder]` opens a window with the terminal covering it, the
+keyboard in it.
 
 Double-clicking a script or program runs it there: a file with a `#!` line, a
 shell script by its name (`.sh`, `.bash`, `.zsh`, `.fish`), or an executable
@@ -735,7 +738,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | click a dimmed drive in the sidebar | mount it and open it: partitions nothing has mounted (an internal drive's, like Windows': only removable ones are mounted by themselves), by udisks under /run/media, a system drive's with sudo (the password box, unless sudo remembers it); right-click a drive in /run/media → Unmount |
 | F4 / Ctrl+` (Ctrl+°) | toggle the terminal panel, wherever the keyboard is (over an app shown in the window too) |
 | Super+` (Super+°) | the terminal's shell, and what runs in it, into the background: the sidebar's Processes (a click: back in the panel) |
-| Alt+1, Alt+2…, Ctrl+Tab / Ctrl+Shift+Tab | the terminal the panel shows: its own shell (in the folder shown), one in the background (the sidebar's order), the next / the one before |
+| Alt+1, Alt+2…, Ctrl+Tab / Ctrl+Shift+Tab | the terminal the panel shows: its main shell, one in the background (the sidebar's order), the next / the one before |
 | Alt+↓ / Alt+↑ | focus the terminal (opening it) / the folder view |
 | Ctrl + / − / wheel | thumbnail size |
 | F5 | reload folder; its folders' totals: every folder's time in them looked at, those changed read again |
