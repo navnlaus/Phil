@@ -19,7 +19,7 @@
 
 export const available = !!Deno.env.get("HYPRLAND_INSTANCE_SIGNATURE");
 
-const VERSION = "4"; // (a newer one replaces what an older phil put in Hyprland)
+const VERSION = "5"; // (a newer one replaces what an older phil put in Hyprland)
 
 async function hyprctl(...args) {
   try {
@@ -80,6 +80,22 @@ if A.version ~= ${luaString(VERSION)} then
       end
     end
     if next(A.attached) == nil then A.timer:set_enabled(false) end
+  end
+  -- Its page's Detach: out of the group, floating where it was, its size (not where Hyprland would
+  -- put a window let float), till it's moved. Whether it went.
+  function A.detach(title)
+    local c
+    for _, w in ipairs(hl.get_windows()) do if w.initial_title == title then c = w end end
+    if not c then return false end
+    local addr, at, size = c.address, c.at, c.size
+    if c.group then hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = sel(addr) })) end
+    local a = A.attached[addr]
+    if a then release(addr, a) end -- (now, not by the timer: it'd float it anywhere)
+    hl.dispatch(hl.dsp.window.float({ action = "enable", window = sel(addr) }))
+    hl.dispatch(hl.dsp.window.resize({ x = size.x, y = size.y, window = sel(addr) }))
+    hl.dispatch(hl.dsp.window.move({ x = at.x, y = at.y, window = sel(addr) }))
+    A.say("detached " .. addr .. ", floating where it was")
+    return true
   end
   -- A window let go (its page's Detach) put back with the one it came from (its Attach): in its
   -- group again (made, if it has none), as when it opened. Whether it went.
@@ -167,10 +183,6 @@ export function createPlacer() {
       return title;
     },
 
-    /**
-     * The window opened with `title` (attach()'s) taken out of the group it's in (its page's
-     * Detach button): Hyprland's "move out of group"; the timer above lets it go, floating.
-     */
     /** The window opened with `title`, detached, back with the window it was attached to (its page's Attach). */
     async reattach(title) {
       if (!available || !parents.has(title)) return false;
@@ -178,9 +190,13 @@ export function createPlacer() {
       return out === "ok";
     },
 
+    /**
+     * The window opened with `title` (attach()'s) out of the group it's in (its page's Detach
+     * button), floating where it was, its size.
+     */
     async detach(title) {
       if (!available || !title) return false;
-      const out = await hyprctl("eval", `for _, w in ipairs(hl.get_windows()) do if w.initial_title == ${luaString(title)} then hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = "address:" .. w.address })) end end`);
+      const out = await hyprctl("eval", `${SETUP}\nif not phil_attach.detach(${luaString(title)}) then error("no such window", 0) end`);
       return out === "ok";
     },
   };
