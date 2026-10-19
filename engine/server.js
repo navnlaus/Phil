@@ -1,7 +1,8 @@
-// The engine's servers, in a worker of the engine process (its main thread is
-// blocked in gtk_main()). Every app gets its own HTTP server on 127.0.0.1, so
-// its pages have an origin of their own and keep their absolute URLs. Posts
-// { urls: {app: url}, control } once all are listening.
+// The engine's servers, in a worker of the engine process. Every app gets its
+// own HTTP server on 127.0.0.1, so its pages have an origin of their own and
+// keep their absolute URLs. Posts { urls: {app: url}, control } once all are
+// listening; then { control: message } for each request to the engine's
+// control socket (a window to open, retire, quit).
 import { APPS } from "./apps.js";
 import { readClipboard, writeClipboard } from "./clipboard.js";
 import { errorResponse, json, staticFile, text } from "./http.js";
@@ -13,7 +14,7 @@ const TRACE = !!Deno.env.get("PHIL_TRACE"); // also logs every request
 
 self.onmessage = (e) => start(e.data);
 
-async function start({ profile, controlSocket, wakeFd, tls }) {
+async function start({ profile, controlSocket, tls }) {
   const token = crypto.randomUUID();
   const quit = () => self.postMessage({ quit: true });
   watchThemes();
@@ -26,15 +27,10 @@ async function start({ profile, controlSocket, wakeFd, tls }) {
   const urls = {};
   await Promise.all(Object.keys(apps).map(async (name) => (urls[name] = await serve(name, apps, { token, quit, tls }))));
 
-  // Take over the instance's control socket (if any): its requests go to the
-  // GTK main loop through wakeFd.
+  // Take over the instance's control socket (if any): its requests go to the main thread.
   let control = "none";
   if (controlSocket) {
-    const libc = Deno.dlopen("libc.so.6", { write: { parameters: ["i32", "buffer", "usize"], result: "isize" } });
-    const forward = (message) => {
-      const line = new TextEncoder().encode(JSON.stringify(message) + "\n");
-      libc.symbols.write(wakeFd, line, line.length);
-    };
+    const forward = (message) => self.postMessage({ control: message });
     const listening = await listen(controlSocket, async (message, { stopListening }) => {
       if (message.to) return (await apps[message.to]?.server.control?.(message)) ?? { ok: false }; // for an app
       if (message.retire) await stopListening();
@@ -52,9 +48,8 @@ async function start({ profile, controlSocket, wakeFd, tls }) {
 // from ~/.config/phil/themes; themes.js), /engine/styles (when they change),
 // /engine/clipboard (the desktop's
 // clipboard) and /engine/embed/<app>/: any other app, to show inside this
-// one's window. That's on this origin, since WebKit won't let a page in a
-// frame from another origin take keyboard focus. (Apps that can be shown so
-// use relative URLs.)
+// one's window, on this origin (a frame of another origin can't be given the
+// keyboard; apps that can be shown so use relative URLs).
 function serve(name, apps, { token, quit, tls }) {
   let host, cookie;
   const scheme = tls ? "https" : "http"; // HTTPS for HTTP/2 (tls.js)
@@ -79,7 +74,7 @@ function serve(name, apps, { token, quit, tls }) {
     return res;
   });
 
-  async function handle(req) {
+  function handle(req) {
     const url = new URL(req.url);
     // Only answer requests addressed to us (blocks DNS rebinding) that carry the session cookie.
     // (HTTP/2 has no Host header: its address, :authority, is the URL's.)
@@ -97,13 +92,6 @@ function serve(name, apps, { token, quit, tls }) {
       return text(400, "Bad request");
     }
 
-    // A window of the engine's browser (chromium.js): its page's messages, and its address, /<app>.
-    if (req.method === "POST" && url.pathname === "/engine/window") {
-      const { id, message } = await req.json().catch(() => ({}));
-      self.postMessage({ window: { id: String(id ?? ""), message: String(message ?? "") } });
-      return json({ ok: true });
-    }
-    if (req.method === "GET" && new RegExp(`^/${name}(-[a-z]+)*$`).test(url.pathname)) url.pathname = "/"; // (phil-choose, phil-incognito...)
     const embed = /^\/engine\/embed\/([\w-]+)(\/.*)$/.exec(url.pathname);
     if (embed && apps[embed[1]]) {
       url.pathname = embed[2];

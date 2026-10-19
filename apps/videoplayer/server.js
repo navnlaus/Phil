@@ -44,7 +44,7 @@ export const DEFAULTS = {
   transcode: { preset: "veryfast", crf: 22, maxHeight: 1080 }, // what the browser can't decode, made into H.264
 };
 
-// What Chromium (and WebKit, mostly) plays itself: these codecs in these containers.
+// What Chromium plays itself: these codecs in these containers.
 const VIDEO_OK = new Set(["h264", "vp8", "vp9", "av1"]);
 const AUDIO_OK = new Set(["aac", "mp3", "opus", "vorbis", "flac"]);
 const CONTAINER_OK = /^(mov,mp4|matroska,webm|ogg)/;

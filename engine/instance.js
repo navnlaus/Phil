@@ -2,12 +2,12 @@
 // command (`phil ...`) asks the running instance over a Unix socket to open a
 // window and only starts one in the background when there is none. An app's
 // command line picks a profile (engine/apps.js): normal and incognito windows
-// never share an instance, so they have separate servers, tokens and WebKit
+// never share an instance, so they have separate servers, tokens and browser
 // sessions, and other non-default profile values (phil's --thumb-dir,
 // --thumb-size, --jobs, --port) get an instance of their own as well.
 //
 // Protocol: one JSON object per line, answered with one JSON line.
-//   {"open": {"app": name, ...}, "startupId": str}
+//   {"open": {"app": name, ...}}
 //                      open a window of the app; the rest of "open" is the app's
 //   {"ping": true}     is anyone there?
 //   {"retire": true}   stop taking windows; exit once the open ones close

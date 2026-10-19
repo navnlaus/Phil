@@ -24,7 +24,7 @@ Options:
   --incognito        Leave no traces: don't remember the folder or settings,
                      don't save the terminal's bash history, keep thumbnails and
                      other caches in memory only (unless --thumb-dir is given),
-                     no WebKit disk cache
+                     a throwaway browser profile (no disk cache or cookies kept)
   --choose MODE      A file chooser (an app's Open or Save dialog, through
                      xdg-desktop-portal-termfilechooser): MODE is open (a file),
                      dir (a folder) or save (a file's name and folder); with

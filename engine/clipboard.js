@@ -1,8 +1,8 @@
 // The desktop's clipboard, through wl-clipboard (wl-copy, wl-paste): what the
 // apps copy lands in the clipboard (and Omarchy's clipboard history) like any
 // other program's, and pasting takes whatever was copied anywhere. Pages use it
-// through /engine/clipboard (see kit.js), since WebKit's own clipboard events
-// don't fire reliably outside text fields.
+// through /engine/clipboard (see kit.js): the desktop's, whatever has the focus,
+// with no permission asked (a page reads the browser's only on a key press).
 import { httpError } from "./http.js";
 
 export async function writeClipboard(text) {

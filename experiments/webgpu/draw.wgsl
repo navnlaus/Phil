@@ -1,4 +1,4 @@
-// particles.js's (and ../cef's): draws them, a quad each. common.wgsl goes before it.
+// particles.js's: draws them, a quad each. common.wgsl goes before it.
 @group(0) @binding(1) var<storage, read> particles: array<Particle>;
 
 struct Out { @builtin(position) pos: vec4f, @location(0) corner: vec2f, @location(1) color: vec3f };

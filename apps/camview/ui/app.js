@@ -19,8 +19,8 @@ const params = new URLSearchParams(location.search);
 const WALL = params.has("wall");
 
 const MOVE_REPEAT_MS = 500; // a held move is repeated this often (the server stops it 1.5 s after the last)
-// Played at its own pace, never faster to catch up: in WebKit a change of
-// speed restarts the player, which stalls it, so it falls further behind.
+// Played at its own pace, never faster to catch up: a change of speed can
+// restart the player, which stalls it, so it falls further behind.
 // Only when it's this far behind (the window was hidden, say) it jumps ahead
 // (landing between the camera's full frames, it shows nothing right for a moment).
 const JUMP_S = 3;

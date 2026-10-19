@@ -183,7 +183,7 @@ export function createServer({ profile, controlSocket }) {
   // desktop's clipboard, which has their paths as text (`text`) while they're it.
   let fileClipboard = null;
   // A drag a phil window started: another window's drop gets its files from here when the
-  // drop itself doesn't carry them (a drag out of one WebKit view into another), and its button.
+  // drop itself doesn't carry them.
   let philDrag = null;
   const shown = new Map(); // page WebSocket -> the folder it shows
   const broadcast = (msg) => {

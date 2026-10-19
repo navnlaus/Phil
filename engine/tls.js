@@ -2,9 +2,10 @@
 // HTTP a page gets six connections to its server at most, one request each, so
 // a few slow requests (a camera search, a hung network share, videos playing)
 // left a click waiting its turn. HTTP/2 carries them all at once over one
-// connection, and WebKit (like every engine) only speaks it over TLS. The
+// connection, and browsers (Chromium too) only speak it over TLS. The
 // certificate is made afresh each run (a few ms), for 127.0.0.1 only, kept in
-// memory, and trusted by this engine's windows alone (window.js).
+// memory, and trusted by this engine's windows alone (salir.js gives salir that
+// certificate, and salir trusts no other).
 
 /** {cert, key} as PEM, or null when it can't be made (openssl missing): then plain HTTP. */
 export async function localCertificate() {

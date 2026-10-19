@@ -1,6 +1,6 @@
 // phil-engine: runs the apps in apps/ (engine/apps.js) in one background
-// process per profile (engine/instance.js), with their windows (window.js)
-// and servers (server.js).
+// process per profile (engine/instance.js), with their windows (salir.js: in
+// salir, Chromium's) and servers (server.js).
 //
 //   phil-engine <app> [args]   open a window of the app; what the app commands
 //                              (`phil`, `jsonedit`) run. The first one starts the
@@ -101,7 +101,6 @@ async function launch(argv) {
   const profile = JSON.parse(JSON.stringify(parsed.profile ?? {})); // without the undefined values
   const request = {
     open: { app: parsed.app ?? name, ...parsed.open },
-    startupId: Deno.env.get("XDG_ACTIVATION_TOKEN") ?? Deno.env.get("DESKTOP_STARTUP_ID"),
   };
   const socket = socketPath(profile);
 
@@ -162,11 +161,11 @@ async function startEngine(job, socket) {
   Deno.exit(1);
 }
 
-// The engine: GTK/WebKit windows on this thread, the servers in a worker.
-// Without --standalone or --browser it takes the profile's control socket and
-// keeps running after its last window closes (incognito ones don't).
-// One of the settings (~/.config/phil/settings.json): "browser", which windows
-// (see serve); "log", the engine's output kept (startEngine).
+// The engine: its windows (salir) driven from this thread, the servers in a
+// worker. Without --standalone or --browser it takes the profile's control
+// socket and keeps running after its last window closes (incognito ones don't).
+// One of the settings (~/.config/phil/settings.json): "log", the engine's
+// output kept (startEngine).
 async function setting(key) {
   const config = Deno.env.get("XDG_CONFIG_HOME") || join(Deno.env.get("HOME") ?? "/", ".config");
   return await Deno.readTextFile(join(config, "phil", "settings.json")).then((t) => JSON.parse(t)[key] ?? null, () => null);
@@ -174,12 +173,6 @@ async function setting(key) {
 
 async function serve({ profile = {}, request = null, browser = false, standalone = false }) {
   const instance = browser || standalone ? null : socketPath(profile);
-
-  // Requests reaching the worker's control socket are written to a pipe the
-  // GTK main loop watches, since this thread is blocked in gtk_main().
-  const libc = Deno.dlopen("libc.so.6", { pipe2: { parameters: ["buffer", "i32"], result: "i32" } });
-  const pipe = new Int32Array(2);
-  libc.symbols.pipe2(new Uint8Array(pipe.buffer), 0x800 | 0x80000); // O_NONBLOCK | O_CLOEXEC
 
   // HTTPS (for HTTP/2) for the engine's own windows (tls.js); a browser
   // (--browser) wouldn't trust the certificate, so plain HTTP there, and with PHIL_PLAIN_HTTP=1.
@@ -190,30 +183,30 @@ async function serve({ profile = {}, request = null, browser = false, standalone
   const serverReady = new Promise((resolve, reject) => {
     server.onmessage = (e) => resolve(e.data);
     server.onerror = (e) => reject(e.error ?? new Error(e.message));
-    server.postMessage({ profile, controlSocket: instance, wakeFd: pipe[1], tls });
+    server.postMessage({ profile, controlSocket: instance, tls });
   });
 
-  // Meanwhile set up GTK/WebKit on this thread.
   const launchers = Object.fromEntries(
     await Promise.all(Object.entries(APPS).map(async ([name, app]) => [name, await app.launch()])),
   );
-  // Windows: in a Chromium-based browser (chromium.js): the default browser, or
-  // another installed (the settings' "browser", or PHIL_BROWSER: a name or path);
-  // with none, or "webkit", WebKitGTK's (window.js).
-  const chromium = browser ? null : await import("./chromium.js").then(async (m) => {
-    const path = await m.findBrowser(Deno.env.get("PHIL_BROWSER") ?? await setting("browser"));
-    return path && { module: m, path };
+  // Windows: salir's (salir.js).
+  const program = browser ? null : await import("./salir.js").then(async (m) => ({ module: m, path: await m.findSalir() }));
+  if (program && !program.path) {
+    console.error(`${NAME}: salir isn't installed (github.com/navnlaus/salir: make install; or PHIL_SALIR=its path)`);
+    Deno.exit(1);
+  }
+  if (program) trace(`windows: ${program.path}`);
+  const windows = program?.module.createApp({
+    name: NAME,
+    program: program.path,
+    ephemeral: !!profile.incognito,
+    keepRunning: !!instance && !profile.incognito,
+    trustCertificate: tls?.cert,
+    trace,
   });
-  if (!browser) trace(chromium ? `windows: ${chromium.path}` : "windows: WebKitGTK");
-  const appOptions = { name: NAME, ephemeral: !!profile.incognito, keepRunning: !!instance && !profile.incognito, trustCertificate: tls?.cert, trace };
-  const windows = browser ? null : chromium
-    ? chromium.module.createApp({ ...appOptions, browser: chromium.path })
-    : (await import("./window.js")).createApp(appOptions);
 
   const { urls, control } = await serverReady;
   trace("servers listening");
-  // Pages of the browser's windows talk to it through the server (POST /engine/window).
-  if (windows?.onPageMessage) server.onmessage = (e) => e.data.window && windows.onPageMessage(e.data.window);
   if (control === "in-use") {
     // Another engine started at the same moment and won: hand the request over.
     if (request && await ask(instance, request)) Deno.exit(0);
@@ -223,12 +216,12 @@ async function serve({ profile = {}, request = null, browser = false, standalone
 
   const cleanUp = () => Object.values(launchers).forEach((app) => app.cleanUp?.(profile));
   const windowUrl = ({ app, ...open }) => launchers[app].windowUrl(new URL(urls[app]), open).href;
-  const openWindow = ({ open, startupId }) => {
+  const openWindow = ({ open }) => {
     const app = launchers[open?.app];
     if (!app) return console.error(`${NAME}: no app called ${open?.app}`);
     // Its class: the app's, a variant's (phil --choose: phil-choose), incognito's.
     const appId = app.appId + (open.variant ? `-${open.variant}` : "") + (profile.incognito ? "-incognito" : "");
-    windows.openWindow(windowUrl(open), { appId, app: open.app, startupId });
+    windows.openWindow(windowUrl(open), { appId });
   };
 
   if (profile.incognito) console.log(`${NAME}: incognito`);
@@ -256,15 +249,17 @@ async function serve({ profile = {}, request = null, browser = false, standalone
     return;
   }
 
+  // What reaches the control socket (the worker's): a window to open, retire, quit.
   let retired = false;
-  windows.watchPipe(pipe[0], (line) => {
-    const message = JSON.parse(line);
+  server.onmessage = ({ data }) => {
+    const message = data.control;
+    if (!message) return;
     if (message.open) openWindow(message);
     else if (message.retire) windows.retire(retired = true);
     else if (message.quit) windows.quit();
-  });
+  };
   if (request) openWindow(request);
-  await windows.run(); // WebKitGTK's: blocks in gtk_main(); the browser's: a promise
+  await windows.run();
   trace("exiting");
   cleanUp();
   // A retired engine already gave up the socket, and a newer one may own the path now.

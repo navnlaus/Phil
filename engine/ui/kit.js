@@ -8,9 +8,7 @@ const embedId = new URLSearchParams(location.search).get("embedded");
 export const embedded = globalThis.parent !== globalThis && !!embedId;
 
 // Messages between an app and the one it's shown in (see appUrl) are told
-// apart by origin and the embedded view's id, not by event.source: WebKitGTK
-// sometimes gives the receiving window as the source (for a message sent
-// while handling a real key press, say).
+// apart by origin and the embedded view's id.
 const ours = (e) => e.origin === location.origin;
 
 /** The id of the embedded view at `url` (from appUrl), which its messages carry. */
@@ -23,20 +21,6 @@ export const embedOf = (url) => new URL(url).searchParams.get("embedded");
 export function tellParent(message) {
   if (embedded) parent.postMessage({ ...message, embed: embedId }, location.origin);
 }
-
-// Ctrl+Z undoes and Ctrl+Shift+Z / Ctrl+Y redo in text fields and editable
-// text: WebKitGTK doesn't bind those keys itself. Apps that handle them
-// first (calling preventDefault) keep them, e.g. jsonedit's tree.
-document.addEventListener("keydown", (e) => {
-  if (e.defaultPrevented || !(e.ctrlKey || e.metaKey) || e.altKey) return;
-  const key = e.key.toLowerCase();
-  const command = key === "z" ? (e.shiftKey ? "redo" : "undo") : key === "y" && !e.shiftKey ? "redo" : null;
-  if (!command) return;
-  const el = document.activeElement;
-  if (!(el?.isContentEditable || el?.tagName === "TEXTAREA" || (el?.tagName === "INPUT" && /^(text|search|url|email|tel|password|)$/.test(el.type)))) return;
-  e.preventDefault();
-  document.execCommand(command);
-});
 
 // A theme edited while the app runs (in ~/.config/phil/themes, see
 // engine/themes.js) is loaded again: the page's stylesheets are, each new one
@@ -56,74 +40,26 @@ if (globalThis.EventSource) {
   };
 }
 
-// A window of the engine's browser (engine/chromium.js): its id, from its
-// address (?philWindow=), kept for the tab's life (a page may drop its query;
-// a reload keeps it). Its messages go to the engine through the server.
-const browserWindow = (() => {
-  if (globalThis.webkit?.messageHandlers?.phil || globalThis.parent !== globalThis) return null;
-  try {
-    const id = new URLSearchParams(location.search).get("philWindow") ?? sessionStorage.getItem("philWindow");
-    if (id) sessionStorage.setItem("philWindow", id);
-    return id;
-  } catch {
-    return null;
-  }
-})();
-// The browser's keys that would close the window (Ctrl+W, Ctrl+Shift+W) or quit it
-// (Ctrl+Shift+Q) are the page's: cancelled first thing, so the browser leaves them
-// alone, while the page still sees them (the terminal's Ctrl+W deletes a word;
-// camview's closes it). In pages shown inside such a window too (same origin: the
-// window's id is in the tab's storage).
-// Blink (a Chromium-based browser's windows, or --browser in one): marked for its
-// scrollbars, styled thin as WebKitGTK's are (themes/base.css).
+// A window of the engine's (salir's: engine/salir.js) has window.salir: its page
+// talks to the engine through it. (In a plain browser, --browser, it's not there.)
+const engine = globalThis.salir ?? null;
+
+// Scrollbars thin, as the theme has them (themes/base.css): the "blink" class.
 if (globalThis.navigator?.userAgentData) document.documentElement.classList.add("blink");
 
-const inBrowserWindow = browserWindow || (globalThis.parent !== globalThis && (() => {
-  try {
-    return !!sessionStorage.getItem("philWindow");
-  } catch {
-    return false;
-  }
-})());
-if (inBrowserWindow) {
-  addEventListener("keydown", (e) => {
-    const key = e.key.toLowerCase();
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === "w" || (e.shiftKey && key === "q"))) e.preventDefault();
-  }, true);
-}
-
-// In the engine's windows (WebKitGTK's or a browser's, and pages shown inside
-// them), a right-click the page doesn't answer itself shows nothing: not the
-// engine's own menu (Back, Reload, Inspect). The inspector opens from the keyboard
-// (Ctrl+Shift+I; a browser's F12 too). In a plain browser (--browser) it's left alone.
-if (inBrowserWindow || globalThis.webkit?.messageHandlers?.phil || (globalThis.parent !== globalThis && (() => {
-  try {
-    return !!globalThis.parent.webkit?.messageHandlers?.phil;
-  } catch {
-    return false;
-  }
-})())) {
-  addEventListener("contextmenu", (e) => e.preventDefault());
-}
-const toEngine = (message) => fetch("/engine/window", { method: "POST", body: JSON.stringify({ id: browserWindow, message }) }).catch(() => {});
-
 /**
- * The page is styled and running: the engine shows its window
- * (engine/window.js); shown inside another app, that app gives it the keyboard
- * (a page in a frame can't take focus itself in WebKit).
+ * The page is styled and running (the engine notes it); shown inside another app,
+ * that app gives it the keyboard (a page in a frame can't take it itself).
  */
 export function ready(detail = "") {
   if (embedded) tellParent({ engine: "ready" });
-  else if (browserWindow) toEngine(detail ? `ready:${detail}` : "ready");
-  else globalThis.webkit?.messageHandlers?.phil?.postMessage(detail ? `ready:${detail}` : "ready");
+  else engine?.send({ phil: "ready", detail });
 }
 
 /** Closes the window, or the embedded view. */
 export function closeWindow() {
   if (embedded) return tellParent({ engine: "close" });
-  if (browserWindow) return toEngine("close");
-  const native = globalThis.webkit?.messageHandlers?.phil; // a window of the engine's own
-  if (native) return native.postMessage("close");
+  if (engine) return engine.close();
   fetch("/api/quit", { method: "POST" }).finally(() => globalThis.close()); // --browser
 }
 
@@ -195,8 +131,8 @@ export function holdFocus(el) {
     if (!active || active === document.body || active === document.documentElement) target.focus({ preventScroll: true });
   };
   addEventListener("focus", take);
-  // Shown inside another app: WebKit ignores focus() here until that app has
-  // given this frame the keyboard; it says so once it has (see ready()).
+  // Shown inside another app: focus() does nothing here till that app has given
+  // this frame the keyboard; it says so once it has (see ready()).
   if (embedded) addEventListener("message", (e) => ours(e) && e.data?.engine === "focus" && take());
   take();
 }
@@ -251,8 +187,7 @@ export function askPassword(message, { ok = "Save" } = {}) {
 
 /**
  * Tooltips drawn by the page, for every element with a title (or data-tip):
- * WebKitGTK's own come up unreliably and look like the toolkit's, these are
- * the theme's (.kit-tip in themes/base.css). Shown after a moment on hover,
+ * the theme's (.kit-tip in themes/base.css), not the system's. Shown after a moment on hover,
  * at once when moving on from one just shown; gone on a click, a key, a
  * scroll, or leaving; none during a drag. A title moves to data-tip when first hovered, so the
  * browser's own doesn't show as well; setting it again later works. Inside an

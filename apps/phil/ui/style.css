@@ -481,9 +481,7 @@ main { padding-top: var(--bar-h); }
 /* The label's last lines keep clear of them. */
 .tile.has-marks .label :is(.meta, .tags) { padding-right: calc(var(--marks-n, 1) * 17px); }
 /* Its thumbnail on the way: a plain lighter face, not an animation. An endless
-   one on every waiting tile kept the page drawing frames, and WebKit (its
-   DMA-BUF renderer, on NVIDIA) leaks a GPU fence handle per frame: a folder of
-   250 waiting tiles ran the page out of open files in under a minute. */
+   one on every waiting tile kept the page drawing frames for nothing. */
 .thumb.loading::after {
   content: "";
   position: absolute;

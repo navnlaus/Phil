@@ -52,7 +52,7 @@ const LUCIDE = "/ui/vendor/lucide-sprite.svg";
 const icon = (name, cls = "") => `<svg class="${cls}"><use href="#${name.startsWith("l:") ? lucideIcon(name.slice(2)) : `i-${name}`}"/></svg>`;
 
 // Lucide's icons are copied into the page as they're first used (#l-<name>):
-// pointing into the sprite file itself, WebKit loaded it again for every new
+// pointing into the sprite file itself had it loaded again for every new
 // element, so icons there blinked whenever the sidebar or a folder was redrawn.
 const lucideDefs = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 lucideDefs.setAttribute("style", "position: absolute; width: 0; height: 0; overflow: hidden");
@@ -424,8 +424,8 @@ function resortSoon() {
 }
 
 // The tiles in a new order without rebuilding the grid: each gets its place
-// (CSS order), none is taken out of the page (WebKit blanks a text preview's
-// canvas then, which flickered), and those on screen slide there from where
+// (CSS order), none is taken out of the page (a text preview's canvas can be
+// blanked then, which flickered), and those on screen slide there from where
 // they were. Searching (its own order) or anything else changed: render().
 function resort() {
   if (filterInput.value.trim() || state.view.some((e) => !tiles.has(e.path))) return render();
@@ -896,8 +896,8 @@ function render(selectPath = state.view[state.selected]?.path) {
   farObserver.disconnect();
   // Every entry's tile is kept while it's the same kind of thing (keyed by
   // path), with its loaded picture or text, and brought up to date in place
-  // (updateTile); tiles are moved only when out of place, as WebKitGTK blanks
-  // a canvas taken out of the page (its text is drawn again then).
+  // (updateTile); tiles are moved only when out of place, as a canvas taken
+  // out of the page can be blanked (its text is drawn again then).
   const old = new Map(tiles);
   tiles.clear();
   const ordered = state.view.map((entry, i) => {
@@ -1287,7 +1287,7 @@ function makeCrumb() {
 
 // Drives and shares come and go (USB, mounts): the list is fetched again
 // whenever the window gets focus.
-// Once per focus: WebKit reports it a few times over as the window opens.
+// Once per focus: it can come a few times over as the window opens.
 let focusedAt = 0;
 addEventListener("focus", () => {
   if (performance.now() - focusedAt < 1000) return;
@@ -1440,7 +1440,7 @@ function renderPlaces() {
 // free space under the name (and copies to them, see showTransfers).
 function makePlace(p) {
   const a = document.createElement("a");
-  a.draggable = true; // as an element, not as a link: WebKit starts those itself, and not always
+  a.draggable = true; // as an element, not as a link: a link's own drag starts by itself, and not always
   if (isMount(p)) {
     const text = Object.assign(document.createElement("span"), { className: "place-text" });
     text.append(Object.assign(document.createElement("span"), { className: "place-name" }));
@@ -1770,10 +1770,10 @@ function showMediaPrepareBar(bar, m) {
 // ---------------------------------------------------------------- the Preferences view
 
 // The gear at the bottom of the sidebar: what the sidebar shows (Transfers, Cameras),
-// the theme (the stylesheets in ~/.config/phil/themes; every window follows), the
-// windows' engine and the log (the engine's, read when it starts). Over the folder,
+// the theme (the stylesheets in ~/.config/phil/themes; every window follows) and
+// the log (the engine's, read when it starts). Over the folder,
 // as the Transfers view is; Esc or × closes it, as does opening a folder.
-const prefsView = $("#prefs-view"), settingsButton = $("#btn-settings"), themeSelect = $("#prefs-theme"), browserSelect = $("#prefs-browser");
+const prefsView = $("#prefs-view"), settingsButton = $("#btn-settings"), themeSelect = $("#prefs-theme");
 settingsButton.innerHTML = icon("l:settings");
 let prefsFocus = null;
 
@@ -1791,10 +1791,6 @@ async function openPrefsView() {
   for (const el of prefsView.querySelectorAll(".prefs-media-search")) el.hidden = !mediaViewOn();
   for (const input of prefsView.querySelectorAll("[data-pref]")) input.checked = "off" in input.dataset ? s[input.dataset.pref] === true : s[input.dataset.pref] !== false;
   showTaggingPrefs();
-  // Another browser named in the settings file (a name or a path): kept, and shown.
-  browserSelect.querySelector(".other")?.remove();
-  if (s.browser && s.browser !== "webkit" && s.browser !== "default") browserSelect.add(Object.assign(new Option(s.browser, s.browser), { className: "other" }));
-  browserSelect.value = s.browser === "default" ? "" : s.browser ?? "";
   folderSizesSelect.value = ["all", "off"].includes(s.folderSizes) ? s.folderSizes : "";
   const r = await api("/api/themes").catch(() => null);
   if (r) {
@@ -1921,11 +1917,6 @@ folderSizesSelect.onchange = async () => {
   load(state.path); // the totals shown, or not
 };
 
-browserSelect.onchange = () => {
-  if (browserSelect.value) state.settings.browser = browserSelect.value;
-  else delete state.settings.browser;
-  saveSettings(0);
-};
 themeSelect.onchange = () => api("/api/theme", { method: "PUT", body: JSON.stringify({ theme: themeSelect.value }) }).catch((err) => alert(err.message));
 $("#prefs-transfers").onclick = () => openTransfersView();
 
@@ -3129,7 +3120,7 @@ function contentPoint(clientX, clientY) {
   return { x: clientX - r.left + grid.scrollLeft, y: clientY - r.top + grid.scrollTop };
 }
 
-// WebKit starts its own gestures on a mouse press: dragging the thumbnail
+// The browser starts its own gestures on a mouse press: dragging the thumbnail
 // image, or a selection drag on empty space (during which the page isn't
 // repainted, so the rectangle never shows). Cancelling the press's default
 // action stops both; the grid then has to take focus itself.
@@ -3221,8 +3212,8 @@ grid.addEventListener("pointerdown", (e) => {
   addEventListener("pointercancel", endDrag);
 });
 
-// A click on a place opens it here, not left to the link: WebKit doesn't always
-// follow one (these can be dragged too), and then a click did nothing.
+// A click on a place opens it here, not left to the link: one isn't always
+// followed (these can be dragged too), and then a click did nothing.
 // (The rows are <a> without an href: a browser window shows a link's address,
 // an internal one, at the bottom while the pointer's on it.)
 new MutationObserver(() => {
@@ -3268,38 +3259,7 @@ function moveDrag(e) {
     if (Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 6) return;
     startDrag();
   }
-  if (outsideWindow(e) && native) return dragOut();
   updateDrag();
-}
-
-const native = window.webkit?.messageHandlers?.phil; // the engine's window (not --browser)
-document.documentElement.addEventListener("mouseleave", () => drag?.active && native && dragOut()); // in case moves outside aren't reported
-const outsideWindow = (e) => e.clientX < 0 || e.clientY < 0 || e.clientX >= innerWidth || e.clientY >= innerHeight;
-
-// A right- or middle-drag leaving the window goes on as the desktop's drag of
-// the files (the engine starts it: engine/window.js), like a left-drag (see
-// fileDrag below): a middle-drag lets the place it's dropped on move them, a
-// right-drag lets it ask (or copy, or move).
-function dragOut() {
-  const d = drag;
-  removeEventListener("pointermove", moveDrag);
-  removeEventListener("pointerup", endDrag);
-  removeEventListener("pointercancel", endDrag);
-  drag = null;
-  d.ghost.remove();
-  document.body.classList.remove("dragging");
-  markTarget(d.target, null);
-  fileDrag = { items: d.items, paths: d.paths, dirs: d.dirs, button: d.button };
-  fileDrag.id = announceDrag([...d.paths], d.button);
-  native.postMessage("drag:" + JSON.stringify({
-    uris: d.items.map((m) => fileUri(m.path)),
-    paths: d.items.map((m) => m.path),
-    button: d.button + 1, // GTK's numbering: 2 middle, 3 right
-    actions: d.button === 1 ? ["move", "copy"] : ["ask", "copy", "move"],
-    image: d.picture.toDataURL("image/png"), // the same picture as inside the window
-    scale: d.picture.scale,
-    hotspot: DRAG_HOTSPOT,
-  }));
 }
 
 function startDrag() {
@@ -3323,10 +3283,9 @@ function startDrag() {
 }
 
 // What a drag of `items` looks like, whichever button and wherever it goes (in
-// the window, or out as files: then WebKit or the engine shows it): up to
-// three of their pictures stacked, with how many there are, and the name (or
-// "4 items") on a card. A canvas, drawn at the screen's scale (`.scale`), so
-// the engine gets the same pixels.
+// the window, or out as files: then the browser shows it): up to three of
+// their pictures stacked, with how many there are, and the name (or "4
+// items") on a card. A canvas, drawn at the screen's scale (`.scale`).
 const DRAG_HOTSPOT = [-12, -12]; // the pointer, from the picture's top left corner
 const STACK = { w: 96, h: 54, step: 7, most: 3 };
 
@@ -3548,12 +3507,11 @@ function endDrag(e) {
 }
 
 // Dragging files out of phil: a left-drag that starts on a selected tile (no
-// Ctrl or Shift) is the webview's own drag, carrying the selection as files
+// Ctrl or Shift) is the page's own drag, carrying the selection as files
 // (their file:// URIs), for a browser's page, another file manager, a chat...
-// to take. A right- or middle-drag becomes one when it leaves the window
-// (dragOut). Dropped on a folder in phil itself, a middle-drag moves there
-// and the others ask "Move to / Copy to". (Started anywhere else, a left-drag
-// draws the selection rectangle.)
+// to take. (A right- or middle-drag stays in the window.) Dropped on a folder
+// in phil itself, it asks "Move to / Copy to". (Started anywhere else, a
+// left-drag draws the selection rectangle.)
 let fileDrag = null; // { items, paths, dirs, button, target }
 
 function startsFileDrag(e) {
@@ -3569,7 +3527,7 @@ grid.addEventListener("dragstart", (e) => {
   if (i === -1 || !state.marked.has(state.view[i].path)) return e.preventDefault();
   hideContextMenu();
   const items = markedEntries();
-  // The drag's picture, the same as a right-drag's: WebKit takes it from the
+  // The drag's picture, the same as a right-drag's: the browser takes it from the
   // page, so it's put there (where it shows during the drag anyway) for now.
   const picture = dragPicture(items, state.view[i]);
   picture.style.cssText += `position: fixed; z-index: 30; left: ${e.clientX - DRAG_HOTSPOT[0]}px; top: ${e.clientY - DRAG_HOTSPOT[1]}px;`;
@@ -3597,7 +3555,7 @@ $("#places").addEventListener("dragstart", (e) => {
   setTimeout(() => picture.remove());
   fileDrag = { items: [item], paths: new Set([item.path]), dirs: [item.path + "/"], button: 0, fixed };
   fileDrag.id = announceDrag([item.path], 0);
-  // (Moving it in the sidebar is a "move" too: WebKit drops nothing whose
+  // (Moving it in the sidebar is a "move" too: the browser drops nothing whose
   // effect the drag didn't allow, and a page's drags can't allow "link".)
   e.dataTransfer.effectAllowed = "copyMove";
   e.dataTransfer.setData("text/uri-list", fileUri(item.path));
@@ -3633,8 +3591,8 @@ function setOutsideTarget(target) {
 
 // The files a drop carries: file:// URIs (text/uri-list), or paths one per line
 // (text/plain: what phil's own drags carry too, and some programs only that), or
-// links to them (text/html: a drag from another phil window comes with its
-// text/uri-list empty, WebKit's doing, and the files only as links there).
+// links to them (text/html: a drag from another phil window may come with its
+// text/uri-list empty, and the files only as links there).
 function filePaths(dt) {
   const html = dt.getData("text/html");
   const links = html ? [...new DOMParser().parseFromString(html, "text/html").querySelectorAll("a[href]")].map((a) => a.getAttribute("href")) : [];
@@ -3675,20 +3633,12 @@ async function download(uris, dir) {
   if (added) flashStatus(`Downloading ${added === 1 ? "it" : `${added} things`} into “${name}”`);
 }
 
-// A drag out of a phil window: its files (and button) for the window it's dropped
-// on. Its id tells this window whether a drag it remembers is still the one
-// going on (a right- or middle-drag out of it ends without telling it).
+// A drag out of a phil window: its files for the window it's dropped on (the
+// drop itself may not carry them).
 function announceDrag(paths, button) {
   const id = crypto.randomUUID();
   api("/api/drag", { method: "PUT", body: JSON.stringify({ paths, button, id }) }).catch(() => {});
   return id;
-}
-
-// This window's drag, still going on? Not when another (window) has started one since.
-async function staleDrag() {
-  if (!fileDrag || fileDrag.button === 0) return false; // a left drag's end is heard of
-  const current = await api("/api/drag").catch(() => null);
-  return current?.id !== fileDrag.id;
 }
 
 async function dropFromOutside(e, carried, links = []) {
@@ -3698,7 +3648,7 @@ async function dropFromOutside(e, carried, links = []) {
   // Links (no files): downloaded into the folder they're dropped on.
   if (!carried.length && links.length) return target.gap ? flashStatus("Drop links on a folder to download them there") : download(links, target.path);
   let paths = carried;
-  // From another phil window: what it said it's dragging (its files, when the drop lost them; its button).
+  // From another phil window: what it said it's dragging (its files, when the drop lost them).
   const phil = await api("/api/drag").catch(() => null);
   const fromPhil = phil && (!paths.length || paths.every((p) => phil.paths.includes(p)));
   if (fromPhil) {
@@ -3718,7 +3668,6 @@ async function dropFromOutside(e, carried, links = []) {
       [`Copy to “${name}”`, () => transfer("copy", items, target.path)],
     ]);
   }
-  if (fromPhil && phil.button === 1 && !paths.every((p) => parentOf(p) === target.path)) return transfer("move", items, target.path); // middle: moves
   // All of it from that very folder (another window showing it): copies of them there.
   if (paths.every((p) => parentOf(p) === target.path)) return showMenu(e.clientX, e.clientY, [["Copy here", () => transfer("copy", items, target.path)]]);
   showMenu(e.clientX, e.clientY, [
@@ -3742,18 +3691,15 @@ addEventListener("dragover", (e) => {
   fileDrag.target = target;
   e.dataTransfer.dropEffect = target ? "move" : "none"; // between the sidebar's folders too (see its dragstart)
 });
-addEventListener("dragenter", () => staleDrag().then((stale) => stale && endFileDrag()));
-addEventListener("drop", async (e) => {
+addEventListener("drop", (e) => {
   e.preventDefault();
   const carried = filePaths(e.dataTransfer), links = downloadLinks(e.dataTransfer); // the drop's data: gone once this handler awaits
-  if (fileDrag && (await staleDrag())) endFileDrag(), setOutsideTarget(outsideTargetAt(e.clientX, e.clientY));
   if (!fileDrag) return dropFromOutside(e, carried, links);
   const target = fileDrag?.target;
-  const { items, button, dirs } = fileDrag ?? {};
+  const { items, dirs } = fileDrag ?? {};
   endFileDrag();
   if (!target) return;
   if (target.gap) return addToSidebar(dirs.map((p) => p.slice(0, -1)), target.before);
-  if (button === 1) return transfer("move", items, target.path);
   const name = target.path.split("/").pop() || "/";
   showMenu(e.clientX, e.clientY, [
     [`Move to “${name}”`, () => transfer("move", items, target.path)],
@@ -3765,9 +3711,6 @@ function endFileDrag() {
   fileDrag = null;
 }
 addEventListener("dragend", endFileDrag);
-// A drag the engine started ends without telling the page: the pointer
-// moving in the window again means it's over.
-addEventListener("pointermove", (e) => fileDrag && fileDrag.button !== 0 && !outsideWindow(e) && endFileDrag());
 
 // A link to the file in Documents/Config (see addToConfig in server.js).
 async function addToConfig(entry) {
@@ -4888,7 +4831,7 @@ document.addEventListener("keydown", (e) => {
 
 // ---------------------------------------------------------------- start
 
-// phil keeps its window hidden until the page is styled and running (engine/window.js).
+// The page is styled and running: the engine notes when (PHIL_TRACE).
 ready(JSON.stringify({ script: Math.round(performance.now()) }));
 state.init = await api("/api/init");
 Object.assign(state.settings, state.init.settings);

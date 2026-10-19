@@ -1,4 +1,4 @@
-// particles.js's (and ../cef's): moves them on, a compute shader. common.wgsl goes before it.
+// particles.js's: moves them on, a compute shader. common.wgsl goes before it.
 @group(0) @binding(1) var<storage, read_write> particles: array<Particle>;
 
 @compute @workgroup_size(256)

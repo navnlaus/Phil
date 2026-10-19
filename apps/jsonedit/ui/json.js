@@ -1,5 +1,5 @@
 // A JSON parser that keeps where every value is in the text, for the tree and
-// for errors (WebKit's JSON.parse doesn't say where an error is).
+// for errors (where in the text: its line and column, and the node it's in).
 //
 // parse(text) returns { root } or { error: { message, offset } }. Nodes:
 //   { type: "object" | "array" | "string" | "number" | "boolean" | "null",

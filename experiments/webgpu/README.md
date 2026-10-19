@@ -3,8 +3,7 @@
 What it's like to draw with WebGPU in a native window from Deno, phil's
 runtime, and whether the same code runs in a browser too. One million
 particles, moved by a compute shader and drawn as instanced quads
-(`particles.js`; its shaders in `common.wgsl`, `step.wgsl`, `draw.wgsl`, which
-`../cef`'s Rust host draws with too), in:
+(`particles.js`; its shaders in `common.wgsl`, `step.wgsl`, `draw.wgsl`), in:
 
 - **a native window** (`main.js`): Deno's own WebGPU (wgpu: Vulkan here,
   Direct3D 12 on Windows, Metal on macOS), a window from SDL3 over FFI
@@ -21,11 +20,11 @@ Mouse: left pulls, right pushes, wheel: how hard. Space: pause. R: again.
 +/−: twice or half as many. Esc: quit (the native one). `--auto` / `?auto`:
 the pull goes round by itself; `--frames N` / `?frames=N`: how fast N frames came.
 
-## Found (2026-10-18; GTX 1080 Ti, NVIDIA 580.178.04, Deno 2.9.6, SDL 3.4.16, Brave 155)
+## Found (2026-10-18; GTX 1080 Ti, NVIDIA 580.178.04, Deno 2.9.6, SDL 3.4.16, Chromium 155)
 
 Run in a headless compositor (cage) on the GPU, 60 Hz:
 
-| | Native (Deno + SDL3, Wayland) | Native (X11 / Xwayland) | Brave |
+| | Native (Deno + SDL3, Wayland) | Native (X11 / Xwayland) | Chromium |
 |---|---|---|---|
 | 1 M particles | 60 fps, frames 16.0 ms (99th: 17.5) | 60 fps, frames 12–13 ms, uneven (99th: 27) | 60 fps, 16.1 ms (99th: 16.7) |
 | 8 M particles | 60 fps, 16.0 ms (99th: 17.4) | | |
