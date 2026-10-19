@@ -681,6 +681,15 @@ $("#btn-speed").onclick = (e) => setSpeed(e.shiftKey ? -1 : video.playbackRate >
 $("#btn-speed").oncontextmenu = (e) => (e.preventDefault(), setSpeed(0));
 $("#btn-loop").onclick = toggleLoop;
 $("#btn-full").onclick = toggleFullscreen;
+
+// Opened in the tile of the window it came from (phil's, on Hyprland: a group of the two; the
+// engine says so, ?attached=1): Detach takes it out, a window of its own, floating.
+if (globalThis.salir && new URLSearchParams(location.search).get("attached") === "1") {
+  const detach = $("#btn-detach");
+  detach.hidden = false;
+  detach.onclick = () => globalThis.salir.send({ phil: "detach" });
+  globalThis.salir.on((m) => m?.phil === "detached" && m.ok && (detach.hidden = true));
+}
 $("#btn-close").onclick = close;
 $("#btn-crop").onclick = () => toggleCropMenu();
 $("#btn-subs").onclick = () => toggleSubsMenu();

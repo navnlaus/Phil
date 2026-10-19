@@ -153,8 +153,8 @@ itself (salir's direct windows), driven through salir's `--control` channel
   Hyprland's keys and layouts move and tile the two as one (another
   workspace, the master area, fullscreen…), and it closes with that window.
   Closed, phil's window is as it was. Taken out of the group (Super+Alt+G on
-  Omarchy, Hyprland's "move out of group"), it's let go: it floats, a window
-  like any other. (`engine/hyprland.js`: Lua run in Hyprland through `hyprctl
+  Omarchy, Hyprland's "move out of group"; videoplayer's Detach button, by
+  Fullscreen), it's let go: it floats, a window like any other. (`engine/hyprland.js`: Lua run in Hyprland through `hyprctl
   eval`, which knows the window by its first title, and the one it goes with
   by its process, salir's.) They open and close without Hyprland's
   animations, as they would inside phil. Elsewhere they open where the desktop

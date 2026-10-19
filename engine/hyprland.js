@@ -144,5 +144,15 @@ export function createPlacer() {
       console.log(`hyprland: attaching a window to ${parent.class} (${parent.address})`);
       return title;
     },
+
+    /**
+     * The window opened with `title` (attach()'s) taken out of the group it's in (its page's
+     * Detach button): Hyprland's "move out of group"; the timer above lets it go, floating.
+     */
+    async detach(title) {
+      if (!available || !title) return false;
+      const out = await hyprctl("eval", `for _, w in ipairs(hl.get_windows()) do if w.initial_title == ${luaString(title)} then hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = "address:" .. w.address })) end end`);
+      return out === "ok";
+    },
   };
 }

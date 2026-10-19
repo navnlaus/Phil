@@ -160,6 +160,13 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       else if (message?.phil === "close") session?.send({ close: window });
       else if (message?.phil === "open") onOpenRequest(window, message); // (another app's window over this one: kit.js openOver)
       else if (message?.phil === "tell") tellOpener(window, message.message); // (kit.js tellParent)
+      else if (message?.phil === "detach") { // (out of the Hyprland group it's in: its page's Detach)
+        const title = windows.get(window)?.attached;
+        placer.detach(title).then((ok) => {
+          if (ok) windows.get(window).attached = null;
+          session?.send({ send: { window, message: { phil: "detached", ok } } });
+        });
+      }
     } else if (event.error) console.error(`${name}: salir: ${event.error}`);
   }
 
@@ -219,6 +226,12 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       const id = String(nextWindow++);
       windows.set(id, { appId, opener: over?.opener, request: over?.request });
       const title = over ? await placer.attach({ pid: s.pid }) : null;
+      if (title) {
+        windows.get(id).attached = title; // (Detach: its page's button, which ?attached=1 shows)
+        const u = new URL(url);
+        u.searchParams.set("attached", "1");
+        url = u.href;
+      }
       // (files: its page may have local files as File objects, salir.files: phil's files dragged out as files.)
       await s.send({ open: { id, url, app_id: appId, direct: !embeds, files: true, ...(title ? { initial_title: title } : {}) } });
       trace(`window ${id} opened`);
