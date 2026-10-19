@@ -144,13 +144,16 @@ itself (salir's direct windows), driven through salir's `--control` channel
   MJPEG stream).
 - **Windows over windows**: a video or the cameras opened from phil (or a video
   from the media view) open in videoplayer's or camview's own window, as mpv
-  needs. On Hyprland it floats exactly over the phil window it came from,
-  borderless, so it looks as it would inside it, and follows that window as
-  it moves, resizes or changes workspace (and closes with it). Move or resize
-  it yourself and it's let go: a window like any other. (`engine/hyprland.js`,
-  through `hyprctl`: a window rule for its first title, then dispatchers.)
-  Elsewhere they open where the desktop puts them. Esc closes it, back to phil,
-  with the video you were on selected.
+  needs. On Hyprland it goes into the phil window's tile, as a group of the
+  two with no tab bar, border or shadow, so it looks as it would inside it;
+  Hyprland's keys and layouts move and tile the two as one (another
+  workspace, the master area, fullscreen…), and it closes with that window.
+  Closed, phil's window is as it was. Taken out of the group (Super+Alt+G on
+  Omarchy, Hyprland's "move out of group"), it's let go: it floats, a window
+  like any other. (`engine/hyprland.js`: Lua run in Hyprland through `hyprctl
+  eval`, which knows the window by its first title.) Elsewhere they open where
+  the desktop puts them. Esc closes it, back to phil, with the video you were
+  on selected.
 - Composited windows (videoplayer's, camview's) have no clipboard of their
   own: pasting into their text fields doesn't work there.
 

@@ -204,7 +204,7 @@ async function serve({ profile = {}, request = null, browser = false, standalone
     trustCertificate: tls?.cert,
     trace,
     // A page asking for another app's window over itself (kit.js openOver).
-    onOpenRequest: (opener, { app, params, rect, request }) => openWindow({ open: { ...params, app } }, { over: { rect, opener, request } }),
+    onOpenRequest: (opener, { app, params, request }) => openWindow({ open: { ...params, app } }, { over: { opener, request } }),
   });
 
   const { urls, control } = await serverReady;

@@ -1,120 +1,127 @@
-// Windows placed over others, on Hyprland (where it's the desktop): an app's
-// window opened from another's page (videoplayer's, from phil or mediaview)
-// floats exactly over the area the page gives, as if it were inside it, and
-// follows that window as it moves, resizes or changes workspace, till it's
-// moved or resized itself (then it's let go: a window like any). Elsewhere,
-// windows open as the desktop puts them.
+// Windows attached to others, on Hyprland (where it's the desktop): an app's
+// window opened from another's page (videoplayer's or camview's, from phil or
+// mediaview) goes into that window's tile, as a Hyprland group of the two, with
+// no tab bar, border or shadow: it looks as if it were inside it. Hyprland's
+// own keys and layouts move, resize and tile the two as one (to another
+// workspace, to the master area...). Closed, the window it came from is as it
+// was. Moved out of the group (Super+Alt+G on Omarchy: Hyprland's "move out of
+// group"), it's let go: it floats, a window like any. Elsewhere, windows open as
+// the desktop puts them.
 //
-// Through hyprctl: a window rule (Lua, hyprctl eval) matching the new window's
-// first title (salir's initial_title), so it opens there rather than tiled first;
-// then dispatchers to follow (hyprctl dispatch).
+// It runs in Hyprland itself, as Lua (hyprctl eval), put there by the first
+// window placed (again after Hyprland reloads its config, or a newer phil's):
+// the new window's first title (salir's initial_title) tells it which window it
+// goes with; as it opens (window.open_early, before it's tiled), that window is
+// made a group (unless it's in one already), which Hyprland puts it in (it's the
+// focused window: group.auto_group; else it's added once open). A timer looks
+// at the pairs while there are any: the window gone, the group's undone; the
+// window it came from gone, it's closed too; out of the group, let go.
 
 export const available = !!Deno.env.get("HYPRLAND_INSTANCE_SIGNATURE");
 
-const FOLLOW_MS = 300; // how often the windows are looked at while one follows another
+const VERSION = "1"; // (a newer one replaces what an older phil put in Hyprland)
 
 async function hyprctl(...args) {
   try {
     const out = await new Deno.Command("hyprctl", { args, stdin: "null", stdout: "piped", stderr: "null" }).output();
-    return out.success ? new TextDecoder().decode(out.stdout) : null;
+    return out.success ? new TextDecoder().decode(out.stdout).trim() : null;
   } catch {
     return null;
   }
 }
 const json = async (what) => JSON.parse((await hyprctl("-j", what)) ?? "null");
-const lua = (code) => hyprctl("eval", code);
-const dispatch = (expr) => hyprctl("dispatch", expr);
-const luaString = (s) => JSON.stringify(String(s)); // (JSON's string literals are Lua's)
+const luaString = (s) => JSON.stringify(String(s)); // (JSON's string literals are Lua's, for these: ASCII)
 
-/**
- * Follows windows placed over others. place() before the window opens (it's
- * given the title to open with); onParentGone(placed) when the window one's
- * over is closed (placed: place()'s `data`), to close it too.
- */
-export function createPlacer({ trace = () => {}, onParentGone = () => {} } = {}) {
-  const placed = new Map(); // token -> { title, parent (address), rect, child?, expect?, ruleOff }
-  let timer = 0;
-
-  async function geometryOf(parent, rect) {
-    const monitors = (await json("monitors")) ?? [];
-    const mon = monitors.find((m) => m.id === parent.monitor) ?? { x: 0, y: 0 };
-    const [x, y, w, h] = rect;
-    return {
-      at: [Math.round(parent.at[0] + x), Math.round(parent.at[1] + y)], // (global)
-      local: [Math.round(parent.at[0] + x - mon.x), Math.round(parent.at[1] + y - mon.y)], // (the monitor's: a rule's move)
-      size: [Math.max(1, Math.round(w)), Math.max(1, Math.round(h))],
-    };
+// What's put in Hyprland (exported for tests; global phil_attach: pending, the windows to come by
+// first title; attached, child address -> { parent, made: whether the group's ours }).
+export const SETUP = `
+phil_attach = phil_attach or { pending = {}, attached = {} }
+local A = phil_attach
+if A.version ~= ${luaString(VERSION)} then
+  for _, s in ipairs(A.subs or {}) do s:remove() end
+  for _, r in ipairs(A.rules or {}) do r:set_enabled(false) end
+  if A.timer then A.timer:set_enabled(false) end
+  A.version = ${luaString(VERSION)}
+  local function sel(address) return "address:" .. address end
+  local function win(address) return address and hl.get_window(sel(address)) end
+  local function tag(address, t) hl.dispatch(hl.dsp.window.tag({ tag = t, window = sel(address) })) end
+  -- The pair: no tab bar, border or shadow (decorations); the video opaque (as Omarchy's video apps).
+  A.rules = {
+    hl.window_rule({ name = "phil-attached", match = { tag = "phil-attached" }, decorate = false }),
+    hl.window_rule({ name = "phil-over", match = { initial_title = "^phil-over-.*$" }, tag = "-default-opacity", opacity = "1 1" }),
   }
-
-  async function follow() {
-    timer = 0;
-    if (!placed.size) return;
-    const clients = (await json("clients")) ?? [];
-    for (const [token, p] of placed) {
-      const parent = clients.find((c) => c.address === p.parent);
-      const child = p.child ? clients.find((c) => c.address === p.child) : clients.find((c) => c.initialTitle === p.title);
-      if (!child) {
-        if (p.child) placed.delete(token); // (closed)
-        continue;
-      }
-      if (!p.child) {
-        // It's open: the rule's done its work.
-        p.child = child.address;
-        p.expect = { at: child.at, size: child.size, workspace: child.workspace?.id };
-        lua(`if phil_place and phil_place[${luaString(token)}] then phil_place[${luaString(token)}]:set_enabled(false); phil_place[${luaString(token)}] = nil end`);
-        trace(`placed ${child.class} over ${parent?.class ?? "?"}`);
-        continue;
-      }
-      if (!parent) {
-        placed.delete(token);
-        onParentGone(p);
-        continue;
-      }
-      // Moved or resized by hand (or not floating any more): let go.
-      const moved = Math.abs(child.at[0] - p.expect.at[0]) > 2 || Math.abs(child.at[1] - p.expect.at[1]) > 2;
-      const resized = Math.abs(child.size[0] - p.expect.size[0]) > 2 || Math.abs(child.size[1] - p.expect.size[1]) > 2;
-      if (!child.floating || moved || resized) {
-        placed.delete(token);
-        trace(`${child.class} let go`);
-        continue;
-      }
-      // Its window moved, resized or went to another workspace: after it.
-      const g = await geometryOf(parent, p.rect);
-      const w = `window = ${luaString(`address:${p.child}`)}`;
-      if (parent.workspace?.id !== child.workspace?.id) await dispatch(`hl.dsp.window.move({ workspace = ${luaString(parent.workspace.id)}, follow = false, ${w} })`);
-      if (g.at[0] !== child.at[0] || g.at[1] !== child.at[1]) await dispatch(`hl.dsp.window.move({ x = ${g.at[0]}, y = ${g.at[1]}, ${w} })`);
-      if (g.size[0] !== child.size[0] || g.size[1] !== child.size[1]) await dispatch(`hl.dsp.window.resize({ x = ${g.size[0]}, y = ${g.size[1]}, ${w} })`);
-      p.expect = { at: g.at, size: g.size, workspace: parent.workspace?.id };
-    }
-    if (placed.size) timer = setTimeout(follow, FOLLOW_MS);
+  local function release(child, a)
+    A.attached[child] = nil
+    if win(child) then tag(child, "-phil-attached") end
+    local p = win(a.parent)
+    if not p then return end
+    local still = false
+    for _, b in pairs(A.attached) do still = still or b.parent == a.parent end
+    if not still then tag(a.parent, "-phil-attached") end
+    if a.made and not still and p.group and p.group.size == 1 then hl.dispatch(hl.dsp.group.toggle({ window = sel(a.parent) })) end
+  end
+  local function look()
+    for child, a in pairs(A.attached) do
+      local c, p = win(child), win(a.parent)
+      if not c then
+        release(child, a)
+      elseif not p then
+        hl.dispatch(hl.dsp.window.close({ window = sel(child) }))
+      elseif not c.group or not p.group or c.group ~= p.group then
+        release(child, a)
+        hl.dispatch(hl.dsp.window.float({ action = "enable", window = sel(child) }))
+      end
+    end
+    if next(A.attached) == nil then A.timer:set_enabled(false) end
+  end
+  -- (An error here would be Hyprland's to show, every time: none, it stops.)
+  A.timer = hl.timer(function() if not pcall(look) then A.timer:set_enabled(false) end end, { timeout = 300, type = "repeat" })
+  A.timer:set_enabled(false)
+  A.subs = {
+    -- Before it's tiled: the window it goes with made a group, for Hyprland to put it in.
+    hl.on("window.open_early", function(w) pcall(function()
+      local p = A.pending[w.initial_title]
+      if not p then return end
+      A.pending[w.initial_title] = nil
+      local parent = win(p.parent)
+      if not parent then return end
+      tag(p.parent, "+phil-attached")
+      tag(w.address, "+phil-attached")
+      local made = not parent.group
+      if made then hl.dispatch(hl.dsp.group.toggle({ window = sel(p.parent) })) end
+      A.attached[w.address] = { parent = p.parent, made = made }
+      A.timer:set_enabled(true)
+    end) end),
+    -- Open: in it (if Hyprland didn't put it there: auto_group off, or another window focused).
+    hl.on("window.open", function(w) pcall(function()
+      local a = A.attached[w.address]
+      local parent = a and win(a.parent)
+      if parent and parent.group and w.group ~= parent.group then parent.group:add(w) end
+    end) end),
   }
-  const keepFollowing = () => timer || (timer = setTimeout(follow, FOLLOW_MS));
+end
+`;
 
+/** Attaches windows to others' tiles: attach() before the window opens. */
+export function createPlacer({ trace = () => {} } = {}) {
   return {
     /**
-     * A window about to open over the active one (the window a page asked from: it has the
-     * keyboard), at `rect` there (CSS pixels: x, y, width, height). Resolves to the title it's
-     * to open with, or null (not Hyprland, or no such window): opened as any.
+     * A window about to open in the tile of the active one (the window a page asked from: it
+     * has the keyboard; of class `parentClass`). Resolves to the title it's to open with, or
+     * null (not Hyprland, or no such window): opened as any.
      */
-    async place(rect, { parentClass, data = {} } = {}) {
+    async attach({ parentClass } = {}) {
       if (!available) return null;
       const parent = await json("activewindow");
       if (!parent?.address || (parentClass && parent.class !== parentClass)) return null;
-      const token = crypto.randomUUID().slice(0, 8);
-      const title = `phil-over-${token}`;
-      const g = await geometryOf(parent, rect);
-      const rule = `phil_place = phil_place or {}; phil_place[${luaString(token)}] = hl.window_rule({ name = ${luaString(title)}, match = { initial_title = ${luaString(`^${title}$`)} }, ` +
-        `float = true, size = { ${g.size[0]}, ${g.size[1]} }, move = { ${g.local[0]}, ${g.local[1]} }, ` +
-        `border_size = 0, rounding = 0, no_anim = true, opacity = "1 1", tag = "-default-opacity" })`;
-      if ((await lua(rule)) === null) return null;
-      placed.set(token, { title, parent: parent.address, rect, ...data });
-      keepFollowing();
+      const title = `phil-over-${crypto.randomUUID().slice(0, 8)}`;
+      const out = await hyprctl("eval", `${SETUP}\nphil_attach.pending[${luaString(title)}] = { parent = ${luaString(parent.address)} }`);
+      if (out !== "ok") {
+        trace(`hyprland: couldn't attach (${out ?? "no hyprctl"})`);
+        return null;
+      }
+      trace(`attaching a window to ${parent.class} (${parent.address})`);
       return title;
-    },
-
-    /** The area it's over changed (the page's layout): followed from now on. */
-    move(match, rect) {
-      for (const p of placed.values()) if (match(p)) p.rect = rect;
     },
   };
 }

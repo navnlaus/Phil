@@ -10,12 +10,12 @@
 // cookie): it goes to salir over the pipe, not on a command line others can
 // read. The servers' certificate (tls.js) is given to salir to trust, that one
 // alone. Pages talk to the engine through window.salir (kit.js): "ready", "close",
-// "open", "over", "tell".
+// "open", "tell".
 //
 // A page can ask for another app's window over itself (kit.js openOver: phil's
-// videos, in videoplayer's own window): it opens there on Hyprland, following
-// the page's window till it's moved (hyprland.js), and the page is told when
-// it's closed.
+// videos, in videoplayer's own window): on Hyprland it goes in the page's
+// window's tile, as if inside it, till it's taken out (hyprland.js); the page
+// hears what it tells (tellParent) and when it's closed.
 //
 // The window's class (Wayland app id), for window rules: the app's (phil,
 // phil-choose, phil-incognito...). Windows are Chromium's own (salir's direct
@@ -67,7 +67,7 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
   let starting = null;
   let nextWindow = 1, retiring = false, stopped = false, idleTimer = 0;
   const windows = new Map(); // id -> { appId, opener?, request? } of the windows open (opener: the window that asked for it)
-  const placer = createPlacer({ trace, onParentGone: (p) => session?.send({ close: p.id }) });
+  const placer = createPlacer({ trace });
   const { promise: done, resolve: finish } = Promise.withResolvers();
 
   // salir, started when the first window opens (and again if it went).
@@ -158,7 +158,6 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       if (message?.phil === "ready") trace(`page ${window} ready ${message.detail ?? ""}`);
       else if (message?.phil === "close") session?.send({ close: window });
       else if (message?.phil === "open") onOpenRequest(window, message); // (another app's window over this one: kit.js openOver)
-      else if (message?.phil === "over") placer.move((p) => p.opener === window && p.request === message.request, message.rect);
       else if (message?.phil === "tell") tellOpener(window, message.message); // (kit.js tellParent)
     } else if (event.error) console.error(`${name}: salir: ${event.error}`);
   }
@@ -204,8 +203,8 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
 
     /**
      * Opens a window on `url` (an app's server's, with its session token), its class `appId`;
-     * `embeds`: composited (its page can hold embeds), not Chromium's own; `over`: { rect,
-     * opener, request }, asked for by window `opener`'s page, over `rect` of it (kit.js openOver).
+     * `embeds`: composited (its page can hold embeds), not Chromium's own; `over`: { opener,
+     * request }, asked for by window `opener`'s page, over it (kit.js openOver).
      */
     async openWindow(url, { appId, embeds = false, over = null }) {
       if (stopped) return;
@@ -218,7 +217,7 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       clearTimeout(idleTimer);
       const id = String(nextWindow++);
       windows.set(id, { appId, opener: over?.opener, request: over?.request });
-      const title = over ? await placer.place(over.rect, { parentClass: windows.get(over.opener)?.appId, data: { id, opener: over.opener, request: over.request } }) : null;
+      const title = over ? await placer.attach({ parentClass: windows.get(over.opener)?.appId }) : null;
       await s.send({ open: { id, url, app_id: appId, direct: !embeds, ...(title ? { initial_title: title } : {}) } });
       trace(`window ${id} opened`);
     },
