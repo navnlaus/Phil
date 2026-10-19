@@ -2226,8 +2226,12 @@ async function freeName(path) {
   }
 }
 
-function openExternal({ path, app }, incognito) {
-  requirePath(path);
+function openExternal({ path, url, app }, incognito) {
+  // A web page's or mail address's (a link in the terminal: vu's): the browser's, the mail app's.
+  if (url !== undefined) {
+    if (!/^(https?|mailto):/i.test(url)) throw httpError(400, "a web or mail link");
+    path = url;
+  } else requirePath(path);
   // (Incognito: mpv doesn't remember where it was either.)
   const mpv = ["mpv", ...(incognito ? ["--save-position-on-quit=no", "--no-resume-playback"] : []), "--", path];
   const [cmd, ...args] = app === "mpv" ? mpv : ["xdg-open", path];

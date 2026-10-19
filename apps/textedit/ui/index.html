@@ -6,6 +6,7 @@
   <title>textedit</title>
   <!-- Relative URLs: textedit is also served inside other apps (engine/server.js). -->
   <link rel="stylesheet" href="themes/base.css">
+  <link rel="stylesheet" href="engine/ui/markdown.css">
   <link rel="stylesheet" href="ui/style.css">
   <link rel="stylesheet" href="themes/current.css"> <!-- the theme in use: its colors (engine/themes.js) -->
   <script type="module" src="ui/app.js"></script>
@@ -23,7 +24,7 @@
     </section>
 
     <!-- Markdown as it reads, editable. -->
-    <article id="md" contenteditable="true" spellcheck="true" hidden></article>
+    <article id="md" class="markdown" contenteditable="true" spellcheck="true" hidden></article>
 
     <p id="message" hidden></p>
 

@@ -1,4 +1,5 @@
 import { copyText, pasteText } from "/engine/ui/kit.js";
+import { Blocks } from "./blocks.js";
 
 export const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
 
@@ -115,6 +116,13 @@ class Shell {
     this.term.loadAddon(new ImageAddon({ storageLimit: 256 }));
     this.term.open(this.container);
     this.fit.fit();
+    // Pages in it: vu's Markdown as textedit shows it (blocks.js).
+    this.blocks = new Blocks(this.term, {
+      answer: (text) => this.send(text),
+      replaying: () => this.replaying,
+      openLink: (url) => fetch("/api/open", { method: "POST", body: JSON.stringify({ url }) }),
+      copy: copyText,
+    });
 
     this.term.parser.registerOscHandler(7, (data) => {
       // An earlier shell's screen given again: where it was is all that counts (applied once given).

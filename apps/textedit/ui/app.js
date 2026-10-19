@@ -1,5 +1,5 @@
 import { askPassword, clipboardKey, closeWindow, copyText, embedded, holdFocus, onCloseRequest, pasteText, ready, tooltips } from "../engine/ui/kit.js";
-import { render as renderMarkdown, toMarkdown } from "./markdown.js";
+import { render as renderMarkdown, toMarkdown } from "../engine/ui/markdown.js";
 import { commentOf, detectLanguage, escape, LANGUAGES } from "../engine/ui/syntax.js";
 
 tooltips(); // the page's own, in the theme's style (kit.js)

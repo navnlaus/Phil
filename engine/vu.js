@@ -1,10 +1,13 @@
-// vu FILE...: files shown in the terminal as cat shows them, but to read:
-// Markdown rendered (headings, emphasis, lists, quotes, tables, code
-// highlighted, links), documents (Word, RTF, OpenDocument, ...: documents.js)
-// converted to Markdown first, pictures drawn in the text (iTerm's inline
-// image protocol, which phil's terminal draws: xterm.js's image addon), fitted
-// to the terminal and never enlarged; other text highlighted as code. Into a
-// pipe or a file: the text plain, pictures left out.
+// vu FILE...: files shown in the terminal as cat shows them, but to read. In
+// phil's terminal, Markdown as it reads in textedit (documents: Word, RTF,
+// OpenDocument, ..., converted to it first: documents.js) and HTML as a web
+// page: a page sent to the terminal (sendPage; apps/phil/ui/blocks.js draws
+// it in rows it leaves for it in its text), its pictures in it. Pictures by
+// themselves are drawn in the text (iTerm's inline image protocol, which
+// xterm.js's image addon draws), fitted to the terminal, never enlarged.
+// Other text: highlighted as code. In another terminal, Markdown is rendered
+// in the text (headings, emphasis, lists, tables, code); into a pipe or a
+// file, the text plain, pictures left out.
 //
 // phil's terminal runs it as `vu` (shell-init.bash): phil-engine --vu FILE...
 
@@ -15,6 +18,9 @@ const PICTURES = new Set(["png", "jpg", "jpeg", "jpe", "jfif", "gif", "webp", "a
 const MARKDOWN = new Set(["md", "markdown", "mdx", "mkd"]);
 const MAX_BYTES = 3 << 20; // a picture with more is made again, smaller (vips)
 const CELL = { w: 9, h: 18 }; // px, a terminal's cell, if it doesn't say
+const PAGE_OSC = 5379; // phil's terminal's pages (apps/phil/ui/blocks.js)
+const PAGE_LIMIT = 9_500_000; // characters in a page, at most (xterm.js takes 10 M in a sequence)
+const PAGE_PICTURE = 1600; // px: a page's pictures, at most this wide (made so by vips)
 const MAX_WIDTH = 100; // columns text is wrapped at, at most
 
 const USAGE = `Usage: vu FILE...
@@ -41,11 +47,14 @@ export async function vu(args) {
     const { columns, rows } = Deno.consoleSize(); // (0 x 0 in some: script's)
     return { w: (columns || 80) * (cell ?? CELL).w, h: Math.max(4, (rows || 24) - 4) * (cell ?? CELL).h };
   }));
+  // Whether it draws pages (Markdown as textedit shows it, HTML): phil's terminal does.
+  let pagesAsked = null;
+  const pages = () => (pagesAsked ??= tty ? drawsPages() : Promise.resolve(false));
   let status = 0;
   for (const [n, path] of files.entries()) {
     try {
       if (files.length > 1) out.line((n ? "\n" : "") + paint([{ t: `── ${path} ──`, s: "2" }], tty));
-      await show(path, { tty, width, out, box });
+      await show(path, { tty, width, out, box, pages });
     } catch (err) {
       await out.flush();
       const why = err instanceof Deno.errors.NotFound ? "no such file" : err instanceof Deno.errors.PermissionDenied ? "not allowed to read it" : err.message;
@@ -73,6 +82,7 @@ async function show(path, ctx) {
   if (bytes.subarray(0, 8192).includes(0)) throw new Error("not text, a document or a picture");
   const text = new TextDecoder().decode(bytes);
   if (MARKDOWN.has(ext)) return markdown(text, base, ctx);
+  if (["html", "htm", "xhtml"].includes(ext) && await ctx.pages() && await sendPage(await htmlPage(text, base), ctx)) return;
   const { detectLanguage, highlightRuns } = await import("./ui/syntax.js");
   for (const line of highlightRuns(clean(text).replace(/\n$/, ""), detectLanguage(path, text))) {
     ctx.out.line(paint(line.map(([t, role]) => ({ t, s: ROLE_STYLES[role] ?? "" })), ctx.tty));
@@ -111,11 +121,9 @@ class Output {
       const why = !ctx.tty ? "" : `: ${got.error}`;
       return this.line(paint([{ t: `[picture: ${label}${why}]`, s: "2" }], ctx.tty));
     }
-    let b64 = "";
-    for (let at = 0; at < got.data.length; at += 49152) b64 += btoa(String.fromCharCode(...got.data.subarray(at, at + 49152)));
     // (The addon puts the cursor on the picture's last row: the next line goes below it.)
     const width = got.width ? `;width=${got.width}px` : "";
-    this.text += `\x1b]1337;File=inline=1;size=${got.data.length}${width};preserveAspectRatio=1:${b64}\x07\n`;
+    this.text += `\x1b]1337;File=inline=1;size=${got.data.length}${width};preserveAspectRatio=1:${base64(got.data)}\x07\n`;
     await this.flush();
   }
 }
@@ -148,13 +156,13 @@ function sniff(d) {
  * terminal draws it and it's not too big, else made by vips (a PNG, or a JPEG of a JPEG-like
  * photo). {data, width (px, shown)} or {error}.
  */
-async function picture(bytes, name, box) {
+async function picture(bytes, name, box, maxBytes = MAX_BYTES) {
   const fitted = (data) => {
     const { width = 0, height = 0 } = sniff(data) ?? {};
     return { data, width: width && height ? Math.max(1, Math.floor(width * Math.min(1, box.w / width, box.h / height))) : 0 };
   };
   const kind = sniff(bytes);
-  if (kind && kind.width && kind.width <= box.w && kind.height <= box.h && bytes.length <= MAX_BYTES) return fitted(bytes);
+  if (kind && kind.width && kind.width <= box.w && kind.height <= box.h && bytes.length <= maxBytes) return fitted(bytes);
   const ext = extname(name.split(/[?#]/)[0]).slice(1).toLowerCase();
   const photo = kind?.type === "jpeg" || ["jpg", "jpeg", "jpe", "jfif", "heic", "heif"].includes(ext);
   const dir = await Deno.makeTempDir({ prefix: "phil-vu-" });
@@ -174,8 +182,11 @@ async function picture(bytes, name, box) {
   }
 }
 
-/** A picture a document points to (`src`: a path from `base`, a file:, data: or http(s) URL), as picture() gives it. */
-async function fetchPicture(src, base, box) {
+/**
+ * A picture a document points to (`src`: a path from `base`, a file:, data: or http(s) URL),
+ * as `prepare(bytes, name)` makes it, or {error}.
+ */
+async function fetchPicture(src, base, prepare) {
   try {
     if (src.startsWith("data:")) {
       const comma = src.indexOf(",");
@@ -183,49 +194,158 @@ async function fetchPicture(src, base, box) {
       const bytes = meta.endsWith(";base64")
         ? Uint8Array.from(atob(body.replace(/\s/g, "")), (c) => c.charCodeAt(0))
         : new TextEncoder().encode(decodeURIComponent(body));
-      return picture(bytes, `x.${/image\/([\w+]+)/.exec(meta)?.[1]?.replace("svg+xml", "svg").replace("jpeg", "jpg") ?? "img"}`, box);
+      return prepare(bytes, `x.${/image\/([\w+]+)/.exec(meta)?.[1]?.replace("svg+xml", "svg").replace("jpeg", "jpg") ?? "img"}`);
     }
     if (/^https?:/i.test(src)) {
       const res = await fetch(src, { signal: AbortSignal.timeout(5000) });
       if (!res.ok) return { error: `${res.status} from ${new URL(src).host}` };
       const type = res.headers.get("content-type") ?? "";
       const name = /svg/.test(type) ? "x.svg" : new URL(src).pathname;
-      return picture(new Uint8Array(await res.arrayBuffer()), name, box);
+      return prepare(new Uint8Array(await res.arrayBuffer()), name);
     }
     const path = src.startsWith("file:") ? fromFileUrl(src) : resolve(base, safeDecode(src.split(/[?#]/)[0]));
-    return picture(await Deno.readFile(path), path, box);
+    return prepare(await Deno.readFile(path), path);
   } catch (err) {
     return { error: err instanceof Deno.errors.NotFound ? "not found" : err.name === "TimeoutError" ? "took too long to download" : err.message };
   }
 }
 
+// What the terminal answers (to ask()), as it comes: one reader for all the questions.
+let heard = "", reading = false;
+const hearing = new Set();
+
 /**
- * The terminal's cell size, px ({w, h}): its answer to CSI 16 t (phil's terminal's image addon
- * gives it), or null if it doesn't answer.
+ * `question` asked of the terminal; resolves to its answer's match of `pattern`, or null if
+ * it doesn't answer in `ms`. (Its input raw meanwhile: the answer isn't echoed.)
  */
-async function cellSize() {
-  if (!Deno.stdin.isTerminal()) return null;
-  Deno.stdin.setRaw(true);
+async function ask(question, pattern, ms = 500) {
+  if (!Deno.stdin.isTerminal() || !Deno.stdout.isTerminal()) return null;
   try {
-    await Deno.stdout.write(new TextEncoder().encode("\x1b[16t"));
-    const answer = (async () => {
-      const buf = new Uint8Array(256);
-      let got = "";
-      for (;;) {
-        const n = await Deno.stdin.read(buf);
-        if (n === null) return null;
-        got += new TextDecoder().decode(buf.subarray(0, n));
-        // deno-lint-ignore no-control-regex
-        const m = /\x1b\[6;(\d+);(\d+)t/.exec(got);
-        if (m) return { w: Number(m[2]), h: Number(m[1]) };
-      }
-    })();
-    return await Promise.race([answer, new Promise((r) => setTimeout(() => r(null), 500))]);
+    Deno.stdin.setRaw(true);
+    if (!reading) {
+      reading = true;
+      (async () => {
+        const buf = new Uint8Array(1024);
+        for (;;) {
+          const n = await Deno.stdin.read(buf).catch(() => null);
+          if (n === null) return;
+          heard += new TextDecoder().decode(buf.subarray(0, n));
+          for (const check of hearing) check();
+        }
+      })();
+    }
+    await Deno.stdout.write(new TextEncoder().encode(question));
+    return await new Promise((resolve) => {
+      const done = (answer) => {
+        clearTimeout(timer);
+        hearing.delete(check);
+        resolve(answer);
+      };
+      const check = () => {
+        const m = pattern.exec(heard);
+        if (m) (heard = heard.slice(m.index + m[0].length)), done(m);
+      };
+      const timer = setTimeout(() => done(null), ms);
+      hearing.add(check);
+      check();
+    });
   } catch {
     return null;
   } finally {
     Deno.stdin.setRaw(false);
   }
+}
+
+/** The terminal's cell size, px ({w, h}): its answer to CSI 16 t (phil's gives it), or null. */
+async function cellSize() {
+  // deno-lint-ignore no-control-regex
+  const m = await ask("\x1b[16t", /\x1b\[6;(\d+);(\d+)t/);
+  return m && { w: Number(m[2]), h: Number(m[1]) };
+}
+
+/** Whether the terminal draws pages (phil's: apps/phil/ui/blocks.js): Markdown as textedit shows it. */
+async function drawsPages() {
+  if (!Deno.env.get("PHIL_TERMINAL")) return false;
+  return !!(await ask(`\x1b]${PAGE_OSC};?\x07`, new RegExp(`\x1b\\]${PAGE_OSC};blocks\x07`), 1000));
+}
+
+// ---- Pages: what phil's terminal draws (drawsPages())
+
+/** Sends `spec` ({markdown, images} or {html}) to the terminal to draw; false if it's too big. */
+async function sendPage(spec, ctx) {
+  // (JSON has no control characters in it but the 8-bit ones, which could end the sequence.)
+  const json = JSON.stringify(spec).replace(/[\u0080-\u009f]/g, (c) => `\\u00${c.charCodeAt(0).toString(16)}`);
+  if (json.length > PAGE_LIMIT) return false;
+  ctx.out.text += `\x1b]${PAGE_OSC};block;${json}\x07`; // (the terminal leaves rows for it, the cursor after them)
+  await ctx.out.flush();
+  return true;
+}
+
+// Markdown's pictures, as markdown.js finds them.
+const MD_PICTURE = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?/g;
+
+/** Markdown as a page: its pictures in it (data: URLs), as many as there's room for. */
+async function markdownPage(md, base) {
+  const srcs = [...new Set([...md.matchAll(MD_PICTURE)].map((m) => m[1]))];
+  // Those already in the text (a document's) go once, in images, a short name in the text.
+  const names = srcs.map((src, n) => (src.startsWith("data:") ? `vu-picture-${n}` : src));
+  let text = md;
+  srcs.forEach((src, n) => names[n] !== src && (text = text.replaceAll(src, names[n])));
+  const got = await Promise.all(srcs.map((src) => fetchPicture(src, base, pagePicture)));
+  const images = {};
+  let room = PAGE_LIMIT - text.length - 4096;
+  got.forEach(({ url }, n) => {
+    if (!url || url.length + names[n].length > room) return; // (no room: its alt text shows)
+    room -= url.length + names[n].length;
+    images[names[n]] = url;
+  });
+  return { markdown: text, images };
+}
+
+/** A web page as a page: its pictures and style sheets (those beside it) in it. */
+async function htmlPage(html, base) {
+  const sheets = [...html.matchAll(/<link\b[^>]*\brel\s*=\s*["']?stylesheet[^>]*>/gi)];
+  for (const [tag] of sheets) {
+    const href = attr(tag, "href");
+    if (!href || /^[a-z][\w+.-]*:/i.test(href)) continue;
+    const css = await Deno.readTextFile(resolve(base, safeDecode(href.split(/[?#]/)[0]))).catch(() => null);
+    if (css !== null) html = html.replace(tag, () => `<style>${css.replaceAll("</style", "<\\/style")}</style>`);
+  }
+  const srcs = [...new Set([...html.matchAll(/<img\b[^>]*>/gi)].map(([tag]) => attr(tag, "src")).filter((s) => s && !s.startsWith("data:")))];
+  const got = await Promise.all(srcs.map((src) => fetchPicture(src, base, pagePicture)));
+  let room = PAGE_LIMIT - html.length - 4096;
+  got.forEach(({ url }, n) => {
+    if (!url || url.length > room) return;
+    room -= url.length;
+    html = html.replace(/<img\b[^>]*>/gi, (tag) => (attr(tag, "src") === srcs[n] ? tag.replace(/\bsrc\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, `src="${url}"`) : tag));
+  });
+  return { html };
+}
+
+/** A picture for a page: as it is if the browser shows it and it's small, else made smaller (vips). */
+async function pagePicture(bytes, name) {
+  const type = browserType(bytes, name);
+  if (type && bytes.length <= 512 << 10) return { url: `data:${type};base64,${base64(bytes)}` };
+  const got = await picture(bytes, name, { w: PAGE_PICTURE, h: PAGE_PICTURE * 4 }, 512 << 10);
+  if (!got.data) return got;
+  return { url: `data:image/${sniff(got.data)?.type ?? "png"};base64,${base64(got.data)}` };
+}
+
+// What kind of picture the browser shows these bytes as (by their start; an SVG by its name too), or null.
+function browserType(d, name) {
+  const kind = sniff(d);
+  if (kind) return `image/${kind.type}`;
+  const head = new TextDecoder().decode(d.subarray(0, 512));
+  if (head.startsWith("RIFF") && head.slice(8, 12) === "WEBP") return "image/webp";
+  if (head.slice(4, 12) === "ftypavif") return "image/avif";
+  if (/\.svg$/i.test(name) || /^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg\b/i.test(head)) return "image/svg+xml";
+  return null;
+}
+
+function base64(bytes) {
+  let out = "";
+  for (let at = 0; at < bytes.length; at += 49152) out += btoa(String.fromCharCode(...bytes.subarray(at, at + 49152)));
+  return out;
 }
 
 const safeDecode = (s) => {
@@ -239,6 +359,8 @@ const safeDecode = (s) => {
 // ---- Markdown
 
 async function markdown(md, base, ctx) {
+  // In phil's terminal: as textedit shows it.
+  if (await ctx.pages() && await sendPage(await markdownPage(md, base), ctx)) return;
   const lines = clean(md).split("\n").map((l) => l.replace(/^\t+/, (t) => "    ".repeat(t.length)));
   const refs = {};
   let blocks;
@@ -250,7 +372,7 @@ async function markdown(md, base, ctx) {
   const pictures = new Map(); // src -> fetchPicture()'s promise (all fetched at once, shown in order)
   // Code in it: highlighted (highlight.js, loaded only then).
   const highlight = /^ {0,3}(```|~~~)/m.test(md) ? (await import("./ui/syntax.js")).highlightRuns : null;
-  const r = { ...ctx, refs, depth: 0, highlight, picture: (src) => pictures.get(src) ?? pictures.set(src, ctx.tty ? ctx.box().then((box) => fetchPicture(src, base, box)) : Promise.resolve({})).get(src) };
+  const r = { ...ctx, refs, depth: 0, highlight, picture: (src) => pictures.get(src) ?? pictures.set(src, ctx.tty ? ctx.box().then((box) => fetchPicture(src, base, (bytes, name) => picture(bytes, name, box))) : Promise.resolve({})).get(src) };
   for (const item of renderBlocks(blocks, ctx.width, r)) {
     if (typeof item === "string") ctx.out.line(item);
     else await ctx.out.picture(await item.got, item.src, ctx, item.alt);

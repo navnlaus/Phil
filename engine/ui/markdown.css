@@ -1,0 +1,26 @@
+/* Markdown as it reads: textedit's view, and vu's in phil's terminal
+   (markdown.js renders it; the element it's in has class "markdown"). */
+
+.markdown {
+  font: 15px/1.65 system-ui, sans-serif;
+  color: var(--text);
+}
+.markdown > :first-child { margin-top: 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6 { margin: 1.4em 0 0.5em; line-height: 1.25; }
+.markdown h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+.markdown h2 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+.markdown h3 { font-size: 1.2em; }
+.markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown pre, .markdown table { margin: 0 0 0.9em; }
+.markdown ul, .markdown ol { padding-left: 1.6em; }
+.markdown li.task { list-style: none; margin-left: -1.3em; }
+.markdown a { color: var(--accent); }
+.markdown code { font: 0.88em var(--mono); padding: 0.12em 0.35em; border-radius: 4px; background: var(--bg-raised); }
+.markdown pre { padding: 10px 12px; border-radius: 6px; background: var(--bg-side); border: 1px solid var(--border); overflow-x: auto; font: 13px/1.5 var(--mono); }
+.markdown pre code { padding: 0; background: none; font: inherit; }
+.markdown pre.frontmatter, .markdown pre.raw { color: var(--text-dim); border-style: dashed; }
+.markdown blockquote { margin-left: 0; padding: 0.1em 1em; border-left: 3px solid var(--border); color: var(--text-dim); }
+.markdown hr { border: 0; border-top: 1px solid var(--border); margin: 1.6em 0; }
+.markdown img { max-width: 100%; }
+.markdown table { border-collapse: collapse; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 5px 10px; }
+.markdown th { background: var(--bg-side); }

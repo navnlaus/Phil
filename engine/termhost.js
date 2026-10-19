@@ -32,7 +32,7 @@ import { Pty } from "./pty.js";
 
 export const DATA = 0;
 export const JSON_FRAME = 1;
-const MAX_REPLAY = 4 << 20; // bytes of output kept for a client that attaches (pictures vu drew too)
+const MAX_REPLAY = 12 << 20; // bytes of output kept for a client that attaches (vu's pictures and pages too)
 
 /** A frame's bytes. */
 export function frame(type, payload) {

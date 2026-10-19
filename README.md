@@ -536,12 +536,14 @@ engine/tls.js       the servers' certificate, made at each start (HTTPS, for HTT
 engine/http.js      responses, files with Range
 engine/pty.js       pseudo-terminals via libc FFI (Deno has no PTY API)
 engine/termhost.js  a terminal's shell in a process of its own, apart from the engine (--term-host)
-engine/vu.js        `vu` in phil's terminal: files to read, Markdown rendered, pictures drawn (--vu)
+engine/vu.js        `vu` in phil's terminal: files to read, Markdown as textedit shows it, pictures drawn (--vu)
 engine/apps.js      the apps, and what an app consists of
 engine/ui/          scripts every app's pages share: kit.js (windows, showing
                     another app inside a window, the clipboard), syntax
                     highlighting (syntax.js, with highlight.js in vendor/,
-                    BSD-3-Clause; syntax-worker.js)
+                    BSD-3-Clause; syntax-worker.js), Markdown (markdown.js:
+                    to HTML and back, markdown.css: as it reads; textedit's,
+                    and vu's pages in phil's terminal)
 themes/             the built-in themes: styles every app's pages share
                     (base.css) and phil's tile themes (overlay.css, ...), copied
                     to ~/.config/phil/themes on install; engine/themes.js serves
@@ -552,7 +554,7 @@ apps/phil/          launch.js (options, window URL), server.js (listing, files,
                     summaries), texthead.js (text tiles), dbus.js
                     (FileManager1), shell-init.bash, ui/ (ui/vendor: xterm.js 6 and its fit and image addons, MIT; Lucide's icons, ISC; Day.js, MIT, for "5 minutes ago")
 apps/jsonedit/      launch.js, server.js, ui/ (json.js: a parser that keeps positions)
-apps/textedit/      launch.js, server.js, ui/ (markdown.js: Markdown to HTML and back)
+apps/textedit/      launch.js, server.js, ui/
 apps/phil/tagging.js, tagging/
                     auto-tagging: tagger.py (the Python helper: SigLIP 2, EmbeddingGemma 2),
                     tags.txt and document-tags.txt (phil's lists)
@@ -697,25 +699,36 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
   leaves the shell alone.
 - Right-click a file → "Paste path in terminal" inserts its quoted path.
 - `vu file` shows a file to read, in the terminal, as `cat` would (not a
-  viewer: the output stays in the scrollback):
-  - Markdown, rendered: headings, emphasis, lists and tasks, quotes (GitHub's
-    `> [!NOTE]` alerts too), tables, code blocks highlighted, links with their
-    URLs.
+  viewer: it stays in the scrollback, the prompt after it):
+  - Markdown as it reads in textedit, with textedit's renderer and style, its
+    pictures in it: a page in the terminal's text, as wide as the terminal,
+    as tall as it is, scrolling with the rest. Its links open in the browser;
+    its text is selected and copied there (Ctrl+C, Ctrl+Insert), not with
+    the terminal's own.
   - Word, RTF and OpenDocument documents, converted to Markdown first, as phil
     reads them anyway (LibreOffice; kept with the thumbnails, so a second
-    `vu` is quick).
+    `vu` is quick), and shown the same way.
+  - HTML files, as web pages, with their pictures and style sheets (those
+    beside them). No scripts run in them.
   - Pictures (PNG, JPEG, GIF, WebP, AVIF, HEIC, SVG...), drawn in the
     terminal: as wide as it is and as tall, leaving the command and the next
-    prompt in view, never made bigger than they are. A picture in a Markdown
-    file or document (a path, `data:` or a web address) is drawn where it is.
-    vips makes ones the terminal can't draw, or big ones, into a PNG or JPEG
-    of that size first.
+    prompt in view, never made bigger than they are. vips makes ones the
+    terminal can't draw, or big ones, into a PNG or JPEG of that size first.
   - Any other text, highlighted as code.
 
-  Several files go one after another, each with its name. Into a pipe or a
-  file (`vu notes.md | less`), the text comes plain, without pictures. vu is
-  phil-engine's (`phil-engine --vu`): xterm.js's image addon draws the
-  pictures, from iTerm's inline image escape sequence.
+  Several files go one after another, each with its name. The pages are
+  drawn when they come, at the terminal's width then: a terminal in the
+  background shown again draws them again, at its own. A page goes when its
+  part of the screen is erased (`clear`). Outside phil's terminal (another
+  terminal, a pipe), Markdown is drawn in the terminal's text instead
+  (headings, emphasis, lists, tables, code highlighted), and into a pipe or a
+  file (`vu notes.md | less`) it comes plain, without pictures.
+
+  vu is phil-engine's (`phil-engine --vu`). A page goes to the terminal in an
+  escape sequence of phil's (OSC 5379, `apps/phil/ui/blocks.js`), in rows it
+  leaves for it, in a sandboxed frame (any program can send one: nothing in
+  it runs). Pictures go as iTerm's inline images, which xterm.js's image
+  addon draws.
 - `phil-editor file` (or `ed file`) opens the file's editor over the folder,
   in this window; Esc comes back to the terminal.
 - On a network mount (NFS, sshfs; from /etc/fstab or mounted), `ssh` with

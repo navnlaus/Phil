@@ -7,6 +7,8 @@
 // block that's unchanged (same HTML as rendered) as it was, and Markdown made
 // from the HTML only for blocks that were edited or are new, so editing one
 // paragraph doesn't reformat the rest of the file.
+//
+// textedit shows Markdown with it, and phil's terminal vu's pages (apps/phil/ui/blocks.js).
 
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -43,10 +45,12 @@ export function render(md, { resolve = (s) => s } = {}) {
 }
 
 // Marks a top-level element with its block number; remembers its source and
-// rendered HTML.
+// rendered HTML (as the browser writes it: parsed in a document of its own, where
+// nothing loads, its pictures neither).
+let inert;
 function addBlock(blocks, src, html) {
   const marked = html.replace(/^<(\w+)/, `<$1 data-block="${blocks.length}"`);
-  const box = document.createElement("div");
+  const box = (inert ??= document.implementation.createHTMLDocument("")).createElement("div");
   box.innerHTML = marked;
   blocks.push({ src, html: box.firstElementChild?.outerHTML ?? marked });
   return marked;

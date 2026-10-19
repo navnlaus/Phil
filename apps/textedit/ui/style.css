@@ -116,27 +116,6 @@ main { position: relative; height: 100%; }
   overflow: auto;
   padding: 48px max(24px, calc((100% - 46rem) / 2)) 40vh;
   outline: none;
-  font: 15px/1.65 system-ui, sans-serif;
-  color: var(--text);
 }
-#md > :first-child { margin-top: 0; }
-#md h1, #md h2, #md h3, #md h4, #md h5, #md h6 { margin: 1.4em 0 0.5em; line-height: 1.25; }
-#md h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
-#md h2 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
-#md h3 { font-size: 1.2em; }
-#md p, #md ul, #md ol, #md blockquote, #md pre, #md table { margin: 0 0 0.9em; }
-#md ul, #md ol { padding-left: 1.6em; }
-#md li.task { list-style: none; margin-left: -1.3em; }
-#md a { color: var(--accent); }
-#md code { font: 0.88em var(--mono); padding: 0.12em 0.35em; border-radius: 4px; background: var(--bg-raised); }
-#md pre { padding: 10px 12px; border-radius: 6px; background: var(--bg-side); border: 1px solid var(--border); overflow-x: auto; font: 13px/1.5 var(--mono); }
-#md pre code { padding: 0; background: none; font: inherit; }
-#md pre.frontmatter, #md pre.raw { color: var(--text-dim); border-style: dashed; }
-#md blockquote { margin-left: 0; padding: 0.1em 1em; border-left: 3px solid var(--border); color: var(--text-dim); }
-#md hr { border: 0; border-top: 1px solid var(--border); margin: 1.6em 0; }
-#md img { max-width: 100%; }
-#md table { border-collapse: collapse; }
-#md th, #md td { border: 1px solid var(--border); padding: 5px 10px; }
-#md th { background: var(--bg-side); }
 
 #message { position: absolute; inset: 60px 20px auto; margin: 0; padding: 10px 12px; border-radius: 6px; background: rgba(255, 107, 107, 0.12); color: var(--error); }
