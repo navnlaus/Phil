@@ -627,7 +627,8 @@ window and its own height.
 **In the background** (Super+°, Super+` elsewhere): the shell, and whatever
 runs in it, goes on without the panel, as in screen or tmux. The panel closes;
 its next shell is a new one. The sidebar's Processes list those, what runs
-there (`vim notes.md`, `sleep 600`, `bash` at its prompt) and for how long; a
+there (`vim notes.md`, `sleep 600`; a shell at its prompt: the folder it's in)
+and for how long; a
 click shows one in the panel again, as it was (its screen and scrollback: the
 last megabyte it wrote), and the panel's shell till then goes to the background
 in its place (one at an empty prompt is closed instead); × ends one (what runs

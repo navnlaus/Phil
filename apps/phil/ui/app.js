@@ -3992,14 +3992,20 @@ function makeProcessRow() {
   return row;
 }
 
+const SHELLS = new Set(["bash", "sh", "zsh", "fish", "dash"]);
+
 function showProcessRow(row, p) {
   const [name, time, cancel] = row.children;
   showProcessTime(time, p);
   if (p.kind === "terminal") {
-    // A terminal in the background: what runs there (its program without its path), where.
+    // A terminal in the background: what runs there (its program without its path); just a
+    // shell (at its prompt): the folder it's in.
     const [program = "bash", ...args] = (p.command || "bash").split(/\s+/);
-    put(name, "textContent", [program.split("/").pop().replace(/^-/, ""), ...args].join(" "));
-    put(row, "title", `A terminal in the background: ${p.command || "bash"}, in ${p.cwd || "?"}. A click shows it in the terminal panel`);
+    const shown = program.split("/").pop().replace(/^-/, "");
+    const folder = p.cwd === state.init.home ? "~" : p.cwd === "/" ? "/" : p.cwd?.split("/").pop();
+    put(name, "textContent", SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" "));
+    const what = SHELLS.has(shown) ? `its shell at its prompt` : p.command;
+    put(row, "title", `A terminal in the background: ${what}, in ${p.cwd || "?"}. A click shows it in the terminal panel`);
     put(cancel, "title", "End it (what runs there is hung up)");
     return;
   }
