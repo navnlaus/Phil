@@ -156,6 +156,9 @@ body:hover #wall-list-button, #wall-list-button:focus-visible, #wall-list-button
 /* A camera filling the window: its tile, the same stream (and the controls over it). */
 #wall .cam.focused { position: fixed; inset: 0; z-index: 3; background: #000; cursor: default; }
 #wall .cam.focused::after, #wall .cam.focused .cam-name { display: none; }
+/* An mpv camera filling the window: see-through to its picture, and the other tiles (their pictures under the page too) hidden. */
+#wall .cam.mpv.focused { background: transparent; }
+body.focused #wall .cam:not(.focused) { visibility: hidden; }
 body.focused #wall-list-button { display: none; }
 #wall-page { position: fixed; z-index: 8; inset: 0; background: #000; }
 #wall-page[hidden] { display: none; }
