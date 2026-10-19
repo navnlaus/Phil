@@ -40,12 +40,14 @@ __phil_prompt() {
   local status=$?
   # A terminal phil put in the background to run something (phil --background, a
   # script marked so): that, once, before the first prompt: on the screen, only
-  # its output; when it ends, the prompt.
+  # its output. When it ends, so does the terminal (PHIL_RUN_THEN=exit; a script
+  # that only goes somewhere: its prompt, there).
   if [[ -n ${PHIL_RUN-} ]]; then
-    local run=$PHIL_RUN
-    unset PHIL_RUN
+    local run=$PHIL_RUN then=${PHIL_RUN_THEN-}
+    unset PHIL_RUN PHIL_RUN_THEN
     eval "$run"
     status=$?
+    [[ $then == exit ]] && exit "$status"
   fi
   [[ -n $PHIL_CD_FILE && -e $PHIL_CD_FILE ]] && __phil_follow
   __phil_report_cwd

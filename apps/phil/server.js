@@ -603,7 +603,10 @@ export function createServer({ profile, controlSocket }) {
       case "POST /api/terms-run": { // {path}: a script marked to run in the background: a terminal there, named after it, running it
         const path = requirePath((await req.json()).path);
         const name = basename(path).replace(/\.(sh|bash)$/, "");
-        const result = await background({ command: [".", path], name, cwd: dirname(path) });
+        // (One that only goes somewhere, cds and nothing else: its shell stays, there.)
+        const lines = (await Deno.readTextFile(path).catch(() => "")).split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+        const stay = lines.length > 0 && lines.every((l) => /^cd\s+(?:'[^']*'|\S+)$/.test(l));
+        const result = await background({ command: [".", path], name, cwd: dirname(path), stay });
         if (!result.ok) throw httpError(409, result.error);
         return json(result);
       }
@@ -1032,11 +1035,12 @@ export function createServer({ profile, controlSocket }) {
 
   // phil --background: a terminal put in the background at once, last in their order: its shell
   // in `cwd`, running `command` before its first prompt (shell-init.bash's PHIL_RUN: nothing typed,
-  // only its output on the screen; when it ends, the shell's there), `name` its name.
-  async function background({ command = [], name = "", cwd }) {
+  // only its output on the screen), `name` its name. When `command` ends, so does the terminal
+  // (`stay`: its shell's prompt then, there: a script that only cds).
+  async function background({ command = [], name = "", cwd, stay = false }) {
     if (!terms.persistent) return { ok: false, error: "no terminals in the background here (incognito)" };
     const terminal = crypto.randomUUID();
-    await startShell(terminal, await isDir(cwd ?? "") ? cwd : home(), 120, 36, command.length ? { PHIL_RUN: command.map(shellWord).join(" ") } : {});
+    await startShell(terminal, await isDir(cwd ?? "") ? cwd : home(), 120, 36, command.length ? { PHIL_RUN: command.map(shellWord).join(" "), ...(stay ? {} : { PHIL_RUN_THEN: "exit" }) } : {});
     const host = await terms.attach(terminal, { onData() {}, onMessage() {}, onClose() {} });
     if (!host) return { ok: false, error: "its terminal didn't start" };
     await host.send({ keep: true });

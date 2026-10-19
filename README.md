@@ -656,8 +656,9 @@ closes; its next main shell is a new one. Not in incognito windows.
   typed there, `ssh -t host 'that command'`), marked to run in the background (its Properties: "Run
   in the background"). Double-clicked, a script so marked doesn't take the
   terminal panel: a terminal in the background runs it (sourced in its shell
-  before its first prompt: on its screen only what it writes; at its prompt,
-  where it was, when it ends), named after it, last in the
+  before its first prompt: on its screen only what it writes), and ends when
+  it does (shown then, the main terminal's back; a script that only cds keeps
+  its shell there), named after it, last in the
   list. `phil --background --name NAME --cwd DIR -- COMMAND…` does that from
   anywhere (the engine started for it if it's not running).
 - **They outlive the window and the engine**: each shell runs in a process of
