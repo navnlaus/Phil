@@ -277,6 +277,9 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 #processes { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
 .process-row { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; }
 .process-row:hover { background: var(--bg-hover); }
+/* A terminal in the background shown in this window's panel; one shown in another window's. */
+.process-row.current { background: var(--accent-bg); color: var(--accent); }
+.process-row.elsewhere .process-name { color: var(--text-dim); }
 .process-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .process-time { flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .process-row .cancel { flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text-dim); font-size: 14px; line-height: 1; cursor: pointer; }

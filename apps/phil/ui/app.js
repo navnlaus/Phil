@@ -1,5 +1,5 @@
 import { appUrl, askPassword, clipboardKey, closeWindow, copyText, embedOf, holdFocus, openOver, pasteText, ready, tooltips } from "/engine/ui/kit.js";
-import { isBackgroundKey, isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
+import { isBackgroundKey, isFocusKey, isToggleKey, shellQuote, switchKey, TerminalPanel } from "/ui/terminal.js";
 import "/ui/vendor/dayjs.min.js"; // (UMD: globalThis.dayjs; MIT)
 import "/ui/vendor/dayjs-relativeTime.js";
 
@@ -787,7 +787,8 @@ async function load(path, { recount = false } = {}) {
   if (!document.activeElement?.closest("#term-panel")) grid.focus({ preventScroll: true });
   if (restoreTerminal) {
     restoreTerminal = false;
-    setTerminalOpen(true, { focus: false });
+    if (startCovered) setTerminalCover(true);
+    setTerminalOpen(true, { focus: startCovered });
   }
   if (initialSelect) { // files given on the command line, e.g. from "Show in folder"
     const indexes = initialSelect.map((p) => state.view.findIndex((e) => e.path === p)).filter((i) => i !== -1);
@@ -2168,7 +2169,9 @@ addEventListener("message", (e) => {
     frame.contentWindow.focus();
     frame.contentWindow.postMessage({ engine: "focus" }, "*"); // now it can focus its view (kit.js holdFocus)
   } else if (e.data?.engine === "terminal") { // the terminal's keys, pressed in the app (kit.js)
-    e.data.key === "background" ? backgroundTerminal() : toggleTerminal();
+    if (e.data.key === "background") backgroundTerminal();
+    else if (e.data.key === "switch") switchTerminal(e.data.which);
+    else toggleTerminal();
   } else if (e.data?.engine === "close") {
     closeApp();
   } else if (e.data?.app === "mediaview" && e.data.transfer) { // a download's %: it in the Transfers view, mediaview behind it
@@ -3998,6 +4001,9 @@ function showProcessRow(row, p) {
   const [name, time, cancel] = row.children;
   showProcessTime(time, p);
   if (p.kind === "terminal") {
+    // (The one this panel shows: marked; one another window's shows: dimmed.)
+    row.classList.toggle("current", p.term === terminal.session);
+    row.classList.toggle("elsewhere", !!p.attached && p.term !== terminal.session);
     // A terminal in the background: what runs there (its program without its path); just a
     // shell (at its prompt): the folder it's in.
     const [program = "bash", ...args] = (p.command || "bash").split(/\s+/);
@@ -4005,7 +4011,9 @@ function showProcessRow(row, p) {
     const folder = p.cwd === state.init.home ? "~" : p.cwd === "/" ? "/" : p.cwd?.split("/").pop();
     put(name, "textContent", SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" "));
     const what = SHELLS.has(shown) ? `its shell at its prompt` : p.command;
-    put(row, "title", `A terminal in the background: ${what}, in ${p.cwd || "?"}. A click shows it in the terminal panel`);
+    const slot = (state.processes ?? []).filter((q) => q.kind === "terminal").indexOf(p) + 2;
+    const where = p.term === terminal.session ? "Shown in the terminal panel" : p.attached ? "Shown in another window's terminal panel: a click shows it here" : "A click shows it in the terminal panel";
+    put(row, "title", `A terminal in the background: ${what}, in ${p.cwd || "?"}. ${where}${slot <= 9 ? ` (Alt+${slot})` : ""}`);
     put(cancel, "title", "End it (what runs there is hung up)");
     return;
   }
@@ -4746,10 +4754,12 @@ const terminal = new TerminalPanel({
   toLocal: (host, dir) => localOf(host, dir),
   toRemote: (path) => remoteOf(path),
 });
+// Which terminal it shows changed: the sidebar's Processes mark it.
+terminal.onSession = () => [...$("#processes").children].forEach((row) => row.item && showProcessRow(row, row.item));
 
 // Reopen the panel on startup if it was open when phil last quit, and select
 // files phil was started with (both set at startup, applied after the first load).
-let restoreTerminal = false;
+let restoreTerminal = false, startCovered = false;
 let initialSelect = null;
 
 function setTerminalOpen(open, { focus = true } = {}) {
@@ -4791,6 +4801,22 @@ async function backgroundTerminal() {
 // A terminal in the background (one of the sidebar's Processes), in the panel again.
 async function showBackgroundTerminal(id) {
   await terminal.restore(id, state.path);
+  terminalShown(true);
+}
+
+// Ctrl+Tab / Ctrl+Shift+Tab, Alt+1…9 (switchKey): the terminal the panel shows, opening it.
+// 1: the panel's own shell (a new one in the folder shown, when it's showing one of the
+// others); 2 on: those in the background, in the order they went there (the sidebar's).
+async function switchTerminal(which) {
+  const slots = [null, ...(state.processes ?? []).filter((p) => p.kind === "terminal").map((p) => p.term)];
+  let slot = which - 1;
+  if (typeof which !== "number") {
+    if (slots.length < 2) return flashStatus("No terminals in the background (Super+° puts the terminal there)");
+    const at = terminal.kept ? Math.max(0, slots.indexOf(terminal.session)) : 0;
+    slot = (at + (which === "next" ? 1 : -1) + slots.length) % slots.length;
+  }
+  if (slot >= slots.length) return flashStatus(slots.length > 1 ? `Alt+2 to Alt+${slots.length}: the terminals in the background` : "No terminals in the background (Super+° puts the terminal there)");
+  await terminal.restore(slots[slot], state.path);
   terminalShown(true);
 }
 
@@ -4851,8 +4877,10 @@ function terminalKey(e) {
 // folder view.
 document.addEventListener("keydown", (e) => {
   // The terminal's keys, wherever the keyboard is (an app shown here too: the terminal over it).
-  if ((isToggleKey(e) || isBackgroundKey(e)) && !dialogOpen()) {
-    isToggleKey(e) ? toggleTerminal() : backgroundTerminal();
+  if ((isToggleKey(e) || isBackgroundKey(e) || switchKey(e) !== null) && !dialogOpen()) {
+    if (isToggleKey(e)) toggleTerminal();
+    else if (isBackgroundKey(e)) backgroundTerminal();
+    else switchTerminal(switchKey(e));
     return e.preventDefault(), e.stopPropagation();
   }
   if (!appView.hidden && e.key === "Escape" && !inTerminal()) return askAppToClose(), e.preventDefault(), e.stopPropagation();
@@ -4957,7 +4985,9 @@ refreshSpeeds(); // the drives' last speed tests, for their tooltips
 loadCameras(); // the network cameras found so far (looked for again with the sidebar's refresh button)
 thumbs.connect();
 
-restoreTerminal = state.settings.termOpen && !choosing; // (a file chooser: just the folder)
+// (--terminal: the terminal covering the window, the keyboard in it.)
+startCovered = new URLSearchParams(location.search).get("terminal") === "1" && !choosing;
+restoreTerminal = (state.settings.termOpen || startCovered) && !choosing; // (a file chooser: just the folder)
 // Files to select, from ?select= (phil file..., "Show in folder"); dropped from
 // the URL so they aren't reselected later.
 const selectParams = new URLSearchParams(location.search).getAll("select");

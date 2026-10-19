@@ -954,8 +954,9 @@ export function createServer({ profile, controlSocket }) {
   // again). Binary frames carry terminal data both ways; text frames carry
   // {resize: [cols, rows]}, {cd: path}, which changes the shell's directory
   // without typing a command (see __phil_follow in shell-init.bash), and
-  // {background: true} (Super+°: it goes on without the panel); back, {open}
-  // (phil-editor's), {replayed} (an earlier one's screen given), {background}.
+  // {background: true} (Super+°: it goes on without the panel); back, {session}
+  // (which it is), {open} (phil-editor's), {replayed} (its screen given, as it
+  // was: an earlier one's), {background}, {taken} (shown in another panel now).
   const cdFileOf = (terminal) => join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-cd-${terminal}`);
   async function terminalSocket(req, url) {
     if (req.headers.get("upgrade") !== "websocket") return text(400, "Bad request");
@@ -1004,6 +1005,7 @@ export function createServer({ profile, controlSocket }) {
       socket.onopen = () => socket.close(1000, "no such terminal");
       return response;
     }
+    out(JSON.stringify({ session: terminal }));
     host.send({ resize: [cols, rows] }); // (an earlier one: this panel's size)
     terminals.set(terminal, socket);
     // Handled strictly in order, so keystrokes sent right after a {cd} can't

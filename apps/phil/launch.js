@@ -32,6 +32,8 @@ Options:
                      paths, one per line (nothing: cancelled). The path given
                      is where to start (to save: the suggested file). Waits
                      until the choice is made, or the window closed.
+  --terminal         The terminal covering the window, the keyboard in it
+                     (Esc at its prompt, or Ctrl+F: the folder)
   --multiple         (--choose) More than one may be chosen
   --out FILE         (--choose) Where the chosen paths are written
   --file-manager-service
@@ -62,6 +64,7 @@ const OPTIONS = {
   "--multiple": false,
   "--out": true,
   "--file-manager-service": false,
+  "--terminal": false,
   "--help": false,
 };
 
@@ -171,12 +174,13 @@ export function parse(args, { cwd }) {
     }
   };
   const dir = paths.length && isFile(paths[0]) ? dirname(paths[0]) : paths[0] ?? null;
-  return { profile, open: { dir, select: paths.filter((p) => dirname(p) === dir && isFile(p)) } };
+  return { profile, open: { dir, select: paths.filter((p) => dirname(p) === dir && isFile(p)), ...(opts.terminal ? { terminal: true } : {}) } };
 }
 
 /** The page URL: files to select in ?select=, the folder in the fragment. */
-export function windowUrl(base, { dir, select = [], choose = null, transfer = null }) {
+export function windowUrl(base, { dir, select = [], choose = null, transfer = null, terminal = false }) {
   for (const path of select) base.searchParams.append("select", path);
+  if (terminal) base.searchParams.set("terminal", "1"); // (--terminal: the terminal covering the window)
   if (transfer) base.searchParams.set("transfer", transfer); // the Transfers view, that one in view (mediaview's)
   if (choose) { // a file chooser (--choose): what's asked, and where the answer goes
     base.searchParams.set("choose", choose.mode);

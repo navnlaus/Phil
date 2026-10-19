@@ -39,6 +39,9 @@ export class TerminalPanel {
     this.replaying = false; // an earlier shell's screen being given again (restore)
     this.needsShell = false; // the last one went to the background: a new one when shown
     this.backgrounded = null; // (answer) => …: waiting for the server's word on {background}
+    this.session = null; // the shell shown (its host's id: the sidebar's Processes')
+    this.kept = false; // it's one of those in the background (shown here now)
+    this.onSession = null; // () => …: which it is changed
   }
 
   get isOpen() {
@@ -133,7 +136,7 @@ export class TerminalPanel {
     });
     this.term.onData((data) => {
       if (this.exited) {
-        if (data === "\r") this.connect(this.restartCwd ?? cwd);
+        if (data === "\r") (this.needsShell = false), this.connect(this.restartCwd ?? cwd);
         return;
       }
       this.typed(data);
@@ -146,7 +149,7 @@ export class TerminalPanel {
     // Copying and pasting (Ctrl+Insert / Shift+Insert) go through the desktop's
     // clipboard (kit.js); xterm.js pastes into the shell as a paste.
     this.term.attachCustomKeyEventHandler((e) => {
-      if (isToggleKey(e) || isFocusKey(e) || isBackgroundKey(e)) return false;
+      if (isToggleKey(e) || isFocusKey(e) || isBackgroundKey(e) || switchKey(e) !== null) return false;
       if (e.type === "keydown" && this.onKey?.(e)) {
         e.preventDefault();
         return false;
@@ -177,10 +180,18 @@ export class TerminalPanel {
     ws.binaryType = "arraybuffer";
     ws.onmessage = (e) => {
       if (typeof e.data === "string") { // not terminal output: {open: {app, params}}, {replayed}, {background}
-        const { open, replayed, atPrompt, background } = JSON.parse(e.data);
+        const { session: id, open, replayed, atPrompt, keep, background, taken } = JSON.parse(e.data);
+        if (id) (this.session = id), this.onSession?.();
         if (open) this.onOpen?.(open);
-        if (replayed) this.replayed(atPrompt);
+        if (replayed) this.replayed(atPrompt, keep);
         if (background !== undefined) this.backgrounded?.(background);
+        if (taken) {
+          // Shown in another panel now (another window's): not here.
+          this.letGo();
+          this.term.write("\r\n\x1b[2m[shown in another window now: Enter or Alt+1 for a new shell here]\x1b[0m\r\n");
+          this.exited = true;
+          this.restartCwd ??= cwd;
+        }
         return;
       }
       let data = new Uint8Array(e.data);
@@ -211,8 +222,12 @@ export class TerminalPanel {
   // An earlier shell's screen is all there: where it is (the last OSC 7) followed by the view.
   // What's on its command line isn't known, so nothing's typed there for it (follow, run)
   // till its next prompt; a program running there (not at its prompt): busy.
-  replayed(atPrompt) {
+  replayed(atPrompt, keep) {
+    const was = this.replaying;
     this.replaying = false;
+    this.kept = !!keep;
+    this.onSession?.();
+    if (!was) return; // (a new shell: nothing given)
     this.running = !atPrompt;
     const at = this.cwd;
     this.cwd = null;
@@ -252,6 +267,9 @@ export class TerminalPanel {
     const ws = this.ws;
     this.ws = null;
     ws?.close();
+    this.session = null;
+    this.kept = false;
+    this.onSession?.();
     this.needsShell = true;
     this.cwd = null;
     this.idle = false;
@@ -259,19 +277,28 @@ export class TerminalPanel {
   }
 
   /**
-   * Shows `session` (a shell in the background) in the panel. The one shown till now: ended if
-   * it's at an empty prompt, else put in the background too.
+   * Shows `session` (a shell in the background) in the panel; null: a new shell, in `cwd` (the
+   * panel's own, Alt+1: the one it has, if it's no background one). The one shown till now: one
+   * in the background goes back there; the panel's own is put there too if something runs in
+   * it, else it's ended.
    */
   async restore(session, cwd) {
     this.panel.hidden = false;
     if (!this.starting) await (this.starting = this.start(cwd, session));
     else {
       await this.starting;
-      if (!this.isRunning || this.atEmptyPrompt || !(await this.background())) this.letGo();
+      if (session ? this.session === session : this.isRunning && !this.kept) return this.focusSoon(); // (shown already)
+      if (this.isRunning && !this.kept && !this.atEmptyPrompt) {
+        if (!(await this.background())) this.letGo();
+      } else this.letGo();
       this.needsShell = false;
       this.term.reset();
       this.connect(cwd, session);
     }
+    this.focusSoon();
+  }
+
+  focusSoon() {
     requestAnimationFrame(() => {
       this.fit.fit();
       this.term.focus();
@@ -390,6 +417,17 @@ function clipboardAction(e) {
 // Ctrl+` is the key left of 1, wherever a layout has it (Ctrl+° on an Icelandic one).
 export function isToggleKey(e) {
   return e.type === "keydown" && (e.key === "F4" || (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "`" || e.code === "Backquote")));
+}
+
+/**
+ * Ctrl+Tab / Ctrl+Shift+Tab, Alt+1…9: the terminal shown, among the panel's own shell (1) and
+ * those in the background (2 on). "next", "previous", or the number; null: not one of those.
+ */
+export function switchKey(e) {
+  if (e.type !== "keydown" || e.metaKey) return null;
+  if (e.ctrlKey && !e.altKey && e.key === "Tab") return e.shiftKey ? "previous" : "next";
+  const digit = /^Digit([1-9])$/.exec(e.code)?.[1] ?? (/^[1-9]$/.test(e.key) ? e.key : null);
+  return e.altKey && !e.ctrlKey && !e.shiftKey && digit ? Number(digit) : null;
 }
 
 /** Super+` (Super+°): the terminal's shell, and what runs there, into the background. */

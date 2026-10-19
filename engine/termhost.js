@@ -9,12 +9,14 @@
 //
 // Frames both ways: a type byte (DATA: terminal bytes; JSON: a message) and a
 // length (u32, big-endian). The first from a client says what it wants:
-//   {attach: true}  the terminal: the replay, {replayed: true, atPrompt} (the
-//                   shell's at its prompt: nothing else runs there), then the rest;
+//   {attach: true}  the terminal: the replay, {replayed: true, atPrompt, keep}
+//                   (atPrompt: the shell's at its prompt, nothing else runs
+//                   there; keep: it's one in the background), then the rest;
 //                   then {resize: [cols, rows]}, {keep: true} (in the background:
 //                   goes on when this client goes), and DATA as input. Another
-//                   client that attaches takes it over.
-//   {info: true}    {info: {id, pid, command, cwd, started, attached, keep}}
+//                   client that attaches takes it over (the one before hears
+//                   {taken: true}).
+//   {info: true}    {info: {id, pid, command, cwd, started, attached, keep, keptAt}}
 //   {kill: true}    the shell hung up, the host gone
 // Not kept, the host ends when its client goes (the panel closed, the window,
 // the engine); in any case when the shell does.
@@ -70,7 +72,7 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
   const listener = Deno.listen({ transport: "unix", path });
   await Deno.chmod(path, 0o600).catch(() => {});
   let client = null; // { conn, send }
-  let keep = false;
+  let keep = false, keptAt = 0; // (keptAt: when first put in the background, its place among them)
   const replay = [];
   let replaySize = 0;
 
@@ -116,7 +118,7 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
           if (data.info) {
             const pid = pty.child.pid;
             const fg = Number(await run("ps", ["-o", "tpgid=", "-p", String(pid)])) || pid; // the terminal's foreground process
-            const info = { id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep };
+            const info = { id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep, keptAt };
             c.send(frame(JSON_FRAME, { info }));
             await c.flushed;
             return conn.close();
@@ -124,19 +126,26 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
           if (data.kill) return void pty.close();
           if (data.attach) {
             if (client) {
-              try {
-                client.conn.close(); // (taken over)
-              } catch { /* gone */ }
+              const before = client;
+              before.send(frame(JSON_FRAME, { taken: true }));
+              before.flushed.then(() => {
+                try {
+                  before.conn.close(); // (taken over)
+                } catch { /* gone */ }
+              });
             }
             client = c;
             attached = true;
             for (const chunk of replay) c.send(frame(DATA, chunk));
             const pid = pty.child.pid;
             const fg = Number(await run("ps", ["-o", "tpgid=", "-p", String(pid)])) || pid;
-            c.send(frame(JSON_FRAME, { replayed: true, atPrompt: fg === pid }));
+            c.send(frame(JSON_FRAME, { replayed: true, atPrompt: fg === pid, keep }));
           }
           if (data.resize) pty.resize(data.resize[0], data.resize[1]);
-          if (data.keep !== undefined) keep = !!data.keep;
+          if (data.keep !== undefined) {
+            keep = !!data.keep;
+            if (keep && !keptAt) keptAt = Date.now();
+          }
         }
       } catch { /* gone */ }
       if (client !== c) return;

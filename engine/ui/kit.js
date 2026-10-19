@@ -8,13 +8,23 @@ const embedId = new URLSearchParams(location.search).get("embedded");
 export const embedded = globalThis.parent !== globalThis && !!embedId;
 
 // Shown in phil: its terminal's keys go to it, wherever the keyboard is here too: Ctrl+` (the key
-// left of 1: Ctrl+° on an Icelandic keyboard) opens and closes it, Super+` puts it in the background.
+// left of 1: Ctrl+° on an Icelandic keyboard) opens and closes it, Super+` puts it in the
+// background, Ctrl+Tab (Shift: back) and Alt+1…9 pick the one it shows (phil's terminal.js).
 if (embedded) {
   addEventListener("keydown", (e) => {
-    if (!(e.code === "Backquote" || e.key === "`" || e.key === "°") || e.altKey || e.shiftKey || e.ctrlKey === e.metaKey) return;
+    let message = null;
+    const digit = /^Digit([1-9])$/.exec(e.code)?.[1] ?? (/^[1-9]$/.test(e.key) ? e.key : null);
+    if ((e.code === "Backquote" || e.key === "`" || e.key === "°") && !e.altKey && !e.shiftKey && e.ctrlKey !== e.metaKey) {
+      message = { key: e.metaKey ? "background" : "toggle" };
+    } else if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === "Tab") {
+      message = { key: "switch", which: e.shiftKey ? "previous" : "next" };
+    } else if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && digit) {
+      message = { key: "switch", which: Number(digit) };
+    }
+    if (!message) return;
     e.preventDefault();
     e.stopPropagation();
-    parent.postMessage({ engine: "terminal", key: e.metaKey ? "background" : "toggle", embed: embedId }, location.origin);
+    parent.postMessage({ engine: "terminal", ...message, embed: embedId }, location.origin);
   }, true);
 }
 

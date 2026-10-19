@@ -20,7 +20,7 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
   const runtime = Deno.env.get("XDG_RUNTIME_DIR") || "/tmp";
   const persistent = !!controlSocket && !incognito;
   const dir = persistent ? controlSocket.replace(/\.sock$/, ".terms") : join(runtime, "phil", `terms-${Deno.pid}`);
-  let background = []; // [{id, command, cwd, started}]
+  let background = []; // [{id, command, cwd, started, attached}]
   let timer = 0;
 
   const socketOf = (id) => join(dir, `${id}.sock`);
@@ -58,7 +58,8 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
       for await (const e of Deno.readDir(dir)) if (e.name.endsWith(".sock")) ids.push(e.name.slice(0, -5));
     } catch { /* none yet */ }
     const infos = await Promise.all(ids.map((id) => ask(id, { info: true })));
-    const now = infos.filter((i) => i && i.keep && !i.attached).map(({ id, command, cwd, started }) => ({ id, command, cwd, started })).sort((a, b) => a.started - b.started);
+    // (Shown in a panel too: their places, Alt+2 on, stay theirs.)
+    const now = infos.filter((i) => i?.keep).sort((a, b) => a.keptAt - b.keptAt).map(({ id, command, cwd, started, attached }) => ({ id, command, cwd, started, attached }));
     if (JSON.stringify(now) !== JSON.stringify(background)) {
       background = now;
       onChange(background);
@@ -75,7 +76,10 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
     persistent,
     dir,
 
-    /** The ones in the background: [{id, command (what runs there now), cwd, started}]. */
+    /**
+     * The ones in the background, in the order they went there: [{id, command (what runs
+     * there now), cwd, started, attached (shown in a panel now)}].
+     */
     list: () => background,
 
     /**
