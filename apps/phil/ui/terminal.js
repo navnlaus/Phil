@@ -395,19 +395,23 @@ class Shell {
 }
 
 /**
- * Bash in a panel under the grid: its own shell (the main one: the file view
- * and it follow each other, scripts run in it; it ends with the window), and,
- * in its place for a while, one of those in the background (Super+°, Alt+2…),
- * which goes back there when another's shown, the panel's own again (Alt+1),
- * or when it ends. The panel's own stays as it was meanwhile, its place 1.
+ * Bash in a panel under the grid: its own shell (the main one: scripts run in
+ * it; it ends with the window), and, in its place for a while, one of those in
+ * the background (Super+°, Alt+2…), which goes back there when another's shown,
+ * the panel's own again (Alt+1), or when it ends. The panel's own stays as it
+ * was meanwhile, its place 1. The file view and the one shown follow each
+ * other (one shown: the view goes where it is).
  */
 export class TerminalPanel {
   constructor(options) {
-    const { panel, container } = options;
+    const { panel, container, onCwd, onBack } = options;
     this.panel = panel;
+    this.onCwd = onCwd;
     const box = () => container.appendChild(Object.assign(document.createElement("div"), { className: "term-box" }));
-    this.main = new Shell({ ...options, container: box() });
-    this.view = new Shell({ ...options, container: box(), viewer: true, onCwd: () => {}, onBack: () => {}, onExit: () => this.showMain({ focus: true }) });
+    // (Each followed by the view while it's the one shown.)
+    const whenShown = (viewer, fn) => (...args) => this.viewing === viewer && fn?.(...args);
+    this.main = new Shell({ ...options, container: box(), onCwd: whenShown(false, onCwd), onBack: whenShown(false, onBack) });
+    this.view = new Shell({ ...options, container: box(), viewer: true, onCwd: whenShown(true, onCwd), onBack: whenShown(true, onBack), onExit: () => this.showMain({ focus: true }) });
     this.view.container.hidden = true;
     this.viewing = false; // the box shown: the view's (one from the background), not the main one
     this.onSession = null; // () => …: which one's shown changed
@@ -431,24 +435,23 @@ export class TerminalPanel {
     return this.current.isRunning;
   }
 
-  // The panel's own shell's: where it is, its prompt (the file view and it follow each other).
+  // The shown one's: where it is, its prompt (the file view and it follow each other).
   get cwd() {
-    return this.main.cwd;
+    return this.current.cwd;
   }
   get remote() {
-    return this.main.remote;
+    return this.current.remote;
   }
   get atEmptyPrompt() {
-    return this.main.atEmptyPrompt;
+    return this.current.atEmptyPrompt;
   }
   follow(path) {
-    this.main.follow(path);
+    this.current.follow(path);
   }
 
-  /** Runs a command in the panel's own shell (shown, if one from the background was). */
+  /** Runs a command in the one shown (runInTerminal's scripts: showMain() first). */
   run(command, options) {
-    this.showMain();
-    return this.main.run(command, options);
+    return this.current.run(command, options);
   }
 
   send(data) {
@@ -493,6 +496,7 @@ export class TerminalPanel {
     this.view.container.hidden = true;
     this.main.container.hidden = false;
     this.onSession?.();
+    if (this.main.cwd?.startsWith("/")) this.onCwd?.(this.main.cwd); // (the view where it is)
     this.main.focusSoon(focus);
   }
 

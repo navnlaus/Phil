@@ -624,9 +624,10 @@ in it too, jsonedit's, textedit's, the media view: the panel opens over it);
 drag its top edge to resize. Ctrl+F in it toggles between covering the whole
 window and its own height.
 
-**The panel's own shell** (the main one) is the terminal you get: it and the
-file view follow each other, scripts run in it, and it ends with its window
-(or the engine), as before.
+**The panel's own shell** (the main one) is the terminal you get: scripts run
+in it, and it ends with its window (or the engine), as before. The file view
+and the shell shown follow each other, whichever it is (switching, the view
+goes where that one is).
 
 **In the background** (Super+°, Super+` elsewhere): the main shell, and
 whatever runs in it, goes on without the panel, as in screen or tmux. The panel
