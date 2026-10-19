@@ -1022,7 +1022,8 @@ shows the wall: every camera that's on).
   Extensions (decoded on the GPU), a fragment per frame, about a second behind
   live (in a browser that plays H.264). In salir, with phil's mpv plugin
   (see [Windows](#windows-salir)), mpv plays the camera's RTSP stream itself
-  instead, at low latency (`profile=low-latency`, no cache), decoded on the
+  instead, at low latency (`profile=low-latency`, no cache, no sound: a muted
+  track still holds the picture back to keep with it), decoded on the
   GPU; without it, the MJPEG stream. It plays at its own pace: a player can stall when its speed
   changes, so it never speeds up to catch up; more than 3 s behind (the
   window was hidden, say), it jumps ahead. The
