@@ -644,7 +644,9 @@ closes; its next main shell is a new one. Not in incognito windows.
 - **A click** shows one in the panel, in the main shell's place, as it was (its
   screen and scrollback: the last megabyte it wrote). The main shell stays as it
   is meanwhile (none: a new one) and comes back when that one ends (`exit`), on
-  Alt+1, or when Super+° sends the one shown back; until then it's first in
+  Alt+1, or when Super+° sends the one shown back. **Esc** sends it back too,
+  the panel as it was before it was shown (the main terminal in it, or closed;
+  Ctrl+[ is Esc for what runs there). Until then the main shell's first in
   Processes (a terminal icon; a click: back to it). The one shown is marked
   there; one another window shows is dimmed (shown here, it's taken from there).
 - **Right-click** → Rename… (blank: named by what runs there again), End. × ends one too (what runs there is hung up).

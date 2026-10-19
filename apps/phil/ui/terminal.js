@@ -425,6 +425,7 @@ export class TerminalPanel {
     this.view.container.hidden = true;
     this.viewing = false; // the box shown: the view's (one from the background), not the main one
     this.lastCwd = null; // where the panel was last asked to be (a main shell started again: there)
+    this.wasOpen = false; // the panel was open when one from the background was first shown (Esc: as it was)
     this.onSession = null; // () => …: which one's shown changed
     this.view.onSession = () => this.onSession?.();
   }
@@ -526,6 +527,7 @@ export class TerminalPanel {
    */
   async restore(session, cwd) {
     this.lastCwd = cwd;
+    if (session && !this.viewing) this.wasOpen = !this.panel.hidden; // (from the main one: as it was, for Esc)
     this.panel.hidden = false;
     if (!session) {
       this.showMain();

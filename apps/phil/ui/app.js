@@ -5033,6 +5033,13 @@ function endScriptRun() {
 // gets it); Ctrl+F toggles covering the window.
 function terminalKey(e) {
   const plainEsc = e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey;
+  // One from the background shown: Esc puts it back there, the panel as it was before (the main
+  // terminal in it, or closed). (Ctrl+[ is Esc for what runs there.)
+  if (plainEsc && terminal.kept) {
+    terminal.showMain({ focus: terminal.wasOpen });
+    if (!terminal.wasOpen) setTerminalOpen(false);
+    return true;
+  }
   if (plainEsc && scriptRun) return endScriptRun(), true;
   if (plainEsc && !terminal.busy) return setTerminalOpen(false), true;
   if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === "f") {
