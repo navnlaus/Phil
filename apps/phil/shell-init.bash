@@ -38,6 +38,15 @@ __phil_follow() {
 
 __phil_prompt() {
   local status=$?
+  # A terminal phil put in the background to run something (phil --background, a
+  # script marked so): that, once, before the first prompt: on the screen, only
+  # its output; when it ends, the prompt.
+  if [[ -n ${PHIL_RUN-} ]]; then
+    local run=$PHIL_RUN
+    unset PHIL_RUN
+    eval "$run"
+    status=$?
+  fi
   [[ -n $PHIL_CD_FILE && -e $PHIL_CD_FILE ]] && __phil_follow
   __phil_report_cwd
   return $status

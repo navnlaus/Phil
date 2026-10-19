@@ -652,11 +652,12 @@ closes; its next main shell is a new one. Not in incognito windows.
   for every window.
 - **Dropped on a folder** (a tile, a place, the folder shown), one leaves a
   script there, named as it is and with its icon: just what ran there and
-  where (`cd`, then the command; ssh'd in with a command typed there, `ssh -t
-  host 'that command'`), marked to run in the background (its Properties: "Run
+  where (`cd ~/project && claude --remote-control`; ssh'd in with a command
+  typed there, `ssh -t host 'that command'`), marked to run in the background (its Properties: "Run
   in the background"). Double-clicked, a script so marked doesn't take the
-  terminal panel: a terminal in the background runs it (sourced in its shell:
-  back at its prompt, where it was, when it ends), named after it, last in the
+  terminal panel: a terminal in the background runs it (sourced in its shell
+  before its first prompt: on its screen only what it writes; at its prompt,
+  where it was, when it ends), named after it, last in the
   list. `phil --background --name NAME --cwd DIR -- COMMAND…` does that from
   anywhere (the engine started for it if it's not running).
 - **They outlive the window and the engine**: each shell runs in a process of

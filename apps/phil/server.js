@@ -594,7 +594,7 @@ export function createServer({ profile, controlSocket }) {
         // Just what to run, where: a script like any. Marked to run in the background (its
         // Properties): double-clicked, phil runs it in a terminal of its own there (sourced in its
         // shell: where it cds is where that shell is, and back at its prompt when it ends).
-        const script = `#!/bin/sh\n# What ran in a terminal in phil's background, where (phil runs it there: its Properties).\ncd ${q(t.cwd || home())} || return 1 2>/dev/null || exit 1\n${command.length ? command.map(q).join(" ") + "\n" : ""}`;
+        const script = `#!/bin/sh\ncd ${q(t.cwd || home())}${command.length ? ` && ${command.map(shellWord).join(" ")}` : ""}\n`;
         await Deno.writeTextFile(path, script, { createNew: true });
         await Deno.chmod(path, 0o755);
         await hooks.set(path, { background: true, ...(typeof icon === "string" && /^[a-z0-9-]{1,64}$/.test(icon) ? { icon } : {}) });
@@ -1013,7 +1013,7 @@ export function createServer({ profile, controlSocket }) {
   // was: an earlier one's), {background}, {taken} (shown in another panel now).
   const cdFileOf = (terminal) => join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-cd-${terminal}`);
   // A shell in a host of its own (terms.js), as the panel's are.
-  async function startShell(terminal, cwd, cols, rows) {
+  async function startShell(terminal, cwd, cols, rows, env = {}) {
     await terms.start({
       id: terminal,
       command: ["bash", "--rcfile", await shellInit, "-i"],
@@ -1025,20 +1025,21 @@ export function createServer({ profile, controlSocket }) {
         PHIL_TERMINAL: terminal,
         ...(controlSocket ? { PHIL_ENGINE_SOCKET: controlSocket } : {}),
         ...(config.incognito ? { PHIL_INCOGNITO: "1" } : {}),
+        ...env,
       },
     });
   }
 
   // phil --background: a terminal put in the background at once, last in their order: its shell
-  // in `cwd`, `command` typed in it (as by hand: when it ends, the shell's there), `name` its name.
+  // in `cwd`, running `command` before its first prompt (shell-init.bash's PHIL_RUN: nothing typed,
+  // only its output on the screen; when it ends, the shell's there), `name` its name.
   async function background({ command = [], name = "", cwd }) {
     if (!terms.persistent) return { ok: false, error: "no terminals in the background here (incognito)" };
     const terminal = crypto.randomUUID();
-    await startShell(terminal, await isDir(cwd ?? "") ? cwd : home(), 120, 36);
+    await startShell(terminal, await isDir(cwd ?? "") ? cwd : home(), 120, 36, command.length ? { PHIL_RUN: command.map(shellWord).join(" ") } : {});
     const host = await terms.attach(terminal, { onData() {}, onMessage() {}, onClose() {} });
     if (!host) return { ok: false, error: "its terminal didn't start" };
     await host.send({ keep: true });
-    if (command.length) await host.write(new TextEncoder().encode(command.map(shellWord).join(" ") + "\r"));
     host.close();
     if (name) await terms.rename(terminal, name);
     await terms.last(terminal);
