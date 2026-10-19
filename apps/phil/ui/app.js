@@ -4027,7 +4027,10 @@ function showProcessRow(row, p) {
     const claude = shown === "claude" || remoteClaude;
     const titled = (p.title ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
     const session = claude ? titled : "";
-    const label = claude ? session || folder || "claude" : ssh ? titled || p.command : SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" ");
+    // (Over ssh, the newer of the title set there and the command typed there, its prompt left out.)
+    const typed = (p.typed ?? "").replace(/^.*?[#$%>❯➜»]\s+(?=\S)/u, "");
+    const remote = typed && (p.typedAt ?? 0) > (p.titleAt ?? 0) ? typed : titled || typed;
+    const label = claude ? session || folder || "claude" : ssh ? remote || p.command : SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" ");
     put(name, "textContent", label);
     if (claude && !icon.getAttribute("src")) icon.src = "/api/icon/claude";
     put(icon, "hidden", !claude);

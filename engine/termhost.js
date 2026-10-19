@@ -17,8 +17,11 @@
 //                   client that attaches takes it over (the one before hears
 //                   {taken: true}).
 //   {info: true}    {info: {id, pid, command, cwd, started, attached, keep, keptAt,
-//                   title}} (title: the last one a program set, OSC 0/2: Claude
-//                   Code's is its session's name)
+//                   title, titleAt, typed, typedAt}} (title: the last one the
+//                   program in the foreground set, OSC 0/2: Claude Code's is
+//                   its session's name; typed: the last line Enter was pressed
+//                   on since it started, {line} from the panel: over ssh, the
+//                   command run there)
 //   {kill: true}    the shell hung up, the host gone
 // Not kept, the host ends when its client goes (the panel closed, the window,
 // the engine); in any case when the shell does.
@@ -79,6 +82,7 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
   let replaySize = 0;
   // The terminal's title, as programs set it (ESC ] 0 or 2 ; title BEL or ESC \), across chunks.
   let title = "", titleAt = 0, titleCarry = "";
+  let typed = "", typedAt = 0; // ({line}: the line Enter was pressed on, as the panel showed it)
   const decoder = new TextDecoder();
   const noteTitle = (chunk) => {
     const text = titleCarry + decoder.decode(chunk, { stream: true });
@@ -137,8 +141,12 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
             const [uptime, stat] = (await run("cat", ["/proc/uptime", `/proc/${fg}/stat`])).split("\n");
             const ticks = Number(stat?.slice(stat.lastIndexOf(")") + 2).split(" ")[19]); // (starttime, in 1/100 s since boot)
             const fgStarted = Date.now() - (parseFloat(uptime) - ticks / 100) * 1000;
-            const current = !Number.isFinite(fgStarted) || titleAt >= fgStarted;
-            const info = { id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep, keptAt, title: current ? title : "" };
+            const since = (at) => !Number.isFinite(fgStarted) || at >= fgStarted;
+            const info = {
+              id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep, keptAt,
+              ...(since(titleAt) ? { title, titleAt } : { title: "" }),
+              ...(since(typedAt) ? { typed, typedAt } : { typed: "" }),
+            };
             c.send(frame(JSON_FRAME, { info }));
             await c.flushed;
             return conn.close();
@@ -162,6 +170,7 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
             c.send(frame(JSON_FRAME, { replayed: true, atPrompt: fg === pid, keep }));
           }
           if (data.resize) pty.resize(data.resize[0], data.resize[1]);
+          if (typeof data.line === "string") (typed = data.line), (typedAt = Date.now());
           if (data.keep !== undefined) {
             keep = !!data.keep;
             if (keep && !keptAt) keptAt = Date.now();

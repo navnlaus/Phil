@@ -1030,8 +1030,9 @@ export function createServer({ profile, controlSocket }) {
     socket.onmessage = (e) => {
       queue = queue.then(async () => {
         if (typeof e.data !== "string") return host.write(new Uint8Array(e.data));
-        const { resize, cd, host: remote, background } = JSON.parse(e.data);
+        const { resize, cd, host: remote, background, line } = JSON.parse(e.data);
         if (resize) host.send({ resize });
+        if (typeof line === "string") host.send({ line }); // (Enter pressed on it: what's run, over ssh too)
         if (background) {
           // Super+°: on without the panel (not incognito's, nor a run with no engine of its own).
           if (!terms.persistent) return out(JSON.stringify({ background: false }));

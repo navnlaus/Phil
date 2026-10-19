@@ -62,7 +62,7 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
     // dragged to (order.json), else the one they went there in.
     const order = await Deno.readTextFile(join(dir, "order.json")).then(JSON.parse, () => []);
     const rank = (i) => (order.includes(i.id) ? order.indexOf(i.id) : order.length);
-    const now = infos.filter((i) => i?.keep).sort((a, b) => rank(a) - rank(b) || a.keptAt - b.keptAt).map(({ id, command, cwd, started, attached, title }) => ({ id, command, cwd, started, attached, title }));
+    const now = infos.filter((i) => i?.keep).sort((a, b) => rank(a) - rank(b) || a.keptAt - b.keptAt).map(({ id, command, cwd, started, attached, title, titleAt, typed, typedAt }) => ({ id, command, cwd, started, attached, title, titleAt, typed, typedAt }));
     if (JSON.stringify(now) !== JSON.stringify(background)) {
       background = now;
       onChange(background);

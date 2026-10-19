@@ -146,6 +146,7 @@ class Shell {
         if (data === "\r") (this.needsShell = false), this.connect(this.restartCwd ?? cwd);
         return;
       }
+      this.noteLine(data);
       this.typed(data);
       this.send(data);
     });
@@ -291,6 +292,15 @@ class Shell {
       this.fit.fit();
       if (focus) this.term.focus();
     });
+  }
+
+  // Enter: the line it's pressed on, to the host (what's run, over ssh too: the sidebar's
+  // Processes); Ctrl+C: nothing (whatever ran is stopped).
+  noteLine(data) {
+    if (!this.isRunning || (data !== "\x03" && !/\r/.test(data))) return;
+    const buf = this.term.buffer.active;
+    const line = data === "\x03" ? "" : buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true).trim() ?? "";
+    this.ws.send(JSON.stringify({ line }));
   }
 
   // Keys (or text) about to go to the shell. The first ones at a prompt note
