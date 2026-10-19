@@ -20,6 +20,7 @@ export const embedOf = (url) => new URL(url).searchParams.get("embedded");
  */
 export function tellParent(message) {
   if (embedded) parent.postMessage({ ...message, embed: embedId }, location.origin);
+  else engine?.send({ phil: "tell", message }); // (a window opened over another's: to that one, openOver's onMessage)
 }
 
 // A theme edited while the app runs (in ~/.config/phil/themes, see
@@ -61,6 +62,44 @@ export function closeWindow() {
   if (embedded) return tellParent({ engine: "close" });
   if (engine) return engine.close();
   fetch("/api/quit", { method: "POST" }).finally(() => globalThis.close()); // --browser
+}
+
+/**
+ * Opens `app` in a window of its own (`params`: its window's, as appUrl's), over
+ * `element` (its area of the window, from a frame too): on Hyprland it floats
+ * exactly there, following this window till it's moved itself (engine/hyprland.js).
+ * `onMessage`: what its page tells (tellParent). Resolves when that window's
+ * closed. Only in the engine's windows (salir's): elsewhere null, and the app's
+ * to show inside (appUrl).
+ */
+export function openOver(app, params, { element = document.documentElement, onMessage = () => {} } = {}) {
+  if (!engine) return null;
+  const request = Math.random().toString(36).slice(2);
+  // Where `element` is in the window (through the frames it's in: same origin, appUrl's).
+  const rect = () => {
+    const r = element === document.documentElement ? { left: 0, top: 0, width: innerWidth, height: innerHeight } : element.getBoundingClientRect();
+    let x = r.left, y = r.top;
+    for (let w = globalThis; w !== w.top && w.frameElement; w = w.parent) {
+      const f = w.frameElement.getBoundingClientRect();
+      x += f.left + w.frameElement.clientLeft;
+      y += f.top + w.frameElement.clientTop;
+    }
+    return [x, y, r.width, r.height];
+  };
+  engine.send({ phil: "open", app, params, rect: rect(), request });
+  const moved = () => engine.send({ phil: "over", request, rect: rect() });
+  const sizes = new ResizeObserver(moved);
+  sizes.observe(element);
+  return new Promise((resolve) => {
+    const stop = engine.on((m) => {
+      if (m?.request !== request) return;
+      if (m.phil === "told") return void onMessage(m.message);
+      if (m.phil !== "closed") return;
+      stop();
+      sizes.disconnect();
+      resolve();
+    });
+  });
 }
 
 /**

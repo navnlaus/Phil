@@ -5,6 +5,8 @@
 //   GET  /api/camera?id=         cameras.info(): the camera, its profiles, what its PTZ can do
 //   GET  /api/hls?id=&profile=   {url}: its HLS stream (a web one), for the page to play with
 //                                hls.js; null: not HLS (then /stream)
+//   GET  /api/source?id=&profile=   {url}: its stream's address (RTSP, or a web one), for mpv
+//                                to read itself (salir's windows with phil's mpv plugin)
 //   GET  /stream?id=&profile=&mode=   its live video, as the page can show it (ui/app.js
 //                                tries them in turn): mode=copy (default), the camera's
 //                                own H.264 copied into fragmented MP4, for its Media
@@ -108,6 +110,12 @@ export function createServer({ profile = {} } = {}) {
         case "GET /api/camera":
           try {
             return json(await cameras.info(id));
+          } catch (err) {
+            throw httpError(err.status ?? (err.auth ? 403 : 502), err.message);
+          }
+        case "GET /api/source": // ?id=&profile=: {url}: its stream as it is, for mpv (ui/app.js)
+          try {
+            return json({ url: await cameras.rtspUrl(id, url.searchParams.get("profile")) });
           } catch (err) {
             throw httpError(err.status ?? (err.auth ? 403 : 502), err.message);
           }

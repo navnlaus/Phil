@@ -1,4 +1,4 @@
-import { appUrl, askPassword, clipboardKey, closeWindow, copyText, embedOf, holdFocus, pasteText, ready, tooltips } from "/engine/ui/kit.js";
+import { appUrl, askPassword, clipboardKey, closeWindow, copyText, embedOf, holdFocus, openOver, pasteText, ready, tooltips } from "/engine/ui/kit.js";
 import { isFocusKey, isToggleKey, shellQuote, TerminalPanel } from "/ui/terminal.js";
 import "/ui/vendor/dayjs.min.js"; // (UMD: globalThis.dayjs; MIT)
 import "/ui/vendor/dayjs-relativeTime.js";
@@ -2095,6 +2095,10 @@ const appView = $("#app-view");
 let focusBeforeApp = null; // where the keyboard goes back to: the grid, or the terminal it was opened from
 
 function openInApp(app, params) {
+  // A video, the cameras: in videoplayer's or camview's own window (mpv plays them there,
+  // under its page), over this one as if it were in it (kit.js openOver); in a browser
+  // (--browser), here.
+  if ((app === "videoplayer" || app === "camview") && openOver(app, params, { onMessage: selectShowing })) return;
   focusBeforeApp = document.activeElement;
   const src = appUrl(app, params);
   const frame = Object.assign(document.createElement("iframe"), { src, title: app, allow: "fullscreen" });
@@ -2161,11 +2165,15 @@ addEventListener("message", (e) => {
     closeApp();
     initialSelect = [e.data.show];
     navigate(parentOf(e.data.show));
-  } else if ((e.data?.app === "imageview" || e.data?.app === "videoplayer") && e.data.showing) { // the image or video it shows: selected here, for when it closes
-    const i = state.view.findIndex((v) => v.path === e.data.showing);
-    if (i !== -1) select(i);
-  }
+  } else selectShowing(e.data);
 });
+
+// The image or video an app shows (imageview's, videoplayer's {app, showing}): selected here, for when it closes.
+function selectShowing(m) {
+  if ((m?.app !== "imageview" && m?.app !== "videoplayer") || !m.showing) return;
+  const i = state.view.findIndex((v) => v.path === m.showing);
+  if (i !== -1) select(i);
+}
 
 // ---------------------------------------------------------------- deleting
 

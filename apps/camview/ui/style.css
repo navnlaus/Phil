@@ -109,6 +109,10 @@ body:hover #ptz, body:hover #presets, #ptz:focus-within, #presets:focus-within, 
 #wall .cam:hover::after, #wall .cam:focus-visible::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 2px var(--accent); pointer-events: none; }
 #wall video, #wall img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 #wall video[hidden], #wall img[hidden] { display: none; }
+/* A camera played by mpv (app.js): its picture under the page, which is see-through there. */
+#wall .cam-mpv { position: absolute; inset: 0; }
+#wall .cam.mpv { background: transparent; }
+body:has(.cam.mpv) { background: transparent; }
 #wall .cam-name { position: absolute; left: 8px; bottom: 6px; color: #fff; font-size: 12px; font-weight: 600; text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, 0.7); }
 #wall .cam-msg { position: absolute; inset: 45% 10px auto; color: #ccc; font-size: 12px; text-align: center; text-shadow: 0 1px 2px #000; pointer-events: none; }
 #wall-message { position: fixed; inset: 45% 20px auto; margin: 0; color: #ddd; text-align: center; }

@@ -126,15 +126,33 @@ itself (salir's direct windows), driven through salir's `--control` channel
   right- or middle-drag stays in the window. Files dropped in from other
   programs come without their paths (Chromium keeps them from pages).
 - Right-clicking something phil has no menu for shows nothing.
-- Pages talk to the engine through `window.salir` (`engine/ui/kit.js`): "ready"
-  and "close".
+- Pages talk to the engine through `window.salir` (`engine/ui/kit.js`): "ready",
+  "close", and a window of another app over this one (`openOver`, below).
 - Nothing goes to Google behind the pages' backs (salir turns Chrome's
   background services off).
-- **Not playable in salir's Chromium: H.264, AAC, H.265** (CEF's official
-  builds are made without them, for their licences); VP9, AV1, Opus, MP3 and
-  FLAC are. videoplayer's direct play and conversions (H.264/AAC) and camview's
-  H.264 streams don't play: camview falls back to its MJPEG stream. Video
-  through libmpv, in salir's embeds, is the way on.
+- **Video plays through mpv** (libmpv), under the page: phil's plugin for salir
+  (`native/salir-mpv`, a `<salir-embed kind="mpv">` in the page) renders it in
+  salir's GL context, decoding on the GPU, and the page is drawn over it. It
+  plays what salir's Chromium can't (H.264, AAC and H.265: CEF's official
+  builds are made without them, for their licences; VP9, AV1, Opus, MP3 and FLAC
+  it does). videoplayer and camview use it; their windows are salir's
+  composited ones (an app's `embeds` in its `launch.js`), the others Chromium's
+  own. salir is given the plugin with `--plugin`: `PHIL_SALIR_MPV`, else
+  `~/.local/lib/phil/salir-mpv.so` (`install.sh` builds it there when libmpv's
+  headers are installed), else the one built here (`deno task mpv-plugin`).
+  Without it, they play as a browser would (H.264 doesn't: camview shows its
+  MJPEG stream).
+- **Windows over windows**: a video or the cameras opened from phil (or a video
+  from the media view) open in videoplayer's or camview's own window, as mpv
+  needs. On Hyprland it floats exactly over the phil window it came from,
+  borderless, so it looks as it would inside it, and follows that window as
+  it moves, resizes or changes workspace (and closes with it). Move or resize
+  it yourself and it's let go: a window like any other. (`engine/hyprland.js`,
+  through `hyprctl`: a window rule for its first title, then dispatchers.)
+  Elsewhere they open where the desktop puts them. Esc closes it, back to phil,
+  with the video you were on selected.
+- Composited windows (videoplayer's, camview's) have no clipboard of their
+  own: pasting into their text fields doesn't work there.
 
 ## Install
 
@@ -475,7 +493,7 @@ a browser's devtools while working on the UI.
 ## Requirements
 
 [salir](https://github.com/navnlaus/salir) (see [Windows](#windows-salir)), `deno`, `wl-clipboard`, `libvips` (built with poppler, for PDF thumbnails) (`vipsthumbnail`, `vips`), `ffmpegthumbnailer`,
-`ffmpeg` (videoplayer: probing and converting). `mpv`
+`ffmpeg` (videoplayer: probing and converting), `libmpv` (video in salir: its headers to build the plugin). `mpv`
 and `xdg-open` are used for "open externally". `udisks2` (`udisksctl`) mounts removable drives from the sidebar; a system drive's mount, like everything phil does as root, goes through `sudo`.
 
 ## How it works
@@ -832,7 +850,10 @@ MPEG-2, AC-3 or DTS sound; HEVC when the browser shows no picture) ffmpeg
 makes into an MP4 as it plays, copying what the browser can play and
 converting the rest to H.264 and AAC; seeking past what's come starts it again
 from there ("converted as it plays" next to its size). It starts where you
-left a video (more than 5 seconds in, not near its end).
+left a video (more than 5 seconds in, not near its end). In salir with phil's mpv plugin (see
+[Windows](#windows-salir)), mpv plays every video straight from its file
+instead, nothing converted, decoded on the GPU; the controls, subtitles and
+keys are the same, drawn over it.
 
 | | |
 |---|---|
@@ -996,13 +1017,15 @@ shows the wall: every camera that's on).
 - **The video** is the camera's own H.264, not re-encoded: ffmpeg copies its
   RTSP stream into fragmented MP4, which the page plays through Media Source
   Extensions (decoded on the GPU), a fragment per frame, about a second behind
-  live (in a browser that plays H.264: not salir's, which gets the MJPEG
-  stream). It plays at its own pace: a player can stall when its speed
+  live (in a browser that plays H.264). In salir, with phil's mpv plugin
+  (see [Windows](#windows-salir)), mpv plays the camera's RTSP stream itself
+  instead, at low latency (`profile=low-latency`, no cache), decoded on the
+  GPU; without it, the MJPEG stream. It plays at its own pace: a player can stall when its speed
   changes, so it never speeds up to catch up; more than 3 s behind (the
   window was hidden, say), it jumps ahead. The
   camera's streams are in the top bar (main, sub: Q switches). ffmpeg stops
   when the window does.
-- **If the player can't show it** (an H.265 camera, or a player that shows
+- **If the player can't show it** (mpv can't play the stream, an H.265 camera, or a player that shows
   solid green or a frozen frame, which camview checks 3 seconds in), it tries
   the stream re-encoded as plain H.264, then as JPEG pictures (MJPEG, no video
   player at all), and logs what it found (`camview: ...` in phil's log). The

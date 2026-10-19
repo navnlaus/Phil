@@ -60,7 +60,7 @@ function makeTile(camera) {
   el.className = "cam";
   el.tabIndex = 0;
   el.innerHTML = `<video muted autoplay playsinline disablepictureinpicture></video><img alt="" hidden><span class="cam-name"></span><span class="cam-msg"></span>`;
-  const t = { camera, el, video: el.querySelector("video"), img: el.querySelector("img"), mode: "copy", player: null, profile: null, info: null, connects: 0, noHls: false };
+  const t = { camera, el, video: el.querySelector("video"), img: el.querySelector("img"), mode: MODES[0], player: null, profile: null, info: null, connects: 0, noHls: false };
   if (camera.page) { // a web page (a camera's that plays it its own way): the page itself; a click shows it over the wall
     const frame = Object.assign(document.createElement("iframe"), { src: camera.page, title: camera.name, allow: "autoplay; fullscreen", loading: "lazy" });
     frame.setAttribute("referrerpolicy", "no-referrer");
@@ -99,7 +99,10 @@ async function start(t) {
 
 // ---------------------------------------------------------------- the video
 
-// How a stream is shown, best first (the server's /stream modes):
+// How a stream is shown, best first:
+//   mpv    in salir's windows with phil's mpv plugin: the stream as it is, read by
+//          mpv itself, under the page (low latency; decoded on the GPU, H.265 too)
+// and the server's /stream modes:
 //   copy   the camera's own H.264, copied into fragmented MP4 for a Media
 //          Source: costs nothing, decoded on the GPU
 //   h264   re-encoded by the server as the plainest H.264 (some CPU there)
@@ -108,16 +111,17 @@ async function start(t) {
 // and the next one is tried. The one that works is kept while the page is
 // open (not saved: once this machine's player is fixed, copy is tried again).
 // An HLS stream (a web camera's) is played by hls.js in the page first.
-const MODES = ["copy", "h264", "mjpeg"];
+const MODES = [...(globalThis.salir ? ["mpv"] : []), "copy", "h264", "mjpeg"];
 
 // A tile's stream, kept close to live (see JUMP_S). Connects again when the stream ends or stalls.
 function play(t) {
   stop(t);
-  const mode = MODES.includes(t.mode) ? t.mode : "copy";
+  const mode = MODES.includes(t.mode) ? t.mode : MODES[0];
   const player = (t.player = { abort: new AbortController(), lastData: Date.now(), mode, bytes: 0, jpegs: 0, started: Date.now() });
   t.connects++;
   say(t, "Connecting…");
   if (mode === "mjpeg") return showJpegs(t, player);
+  if (mode === "mpv") return playMpv(t, player);
   t.video.hidden = false;
   t.img.hidden = true;
   if (!t.noHls) return tryHls(t, player);
@@ -149,6 +153,8 @@ function stop(t) {
   const p = t.player;
   if (!p) return;
   t.player = null;
+  p.embed?.remove();
+  t.el.classList.remove("mpv");
   p.hls?.stop();
   p.abort.abort();
   clearTimeout(p.retry);
@@ -158,6 +164,49 @@ function stop(t) {
   if (t.video.src) URL.revokeObjectURL(t.video.src);
   t.video.removeAttribute("src");
   t.video.load();
+}
+
+// mpv: the stream as it is (the server's /api/source), read by mpv, which reconnects
+// itself; when it ends, connected again after a while. No mpv here (the embed's error):
+// the other ways.
+async function playMpv(t, player) {
+  t.video.hidden = true;
+  t.img.hidden = true;
+  let source;
+  try {
+    source = await api(`api/source?id=${encodeURIComponent(t.camera.id)}&profile=${encodeURIComponent(t.profile ?? "")}`);
+  } catch (err) {
+    if (player !== t.player) return;
+    say(t, `${err.message}: trying again…`);
+    player.retry = setTimeout(() => player === t.player && play(t), 3000);
+    return;
+  }
+  if (player !== t.player) return;
+  const el = document.createElement("salir-embed");
+  // A live camera: shown as it comes (no buffer, no clock to keep to), muted, over TCP.
+  const options = { kind: "mpv", profile: "low-latency", untimed: "yes", cache: "no", mute: "yes", "rtsp-transport": "tcp", "network-timeout": "10" };
+  for (const [k, v] of Object.entries(options)) el.setAttribute(k, v);
+  el.className = "cam-mpv";
+  player.embed = el;
+  player.props = {};
+  el.addEventListener("error", (e) => player === t.player && nextMode(t, player, `can't be played by mpv (${e.detail?.error})`));
+  el.addEventListener("message", (e) => {
+    const m = e.detail;
+    if (player !== t.player || !m) return;
+    if (m.properties) Object.assign(player.props, m.properties);
+    if (m.event === "playback-restart") {
+      say(t, "");
+      player.lastData = Date.now();
+      if (!player.logged) (player.logged = true), log(`${t.camera.id}: mpv plays (${player.props.width}×${player.props.height}, ${player.props["video-codec"] ?? "?"})`);
+    } else if (m.event === "end-file" && m.reason !== "stop") {
+      say(t, `${m.error ?? "The stream ended"}: trying again…`);
+      player.retry = setTimeout(() => player === t.player && play(t), 3000);
+    }
+  });
+  t.el.prepend(el);
+  t.el.classList.add("mpv");
+  el.send({ observe: ["width", "height", "video-codec", "estimated-vf-fps", "frame-drop-count", "demuxer-cache-duration", "video-bitrate"] });
+  el.send({ command: ["loadfile", source.url, "replace"] });
 }
 
 const streamUrl = (t, mode) => `stream?id=${encodeURIComponent(t.camera.id)}&profile=${encodeURIComponent(t.profile ?? "")}&mode=${mode}`;
@@ -537,7 +586,7 @@ async function toggleInvert() {
 // the network before it come on top, a few hundred ms), the data coming in,
 // and how often it had to connect again. Each second, while shown; remembered.
 const statsBox = $("#stats");
-const MODE_NAMES = { hls: "HLS, played here (hls.js)", copy: "camera's own", h264: "re-encoded H.264", mjpeg: "MJPEG pictures" };
+const MODE_NAMES = { mpv: "mpv, the stream itself", hls: "HLS, played here (hls.js)", copy: "camera's own", h264: "re-encoded H.264", mjpeg: "MJPEG pictures" };
 let statsTimer = 0, last = null, statsLogged = 0;
 
 function showStats(on, { remember = true } = {}) {
@@ -553,6 +602,7 @@ function showStats(on, { remember = true } = {}) {
 function updateStats() {
   const t = focused, p = t?.player;
   if (!p) return (statsBox.textContent = "not connected");
+  if (p.mode === "mpv") return showMpvStats(t, p);
   const video = t.video;
   const quality = video.getVideoPlaybackQuality?.();
   const now = { t: performance.now(), frames: p.mode === "mjpeg" ? p.jpegs : quality?.totalVideoFrames ?? 0, bytes: p.bytes, player: p };
@@ -574,6 +624,19 @@ function updateStats() {
     `fps       ${fps === null ? "…" : fps.toFixed(1)}${quality && p.mode !== "mjpeg" ? `   dropped ${quality.droppedVideoFrames}` : ""}`,
     behind !== null ? `behind    ${behind.toFixed(2)} s` : null,
     mbit !== null ? `data      ${mbit.toFixed(2)} Mbit/s` : null,
+    `connected ${up < 120 ? `${up} s` : `${Math.round(up / 60)} min`}${t.connects > 1 ? `   reconnects ${t.connects - 1}` : ""}`,
+  ].filter(Boolean).join("\n");
+}
+
+// mpv's, from its properties.
+function showMpvStats(t, p) {
+  const v = p.props ?? {}, up = Math.round((Date.now() - p.started) / 1000);
+  statsBox.textContent = [
+    `stream    ${MODE_NAMES.mpv}${v["video-codec"] ? ` (${v["video-codec"]})` : ""}`,
+    `size      ${v.width ?? "?"}×${v.height ?? "?"}`,
+    `fps       ${v["estimated-vf-fps"]?.toFixed(1) ?? "…"}   dropped ${v["frame-drop-count"] ?? 0}`,
+    v["demuxer-cache-duration"] != null ? `behind    ${v["demuxer-cache-duration"].toFixed(2)} s` : null,
+    v["video-bitrate"] ? `data      ${(v["video-bitrate"] / 1e6).toFixed(2)} Mbit/s` : null,
     `connected ${up < 120 ? `${up} s` : `${Math.round(up / 60)} min`}${t.connects > 1 ? `   reconnects ${t.connects - 1}` : ""}`,
   ].filter(Boolean).join("\n");
 }

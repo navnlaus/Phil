@@ -1,5 +1,7 @@
 // camview's command line and window URL (engine/apps.js).
 export const appId = "camview";
+// Its windows hold embeds (mpv, a camera's each, under the page): salir's composited ones.
+export const embeds = true;
 
 const HELP = `camview — network cameras: live video, and pan, tilt and zoom
 

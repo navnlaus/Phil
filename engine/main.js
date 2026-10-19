@@ -203,6 +203,8 @@ async function serve({ profile = {}, request = null, browser = false, standalone
     keepRunning: !!instance && !profile.incognito,
     trustCertificate: tls?.cert,
     trace,
+    // A page asking for another app's window over itself (kit.js openOver).
+    onOpenRequest: (opener, { app, params, rect, request }) => openWindow({ open: { ...params, app } }, { over: { rect, opener, request } }),
   });
 
   const { urls, control } = await serverReady;
@@ -216,12 +218,12 @@ async function serve({ profile = {}, request = null, browser = false, standalone
 
   const cleanUp = () => Object.values(launchers).forEach((app) => app.cleanUp?.(profile));
   const windowUrl = ({ app, ...open }) => launchers[app].windowUrl(new URL(urls[app]), open).href;
-  const openWindow = ({ open }) => {
+  const openWindow = ({ open }, { over = null } = {}) => {
     const app = launchers[open?.app];
     if (!app) return console.error(`${NAME}: no app called ${open?.app}`);
     // Its class: the app's, a variant's (phil --choose: phil-choose), incognito's.
     const appId = app.appId + (open.variant ? `-${open.variant}` : "") + (profile.incognito ? "-incognito" : "");
-    windows.openWindow(windowUrl(open), { appId, embeds: !!app.embeds });
+    windows.openWindow(windowUrl(open), { appId, embeds: !!app.embeds, over });
   };
 
   if (profile.incognito) console.log(`${NAME}: incognito`);

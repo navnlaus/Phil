@@ -5,7 +5,7 @@
 // ("Continue watching"); a title's details at the side; videos played in
 // videoplayer, shown in this page. In phil: the sidebar's Media, over the
 // whole window; Esc or × comes back (a title's details closing first).
-import { appUrl, closeWindow, embedded, embedOf, onCloseRequest, ready, tellParent, tooltips } from "../engine/ui/kit.js";
+import { appUrl, closeWindow, embedOf, embedded, onCloseRequest, openOver, ready, tellParent, tooltips } from "../engine/ui/kit.js";
 
 tooltips(); // the page's own, in the theme's style (kit.js)
 
@@ -749,6 +749,10 @@ let focusBeforePlayer = null;
 
 function playMedia(f) {
   if (f.offline) return;
+  // In videoplayer's own window (mpv), over this one as if it were in it (kit.js openOver);
+  // closed, what was watched shows. In a browser (--browser): here.
+  const over = openOver("videoplayer", { file: f.path });
+  if (over) return void over.then(() => loadMedia());
   focusBeforePlayer = document.activeElement;
   const src = appUrl("videoplayer", { file: f.path });
   const frame = Object.assign(document.createElement("iframe"), { src, title: "videoplayer", allow: "fullscreen" });

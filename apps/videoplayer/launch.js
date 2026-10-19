@@ -38,7 +38,8 @@ export function parse(args, { cwd }) {
   };
 }
 
-export function windowUrl(base, { file }) {
+export function windowUrl(base, { file, sort }) {
   if (file) base.searchParams.set("file", file);
+  if (sort) base.searchParams.set("sort", sort); // (the folder's order: its next and previous videos)
   return base;
 }

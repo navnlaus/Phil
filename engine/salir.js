@@ -9,7 +9,13 @@
 // A window's address carries its server's session token (the server sets its
 // cookie): it goes to salir over the pipe, not on a command line others can
 // read. The servers' certificate (tls.js) is given to salir to trust, that one
-// alone. Pages talk to the engine through window.salir (kit.js): "ready", "close".
+// alone. Pages talk to the engine through window.salir (kit.js): "ready", "close",
+// "open", "over", "tell".
+//
+// A page can ask for another app's window over itself (kit.js openOver: phil's
+// videos, in videoplayer's own window): it opens there on Hyprland, following
+// the page's window till it's moved (hyprland.js), and the page is told when
+// it's closed.
 //
 // The window's class (Wayland app id), for window rules: the app's (phil,
 // phil-choose, phil-incognito...). Windows are Chromium's own (salir's direct
@@ -17,6 +23,7 @@
 // are composited; salir has phil's mpv plugin (native/salir-mpv) for those.
 
 import { join } from "@std/path";
+import { createPlacer } from "./hyprland.js";
 
 const IDLE_MS = 10 * 60 * 1000; // salir, with no windows, closed after this (a background engine's)
 
@@ -50,7 +57,7 @@ export async function findMpvPlugin() {
  * The engine's windows, in salir (`program`, from findSalir). run() resolves
  * once it quits.
  */
-export function createApp({ name, program, ephemeral = false, keepRunning = false, trustCertificate = null, trace = () => {} }) {
+export function createApp({ name, program, ephemeral = false, keepRunning = false, trustCertificate = null, trace = () => {}, onOpenRequest = () => {} }) {
   const runtime = Deno.env.get("XDG_RUNTIME_DIR") || "/tmp";
   const stateHome = Deno.env.get("XDG_STATE_HOME") || join(Deno.env.get("HOME") ?? "/", ".local/state");
   const tempDir = join(runtime, `phil-salir-${Deno.pid}`);
@@ -59,7 +66,8 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
   let session = null; // {send, closed}: salir running, once it's said it's ready
   let starting = null;
   let nextWindow = 1, retiring = false, stopped = false, idleTimer = 0;
-  const windows = new Set(); // ids of the windows open
+  const windows = new Map(); // id -> { appId, opener?, request? } of the windows open (opener: the window that asked for it)
+  const placer = createPlacer({ trace, onParentGone: (p) => session?.send({ close: p.id }) });
   const { promise: done, resolve: finish } = Promise.withResolvers();
 
   // salir, started when the first window opens (and again if it went).
@@ -136,7 +144,9 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
 
   function onEvent(event) {
     if (event.closed) {
+      const w = windows.get(event.closed);
       windows.delete(event.closed);
+      if (w?.request && windows.has(w.opener)) session?.send({ send: { window: w.opener, message: { phil: "closed", request: w.request } } });
       trace(`window ${event.closed} closed`);
       if (windows.size > 0) return;
       if (!keepRunning || retiring) return void stop();
@@ -147,7 +157,16 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       const { window, message } = event.message;
       if (message?.phil === "ready") trace(`page ${window} ready ${message.detail ?? ""}`);
       else if (message?.phil === "close") session?.send({ close: window });
+      else if (message?.phil === "open") onOpenRequest(window, message); // (another app's window over this one: kit.js openOver)
+      else if (message?.phil === "over") placer.move((p) => p.opener === window && p.request === message.request, message.rect);
+      else if (message?.phil === "tell") tellOpener(window, message.message); // (kit.js tellParent)
     } else if (event.error) console.error(`${name}: salir: ${event.error}`);
+  }
+
+  // To the window `id` was opened over (its page's openOver), what `id`'s page tells it.
+  function tellOpener(id, message) {
+    const w = windows.get(id);
+    if (w?.request && windows.has(w.opener)) session?.send({ send: { window: w.opener, message: { phil: "told", request: w.request, message } } });
   }
 
   async function stop() {
@@ -185,9 +204,10 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
 
     /**
      * Opens a window on `url` (an app's server's, with its session token), its class `appId`;
-     * `embeds`: composited (its page can hold embeds), not Chromium's own.
+     * `embeds`: composited (its page can hold embeds), not Chromium's own; `over`: { rect,
+     * opener, request }, asked for by window `opener`'s page, over `rect` of it (kit.js openOver).
      */
-    async openWindow(url, { appId, embeds = false }) {
+    async openWindow(url, { appId, embeds = false, over = null }) {
       if (stopped) return;
       let s;
       try {
@@ -197,8 +217,9 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       }
       clearTimeout(idleTimer);
       const id = String(nextWindow++);
-      windows.add(id);
-      await s.send({ open: { id, url, app_id: appId, direct: !embeds } });
+      windows.set(id, { appId, opener: over?.opener, request: over?.request });
+      const title = over ? await placer.place(over.rect, { parentClass: windows.get(over.opener)?.appId, data: { id, opener: over.opener, request: over.request } }) : null;
+      await s.send({ open: { id, url, app_id: appId, direct: !embeds, ...(title ? { initial_title: title } : {}) } });
       trace(`window ${id} opened`);
     },
 
