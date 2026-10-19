@@ -19,7 +19,7 @@
 
 export const available = !!Deno.env.get("HYPRLAND_INSTANCE_SIGNATURE");
 
-const VERSION = "1"; // (a newer one replaces what an older phil put in Hyprland)
+const VERSION = "2"; // (a newer one replaces what an older phil put in Hyprland)
 
 async function hyprctl(...args) {
   try {
@@ -37,6 +37,9 @@ const luaString = (s) => JSON.stringify(String(s)); // (JSON's string literals a
 export const SETUP = `
 phil_attach = phil_attach or { pending = {}, attached = {} }
 local A = phil_attach
+-- What happened, the last 30 (for a look: hyprctl eval 'error(table.concat(phil_attach.log, "\\n"), 0)').
+A.log = A.log or {}
+function A.say(s) table.insert(A.log, os.date("%H:%M:%S ") .. s); if #A.log > 30 then table.remove(A.log, 1) end end
 if A.version ~= ${luaString(VERSION)} then
   for _, s in ipairs(A.subs or {}) do s:remove() end
   for _, r in ipairs(A.rules or {}) do r:set_enabled(false) end
@@ -51,6 +54,7 @@ if A.version ~= ${luaString(VERSION)} then
     hl.window_rule({ name = "phil-over", match = { initial_title = "^phil-over-.*$" }, tag = "-default-opacity", opacity = "1 1" }),
   }
   local function release(child, a)
+    A.say("released " .. child)
     A.attached[child] = nil
     if win(child) then tag(child, "-phil-attached") end
     local p = win(a.parent)
@@ -66,8 +70,10 @@ if A.version ~= ${luaString(VERSION)} then
       if not c then
         release(child, a)
       elseif not p then
+        A.say(a.parent .. " gone: closing " .. child)
         hl.dispatch(hl.dsp.window.close({ window = sel(child) }))
       elseif not c.group or not p.group or c.group ~= p.group then
+        A.say(child .. " out of the group")
         release(child, a)
         hl.dispatch(hl.dsp.window.float({ action = "enable", window = sel(child) }))
       end
@@ -75,52 +81,66 @@ if A.version ~= ${luaString(VERSION)} then
     if next(A.attached) == nil then A.timer:set_enabled(false) end
   end
   -- (An error here would be Hyprland's to show, every time: none, it stops.)
-  A.timer = hl.timer(function() if not pcall(look) then A.timer:set_enabled(false) end end, { timeout = 300, type = "repeat" })
+  A.timer = hl.timer(function() local ok, e = pcall(look); if not ok then A.say("error: " .. tostring(e)); A.timer:set_enabled(false) end end, { timeout = 300, type = "repeat" })
   A.timer:set_enabled(false)
   A.subs = {
     -- Before it's tiled: the window it goes with made a group, for Hyprland to put it in.
     hl.on("window.open_early", function(w) pcall(function()
       local p = A.pending[w.initial_title]
-      if not p then return end
+      if not p then
+        if next(A.pending) then A.say("opened " .. w.address .. ' "' .. tostring(w.initial_title) .. '": not one of ours') end
+        return
+      end
       A.pending[w.initial_title] = nil
       local parent = win(p.parent)
-      if not parent then return end
+      if not parent then return A.say("opened " .. w.address .. ": " .. p.parent .. " gone") end
       tag(p.parent, "+phil-attached")
       tag(w.address, "+phil-attached")
       local made = not parent.group
       if made then hl.dispatch(hl.dsp.group.toggle({ window = sel(p.parent) })) end
       A.attached[w.address] = { parent = p.parent, made = made }
       A.timer:set_enabled(true)
+      A.say("opened " .. w.address .. " for " .. p.parent .. (made and ", grouped it" or ", in its group"))
     end) end),
     -- Open: in it (if Hyprland didn't put it there: auto_group off, or another window focused).
     hl.on("window.open", function(w) pcall(function()
       local a = A.attached[w.address]
       local parent = a and win(a.parent)
-      if parent and parent.group and w.group ~= parent.group then parent.group:add(w) end
+      if parent and parent.group and w.group ~= parent.group then
+        parent.group:add(w)
+        A.say("added " .. w.address .. " to the group")
+      elseif a then
+        A.say(w.address .. (w.group and " in the group" or " not grouped") .. (parent and parent.group and "" or " (no group to go in)"))
+      end
     end) end),
   }
 end
 `;
 
 /** Attaches windows to others' tiles: attach() before the window opens. */
-export function createPlacer({ trace = () => {} } = {}) {
+export function createPlacer() {
   return {
     /**
      * A window about to open in the tile of the active one (the window a page asked from: it
-     * has the keyboard; of class `parentClass`). Resolves to the title it's to open with, or
+     * has the keyboard; of process `pid`, salir's). Resolves to the title it's to open with, or
      * null (not Hyprland, or no such window): opened as any.
      */
-    async attach({ parentClass } = {}) {
+    async attach({ pid } = {}) {
       if (!available) return null;
       const parent = await json("activewindow");
-      if (!parent?.address || (parentClass && parent.class !== parentClass)) return null;
+      if (!parent?.address || (pid && parent.pid !== pid)) {
+        const why = `not attached: the active window isn't salir's (${parent?.class ?? "none"}, pid ${parent?.pid}, salir's ${pid})`;
+        console.warn(`hyprland: ${why}`);
+        hyprctl("eval", `if phil_attach and phil_attach.say then phil_attach.say(${luaString(why)}) end`); // (with the rest: there)
+        return null;
+      }
       const title = `phil-over-${crypto.randomUUID().slice(0, 8)}`;
       const out = await hyprctl("eval", `${SETUP}\nphil_attach.pending[${luaString(title)}] = { parent = ${luaString(parent.address)} }`);
       if (out !== "ok") {
-        trace(`hyprland: couldn't attach (${out ?? "no hyprctl"})`);
+        console.warn(`hyprland: not attached: ${out ?? "no hyprctl"}`);
         return null;
       }
-      trace(`attaching a window to ${parent.class} (${parent.address})`);
+      console.log(`hyprland: attaching a window to ${parent.class} (${parent.address})`);
       return title;
     },
   };

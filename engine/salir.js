@@ -67,7 +67,7 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
   let starting = null;
   let nextWindow = 1, retiring = false, stopped = false, idleTimer = 0;
   const windows = new Map(); // id -> { appId, opener?, request? } of the windows open (opener: the window that asked for it)
-  const placer = createPlacer({ trace });
+  const placer = createPlacer();
   const { promise: done, resolve: finish } = Promise.withResolvers();
 
   // salir, started when the first window opens (and again if it went).
@@ -125,6 +125,7 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
         if (!keepRunning || retiring) stop();
       });
       s.exited = child.status;
+      s.pid = child.pid;
       await ready;
       if (s.closed) throw new Error("it stopped as it started");
       if (trustCertificate) await s.send({ trust_certificate: trustCertificate });
@@ -217,7 +218,7 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       clearTimeout(idleTimer);
       const id = String(nextWindow++);
       windows.set(id, { appId, opener: over?.opener, request: over?.request });
-      const title = over ? await placer.attach({ parentClass: windows.get(over.opener)?.appId }) : null;
+      const title = over ? await placer.attach({ pid: s.pid }) : null;
       await s.send({ open: { id, url, app_id: appId, direct: !embeds, ...(title ? { initial_title: title } : {}) } });
       trace(`window ${id} opened`);
     },
