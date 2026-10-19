@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="/ui/style.css">
   <link rel="stylesheet" id="theme" href="/themes/overlay.css"> <!-- the one in the settings (applySettings) -->
   <script type="module" src="/ui/app.js"></script>
+  <!-- phil --terminal: covered from the first frame (app.js uncovers it once the terminal's there). -->
+  <script>if (new URLSearchParams(location.search).get("terminal") === "1") document.documentElement.classList.add("term-start");</script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">

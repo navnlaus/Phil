@@ -3973,11 +3973,12 @@ function showTransfers() {
 // shown), what and for how long; × stops it, a click shows the folder.
 let processTicker = null;
 function renderProcesses() {
-  const list = state.processes ?? [];
+  // One from the background shown in the terminal panel: the main terminal first (a click: back to it).
+  const list = [...(terminal.kept ? [{ id: "main-terminal", kind: "main-terminal" }] : []), ...(state.processes ?? [])];
   keyed($("#processes"), list, { key: (p) => p.id, make: makeProcessRow, show: showProcessRow });
   $("#processes-panel").hidden = !list.length;
   // (How long they've taken: folders' totals'; a terminal in the background has none.)
-  const timed = list.some((p) => p.kind !== "terminal");
+  const timed = list.some((p) => p.kind !== "terminal" && p.kind !== "main-terminal");
   if (timed && !processTicker) processTicker = setInterval(() => [...$("#processes").children].forEach((row) => showProcessRow(row, row.item)), 1000);
   if (!timed) clearInterval(processTicker), (processTicker = null);
 }
@@ -3995,7 +3996,12 @@ function makeProcessRow() {
   const icon = Object.assign(document.createElement("img"), { className: "process-icon", alt: "", hidden: true });
   icon.onerror = () => (icon.hidden = true);
   row.append(Object.assign(document.createElement("span"), { className: "process-name" }), Object.assign(document.createElement("span"), { className: "process-time" }), cancel, icon);
-  row.addEventListener("click", () => (row.item.kind === "terminal" ? showBackgroundTerminal(row.item.term) : load(row.item.path)));
+  row.addEventListener("click", () => {
+    const p = row.item;
+    if (p.kind === "main-terminal") switchTerminal(1);
+    else if (p.kind === "terminal") showBackgroundTerminal(p.term);
+    else load(p.path);
+  });
   row.addEventListener("mouseenter", () => row.item && showProcessRow(row, row.item)); // (its tip's time, as it is now)
   row.addEventListener("pointerdown", (e) => dragProcess(row, e));
   row.addEventListener("contextmenu", (e) => {
@@ -4016,6 +4022,15 @@ const CLAUDE_MARK = /^[·✢✳✶✻✽◐◓◑◒]/u;
 
 function showProcessRow(row, p) {
   const [name, time, cancel, icon] = row.children;
+  if (p.kind === "main-terminal") {
+    const at = terminal.main.cwd;
+    put(name, "textContent", !at ? "Terminal" : at === state.init.home ? "~" : at === "/" ? "/" : at.split("/").pop());
+    put(row, "title", ["The main terminal", at].filter(Boolean).join("\n"));
+    put(time, "textContent", "");
+    put(cancel, "hidden", true);
+    put(icon, "hidden", true);
+    return;
+  }
   if (p.kind !== "terminal") showProcessTime(time, p);
   else put(time, "textContent", "");
   if (p.kind === "terminal") {
@@ -4842,7 +4857,7 @@ const terminal = new TerminalPanel({
   toRemote: (path) => remoteOf(path),
 });
 // Which terminal it shows changed: the sidebar's Processes mark it.
-terminal.onSession = () => [...$("#processes").children].forEach((row) => row.item && showProcessRow(row, row.item));
+terminal.onSession = () => renderProcesses();
 
 // Reopen the panel on startup if it was open when phil last quit, and select
 // files phil was started with (both set at startup, applied after the first load).
@@ -5075,7 +5090,14 @@ thumbs.connect();
 
 // (--terminal: the terminal covering the window, the keyboard in it.)
 startCovered = new URLSearchParams(location.search).get("terminal") === "1" && !choosing;
-restoreTerminal = (state.settings.termOpen || startCovered) && !choosing; // (a file chooser: just the folder)
+restoreTerminal = state.settings.termOpen && !startCovered && !choosing; // (a file chooser: just the folder)
+if (startCovered) {
+  // At once, in the folder asked for (not after its listing: the file view would show first).
+  const at = decodeURIComponent(location.hash.slice(1)) || state.init.home;
+  setTerminalCover(true);
+  terminal.show(at, { focus: true }).then(() => requestAnimationFrame(() => document.documentElement.classList.remove("term-start")));
+  terminalShown(true);
+}
 // Files to select, from ?select= (phil file..., "Show in folder"); dropped from
 // the URL so they aren't reselected later.
 const selectParams = new URLSearchParams(location.search).getAll("select");

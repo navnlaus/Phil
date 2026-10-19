@@ -327,6 +327,8 @@ body.term-cover #term-resize { display: none; }
 body.term-over-app #term-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; }
 body.term-over-app.term-cover #term-panel { z-index: 11; }
 #term { position: relative; height: 100%; }
+/* phil --terminal, before its terminal's there: nothing of the folder view shown. */
+html.term-start body::after { content: ""; position: fixed; inset: 0; z-index: 8; background: var(--bg); }
 /* The panel's own shell, and one from the background shown in its place (terminal.js). */
 #term .term-box { position: absolute; inset: 0; }
 #term .term-box[hidden] { display: none; }
