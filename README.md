@@ -651,10 +651,14 @@ closes; its next main shell is a new one. Not in incognito windows.
 - **Drag** one up or down for another order (their Alt+ numbers with it), kept
   for every window.
 - **Dropped on a folder** (a tile, a place, the folder shown), one leaves a
-  script there, named as it is and with its icon, that starts it again:
-  `phil --background --name NAME --cwd DIR -- COMMAND…` (a terminal put in the
-  background at once, last in the list, its shell in DIR with COMMAND typed in;
-  from anywhere, the engine started for it if it's not running).
+  script there, named as it is and with its icon: just what ran there and
+  where (`cd`, then the command; ssh'd in with a command typed there, `ssh -t
+  host 'that command'`), marked to run in the background (its Properties: "Run
+  in the background"). Double-clicked, a script so marked doesn't take the
+  terminal panel: a terminal in the background runs it (sourced in its shell:
+  back at its prompt, where it was, when it ends), named after it, last in the
+  list. `phil --background --name NAME --cwd DIR -- COMMAND…` does that from
+  anywhere (the engine started for it if it's not running).
 - **They outlive the window and the engine**: each shell runs in a process of
   its own (`phil-engine --term-host`, detached), on a Unix socket in
   `$XDG_RUNTIME_DIR/phil/main.terms/`; a new phil lists them.

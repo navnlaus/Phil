@@ -2089,6 +2089,17 @@ if (choosing) {
   }
 }
 
+// A script marked to run in the background (its Properties; one a background terminal left on a
+// folder): a terminal in the running phil's background runs it, named after it, last in the list.
+async function runInBackground(entry) {
+  try {
+    await api("/api/terms-run", { method: "POST", body: JSON.stringify({ path: entry.path }) });
+    flashStatus(`${entry.name}: running in the background (the sidebar's Processes)`);
+  } catch (err) {
+    alert(`Couldn't run it in the background: ${err.message}`);
+  }
+}
+
 const isJson = (entry) => entry.kind === "file" && /\.json$/i.test(entry.name);
 // Word, RTF, OpenDocument...: what engine/documents.js converts.
 const isDocument = (entry) => entry.kind === "file" && /\.(rtf|docx?|docm|dotx?|odt|ott|fodt|wps|wpd|abw|pages)$/i.test(entry.name);
@@ -2098,6 +2109,7 @@ const isDocument = (entry) => entry.kind === "file" && /\.(rtf|docx?|docm|dotx?|
 // notes, code, configs, logs) open in textedit in this window; other files
 // with their default app. The server checks.
 async function openFile(entry) {
+  if (entry.background) return runInBackground(entry); // (a script marked so: Properties)
   const kind = await api(`/api/is-text?path=${encodeURIComponent(entry.path)}`).catch(() => ({}));
   if (kind.run) return runInTerminal(kind.run); // scripts and programs
   if (kind.text || tiles.get(entry.path)?.firstElementChild.text) openInApp("textedit", { file: entry.path });
@@ -2636,6 +2648,10 @@ async function showProperties(entry) {
   $p("#props-found").textContent = [found.length && `Found by auto-tagging: ${found.join(", ")}`, ownText && `The file's own description: ${ownText}`].filter(Boolean).join("\n");
   $p("#props-found").hidden = !found.length && !ownText;
   $p(".hook").hidden = p.kind !== "file"; // hooks are for files
+  // A script: run as a terminal in the background, double-clicked (not in the terminal, covering the window).
+  const bgBox = $p("#props-background");
+  $p(".background").hidden = p.kind !== "file";
+  bgBox.checked = !!p.meta?.background;
   // A folder: a media folder (its videos in the Media view).
   const mediaBox = $p("#props-media");
   $p(".media-folder").hidden = p.kind !== "folder" || !mediaViewOn();
@@ -2656,9 +2672,10 @@ async function showProperties(entry) {
   // A folder's icon, for its tile and in the sidebar: picked from a list (pickIcon).
   let iconPick = p.meta?.icon ?? "";
   const iconButton = $p("#props-icon"), iconReset = $p("#props-icon-reset");
-  $p(".icon-row").hidden = p.kind !== "folder";
+  $p(".icon-row").hidden = p.kind !== "folder" && p.kind !== "file";
   const showIcon = () => {
-    iconButton.innerHTML = icon(iconPick ? `l:${iconPick}` : "folder") + `<span>${iconPick ? iconPick.replaceAll("-", " ") : "The usual folder"}</span>`;
+    const shown = iconPick === "claude" ? `<img class="claude-pick" src="/api/icon/claude" alt="">` : icon(iconPick ? `l:${iconPick}` : p.kind === "folder" ? "folder" : "file");
+    iconButton.innerHTML = shown + `<span>${iconPick ? iconPick.replaceAll("-", " ") : p.kind === "folder" ? "The usual folder" : "The usual one"}</span>`;
     iconReset.hidden = !iconPick;
   };
   showIcon();
@@ -2702,7 +2719,8 @@ async function showProperties(entry) {
     if (p.kind === "file" && onChange !== (p.meta?.onChange ?? "")) changes.onChange = onChange;
     if (p.kind === "folder" && autoBox.checked !== !!p.meta?.autoTags) changes.autoTags = autoBox.checked;
     if (p.kind === "folder" && mediaBox.checked !== !!p.meta?.media) changes.media = mediaBox.checked;
-    if (p.kind === "folder" && iconPick !== (p.meta?.icon ?? "")) changes.icon = iconPick;
+    if ((p.kind === "folder" || p.kind === "file") && iconPick !== (p.meta?.icon ?? "")) changes.icon = iconPick;
+    if (p.kind === "file" && bgBox.checked !== !!p.meta?.background) changes.background = bgBox.checked;
     const drive = {};
     if (driveWas && thumbBox.checked !== driveWas.thumbnails) drive.thumbnails = thumbBox.checked;
     if (driveWas && sizesBox.checked !== driveWas.folderSizes) drive.folderSizes = sizesBox.checked;

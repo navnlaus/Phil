@@ -529,14 +529,15 @@ export function createServer({ profile, controlSocket }) {
         }
       case "GET /api/folder-size":
         return json(await folderSize(requirePath(path)));
-      case "PUT /api/meta": { // {path, description, onChange, tags, autoTags, icon}: Properties' phil section
+      case "PUT /api/meta": { // {path, description, onChange, tags, autoTags, icon, background}: Properties' phil section
         const { path, ...changes } = await req.json();
         if ("icon" in changes && changes.icon && !/^[a-z0-9-]{1,64}$/.test(changes.icon)) throw httpError(400, "An icon's name, from the list");
         const clean = (key) => key in changes ? { [key]: String(changes[key] ?? "").trim() } : {};
         const tags = "tags" in changes ? cleanTags(changes.tags) : null;
         const auto = "autoTags" in changes ? { autoTags: changes.autoTags ? true : "" } : {}; // a folder's: tag its pictures
         const media = "media" in changes ? { media: changes.media ? true : "" } : {}; // a folder's: its videos in mediaview
-        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...clean("icon"), ...(tags ? { tags: tags.length ? tags : "" } : {}), ...auto, ...media });
+        const background = "background" in changes ? { background: changes.background ? true : "" } : {}; // a script's: run as a terminal in the background
+        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...clean("icon"), ...(tags ? { tags: tags.length ? tags : "" } : {}), ...auto, ...media, ...background });
         if (tags?.length) await addTagsToLists([path], tags);
         return json({ ok: true });
       }
@@ -580,19 +581,31 @@ export function createServer({ profile, controlSocket }) {
         const t = terms.list().find((t) => t.id === String(id));
         if (!t) throw httpError(404, "No such terminal");
         const folder = requirePath(dir);
-        // What runs there (a shell at its prompt: nothing but where it is).
+        // What runs there (a shell at its prompt: nothing but where it is). ssh'd in, with a command
+        // typed there (its prompt left out): that one run there, on a terminal (-t).
         const argv = t.argv?.length ? t.argv : (t.command ?? "").split(/\s+/).filter(Boolean);
         const program = (argv[0] ?? "").split("/").pop().replace(/^-/, "");
-        const command = ["bash", "sh", "zsh", "fish", "dash"].includes(program) ? [] : argv;
+        const typed = (t.typed ?? "").replace(/^.*?[#$%>❯➜»]\s+(?=\S)/u, "").trim();
+        const command = ["bash", "sh", "zsh", "fish", "dash"].includes(program) ? [] : program === "ssh" && typed ? [argv[0], "-t", ...argv.slice(1), typed] : argv;
         const base = String(name || program || "terminal").replaceAll("/", "-").replace(/^\.+/, "").trim().slice(0, 120) || "terminal";
         let path = join(folder, base);
         for (let n = 2; await Deno.lstat(path).then(() => true, () => false); n++) path = join(folder, `${base} ${n}`);
         const q = (s) => `'${String(s).replaceAll("'", `'\\''`)}'`;
-        const script = `#!/bin/sh\n# A terminal in phil's background (its sidebar's Processes), started again: what ran there, where.\nexec phil --background --name ${q(name || base)} --cwd ${q(t.cwd || home())}${command.length ? ` -- ${command.map(q).join(" ")}` : ""}\n`;
+        // Just what to run, where: a script like any. Marked to run in the background (its
+        // Properties): double-clicked, phil runs it in a terminal of its own there (sourced in its
+        // shell: where it cds is where that shell is, and back at its prompt when it ends).
+        const script = `#!/bin/sh\n# What ran in a terminal in phil's background, where (phil runs it there: its Properties).\ncd ${q(t.cwd || home())} || return 1 2>/dev/null || exit 1\n${command.length ? command.map(q).join(" ") + "\n" : ""}`;
         await Deno.writeTextFile(path, script, { createNew: true });
         await Deno.chmod(path, 0o755);
-        if (typeof icon === "string" && /^[a-z0-9-]{1,64}$/.test(icon)) await hooks.set(path, { icon });
+        await hooks.set(path, { background: true, ...(typeof icon === "string" && /^[a-z0-9-]{1,64}$/.test(icon) ? { icon } : {}) });
         return json({ path });
+      }
+      case "POST /api/terms-run": { // {path}: a script marked to run in the background: a terminal there, named after it, running it
+        const path = requirePath((await req.json()).path);
+        const name = basename(path).replace(/\.(sh|bash)$/, "");
+        const result = await background({ command: [".", path], name, cwd: dirname(path) });
+        if (!result.ok) throw httpError(409, result.error);
+        return json(result);
       }
       case "PUT /api/terms-order": // {ids}: the terminals in the background in this order (the sidebar's, dragged)
         await terms.setOrder((await req.json()).ids ?? []);
@@ -653,6 +666,7 @@ export function createServer({ profile, controlSocket }) {
       if (meta[e.path]?.description) e.description = meta[e.path].description;
       if (meta[e.path]?.icon) e.icon = meta[e.path].icon; // a folder's, picked in its Properties
       if (meta[e.path]?.media) e.mediaFolder = true; // a media folder (its Properties): mediaview's
+      if (meta[e.path]?.background) e.background = true; // a script run as a terminal in the background (its Properties)
       if (meta[e.path]?.copying) { // a copy into it: under way, or stopped (cut off: no job has it)
         e.copying = { ...meta[e.path].copying };
         if (!liveTargets.has(e.path)) e.copying.state = "stopped";
