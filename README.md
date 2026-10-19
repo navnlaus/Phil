@@ -647,10 +647,14 @@ closes; its next main shell is a new one. Not in incognito windows.
   Alt+1, or when Super+° sends the one shown back; until then it's first in
   Processes (a terminal icon; a click: back to it). The one shown is marked
   there; one another window shows is dimmed (shown here, it's taken from there).
-- **Right-click** → Rename… (kept by its host; blank: named by what runs there
-  again), End. × ends one too (what runs there is hung up).
+- **Right-click** → Rename… (blank: named by what runs there again), End. × ends one too (what runs there is hung up).
 - **Drag** one up or down for another order (their Alt+ numbers with it), kept
   for every window.
+- **Dropped on a folder** (a tile, a place, the folder shown), one leaves a
+  script there, named as it is and with its icon, that starts it again:
+  `phil --background --name NAME --cwd DIR -- COMMAND…` (a terminal put in the
+  background at once, last in the list, its shell in DIR with COMMAND typed in;
+  from anywhere, the engine started for it if it's not running).
 - **They outlive the window and the engine**: each shell runs in a process of
   its own (`phil-engine --term-host`, detached), on a Unix socket in
   `$XDG_RUNTIME_DIR/phil/main.terms/`; a new phil lists them.

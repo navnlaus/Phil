@@ -290,6 +290,8 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 .process-icon[hidden] { display: none; }
 /* (The main terminal's, an ssh session's.) */
 .process-glyph { order: -1; flex: none; display: flex; }
+/* (claude.ai's icon on a file: its background terminal's script.) */
+.thumb > img.claude-icon { inset: auto; position: absolute; width: 30%; height: auto; object-fit: contain; }
 .process-glyph[hidden] { display: none; }
 .process-glyph svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; color: var(--text-dim); }
 .process-time { flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; }

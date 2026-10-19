@@ -69,6 +69,12 @@ async function run(cmd, args) {
   return out?.success ? new TextDecoder().decode(out.stdout).trim() : "";
 }
 
+// A process's arguments, as it was given them (its /proc cmdline: NUL between them).
+async function readArgv(pid) {
+  const out = await new Deno.Command("cat", { args: [`/proc/${pid}/cmdline`], stdin: "null", stdout: "piped", stderr: "null" }).output().catch(() => null);
+  return out?.success ? new TextDecoder().decode(out.stdout).split("\0").filter((a, i, all) => a || i < all.length - 1) : null;
+}
+
 /** The host itself: `job` from the engine (apps/phil/server.js). Runs till the shell's gone. */
 export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, rows = 24 }) {
   await Deno.mkdir(dir, { recursive: true, mode: 0o700 });
@@ -146,6 +152,7 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
             const since = (at) => !Number.isFinite(fgStarted) || at >= fgStarted;
             const info = {
               id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep, keptAt, name,
+              argv: (await readArgv(fg)) ?? [], // (as given: quoting and all, for a script that runs it again)
               ...(since(titleAt) ? { title, titleAt } : { title: "" }),
               ...(since(typedAt) ? { typed, typedAt } : { typed: "" }),
             };

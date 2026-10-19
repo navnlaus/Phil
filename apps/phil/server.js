@@ -575,6 +575,25 @@ export function createServer({ profile, controlSocket }) {
         await terms.rename(String(id), name);
         return json({ ok: true });
       }
+      case "POST /api/terms-script": { // {id, dir, name, icon}: a background terminal dragged onto a folder: a script there that starts it again
+        const { id, dir, name, icon } = await req.json();
+        const t = terms.list().find((t) => t.id === String(id));
+        if (!t) throw httpError(404, "No such terminal");
+        const folder = requirePath(dir);
+        // What runs there (a shell at its prompt: nothing but where it is).
+        const argv = t.argv?.length ? t.argv : (t.command ?? "").split(/\s+/).filter(Boolean);
+        const program = (argv[0] ?? "").split("/").pop().replace(/^-/, "");
+        const command = ["bash", "sh", "zsh", "fish", "dash"].includes(program) ? [] : argv;
+        const base = String(name || program || "terminal").replaceAll("/", "-").replace(/^\.+/, "").trim().slice(0, 120) || "terminal";
+        let path = join(folder, base);
+        for (let n = 2; await Deno.lstat(path).then(() => true, () => false); n++) path = join(folder, `${base} ${n}`);
+        const q = (s) => `'${String(s).replaceAll("'", `'\\''`)}'`;
+        const script = `#!/bin/sh\n# A terminal in phil's background (its sidebar's Processes), started again: what ran there, where.\nexec phil --background --name ${q(name || base)} --cwd ${q(t.cwd || home())}${command.length ? ` -- ${command.map(q).join(" ")}` : ""}\n`;
+        await Deno.writeTextFile(path, script, { createNew: true });
+        await Deno.chmod(path, 0o755);
+        if (typeof icon === "string" && /^[a-z0-9-]{1,64}$/.test(icon)) await hooks.set(path, { icon });
+        return json({ path });
+      }
       case "PUT /api/terms-order": // {ids}: the terminals in the background in this order (the sidebar's, dragged)
         await terms.setOrder((await req.json()).ids ?? []);
         return json({ ok: true });
@@ -979,6 +998,39 @@ export function createServer({ profile, controlSocket }) {
   // (which it is), {open} (phil-editor's), {replayed} (its screen given, as it
   // was: an earlier one's), {background}, {taken} (shown in another panel now).
   const cdFileOf = (terminal) => join(Deno.env.get("XDG_RUNTIME_DIR") ?? "/tmp", `phil-cd-${terminal}`);
+  // A shell in a host of its own (terms.js), as the panel's are.
+  async function startShell(terminal, cwd, cols, rows) {
+    await terms.start({
+      id: terminal,
+      command: ["bash", "--rcfile", await shellInit, "-i"],
+      cwd,
+      cols,
+      rows,
+      env: {
+        PHIL_CD_FILE: cdFileOf(terminal),
+        PHIL_TERMINAL: terminal,
+        ...(controlSocket ? { PHIL_ENGINE_SOCKET: controlSocket } : {}),
+        ...(config.incognito ? { PHIL_INCOGNITO: "1" } : {}),
+      },
+    });
+  }
+
+  // phil --background: a terminal put in the background at once, last in their order: its shell
+  // in `cwd`, `command` typed in it (as by hand: when it ends, the shell's there), `name` its name.
+  async function background({ command = [], name = "", cwd }) {
+    if (!terms.persistent) return { ok: false, error: "no terminals in the background here (incognito)" };
+    const terminal = crypto.randomUUID();
+    await startShell(terminal, await isDir(cwd ?? "") ? cwd : home(), 120, 36);
+    const host = await terms.attach(terminal, { onData() {}, onMessage() {}, onClose() {} });
+    if (!host) return { ok: false, error: "its terminal didn't start" };
+    await host.send({ keep: true });
+    if (command.length) await host.write(new TextEncoder().encode(command.map(shellWord).join(" ") + "\r"));
+    host.close();
+    if (name) await terms.rename(terminal, name);
+    await terms.last(terminal);
+    return { ok: true, id: terminal };
+  }
+  const shellWord = (s) => (/^[\w.+@%/:=,-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
   async function terminalSocket(req, url) {
     if (req.headers.get("upgrade") !== "websocket") return text(400, "Bad request");
     const size = (name, fallback) => Math.max(1, Number(url.searchParams.get(name)) || fallback);
@@ -990,19 +1042,7 @@ export function createServer({ profile, controlSocket }) {
       const cwd = await isDir(url.searchParams.get("cwd") ?? "") ? url.searchParams.get("cwd") : home();
       terminal = crypto.randomUUID();
       try {
-        await terms.start({
-          id: terminal,
-          command: ["bash", "--rcfile", await shellInit, "-i"],
-          cwd,
-          cols,
-          rows,
-          env: {
-            PHIL_CD_FILE: cdFileOf(terminal),
-            PHIL_TERMINAL: terminal,
-            ...(controlSocket ? { PHIL_ENGINE_SOCKET: controlSocket } : {}),
-            ...(config.incognito ? { PHIL_INCOGNITO: "1" } : {}),
-          },
-        });
+        await startShell(terminal, cwd, cols, rows);
       } catch (err) {
         return text(500, err.message);
       }
@@ -1222,7 +1262,8 @@ export function createServer({ profile, controlSocket }) {
   // Requests to phil on the engine's control socket: { embed: { terminal, app,
   // params } } from phil-editor in a terminal panel shows that app in the
   // panel's window (a text frame on its WebSocket; see terminal.js).
-  function control({ embed }) {
+  async function control({ embed, background: wanted }) {
+    if (wanted) return await background(wanted);
     const socket = embed && terminals.get(embed.terminal);
     if (socket?.readyState !== WebSocket.OPEN) return { ok: false };
     socket.send(JSON.stringify({ open: { app: embed.app, params: embed.params ?? {} } }));

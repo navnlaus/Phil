@@ -107,6 +107,18 @@ async function launch(argv) {
   };
   const socket = socketPath(profile);
 
+  // A request for an app's server, no window (phil --background): to the engine, started (with
+  // no window) if it's not running.
+  if (parsed.control) {
+    let answer = await ask(socket, parsed.control).catch(() => null);
+    if (!answer) {
+      await startEngine({ profile, request: null }, socket);
+      answer = await ask(socket, parsed.control).catch(() => null);
+    }
+    if (!answer?.ok) console.error(`${name}: ${answer?.error ?? "the engine didn't take it"}`);
+    Deno.exit(answer?.ok ? 0 : 1);
+  }
+
   if (flags.has("--quit")) {
     console.log(await ask(socket, { quit: true }) ? `${NAME}: stopped` : `${NAME}: not running`);
     Deno.exit(0);

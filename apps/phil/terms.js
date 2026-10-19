@@ -24,6 +24,8 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
   let timer = 0;
 
   const socketOf = (id) => join(dir, `${id}.sock`);
+  // Their names (Rename…), by id: those of hosts gone left out as they're written again.
+  const readNames = () => Deno.readTextFile(join(dir, "names.json")).then(JSON.parse, () => ({}));
 
   // A message to a host, and its answer (info), or null if it's not there.
   async function ask(id, message) {
@@ -61,8 +63,9 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
     // (Shown in a panel too: their places, Alt+2 on, stay theirs.) In the order they were
     // dragged to (order.json), else the one they went there in.
     const order = await Deno.readTextFile(join(dir, "order.json")).then(JSON.parse, () => []);
+    const names = await readNames();
     const rank = (i) => (order.includes(i.id) ? order.indexOf(i.id) : order.length);
-    const now = infos.filter((i) => i?.keep).sort((a, b) => rank(a) - rank(b) || a.keptAt - b.keptAt).map(({ id, command, cwd, started, attached, title, titleAt, typed, typedAt, name }) => ({ id, command, cwd, started, attached, title, titleAt, typed, typedAt, name }));
+    const now = infos.filter((i) => i?.keep).sort((a, b) => rank(a) - rank(b) || a.keptAt - b.keptAt).map(({ id, command, cwd, started, attached, title, titleAt, typed, typedAt, name, argv }) => ({ id, command, cwd, started, attached, title, titleAt, typed, typedAt, name: names[id] ?? name ?? "", argv }));
     if (JSON.stringify(now) !== JSON.stringify(background)) {
       background = now;
       onChange(background);
@@ -153,9 +156,22 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
       lookSoon(0);
     },
 
-    /** Names one in the background ("": its own name again, what runs there). */
+    /** Names one in the background ("": its own name again, what runs there): names.json, by its id. */
     async rename(id, name) {
-      await ask(id, { name: String(name ?? "") });
+      if (!persistent) return;
+      const names = await readNames();
+      const given = String(name ?? "").trim().slice(0, 200);
+      if (given) names[id] = given;
+      else delete names[id];
+      await Deno.writeTextFile(join(dir, "names.json"), JSON.stringify(names));
+      lookSoon(0);
+    },
+
+    /** One put at the end of their order (phil --background's: added back last). */
+    async last(id) {
+      if (!persistent) return;
+      const order = await Deno.readTextFile(join(dir, "order.json")).then(JSON.parse, () => background.map((b) => b.id));
+      await Deno.writeTextFile(join(dir, "order.json"), JSON.stringify([...order.filter((o) => o !== id), id]));
       lookSoon(0);
     },
 

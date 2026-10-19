@@ -32,6 +32,11 @@ Options:
                      paths, one per line (nothing: cancelled). The path given
                      is where to start (to save: the suggested file). Waits
                      until the choice is made, or the window closed.
+  --background [--name NAME] [--cwd DIR] [-- COMMAND...]
+                     A terminal in the background (the sidebar's Processes,
+                     last), no window: its shell in DIR (here), COMMAND typed
+                     in it; NAME its name there. What a background terminal
+                     dragged onto a folder writes there, in a script.
   --terminal         The terminal covering the window, the keyboard in it
                      (Esc at its prompt, or Ctrl+F: the folder)
   --multiple         (--choose) More than one may be chosen
@@ -65,6 +70,9 @@ const OPTIONS = {
   "--out": true,
   "--file-manager-service": false,
   "--terminal": false,
+  "--background": false,
+  "--name": true,
+  "--cwd": true,
   "--help": false,
 };
 
@@ -88,6 +96,10 @@ export function parse(args, { cwd }) {
   for (let i = 0; i < args.length; i++) {
     let arg = args[i];
     if (arg === "-h") return { help: HELP };
+    if (arg === "--") { // (the rest: --background's command, as it is)
+      positional.push(...args.slice(i + 1));
+      break;
+    }
     if (!arg.startsWith("--")) {
       positional.push(arg);
       continue;
@@ -122,6 +134,11 @@ export function parse(args, { cwd }) {
     jobs: opts.jobs === undefined ? undefined : positiveInt("jobs", opts.jobs),
     port: opts.port === undefined ? undefined : positiveInt("port", opts.port),
   };
+
+  // A terminal in the background, no window (the engine's phil server: started for it if need be).
+  if (opts.background) {
+    return { profile, control: { to: "phil", background: { command: positional, name: opts.name ?? "", cwd: resolve(cwd, opts.cwd ?? ".") } } };
+  }
 
   // A file chooser: the window, then waiting for the choice (phil's server writes
   // <out>, then <out>.done: when it's chosen, cancelled, or the window closed).

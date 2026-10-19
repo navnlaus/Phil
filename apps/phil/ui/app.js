@@ -343,6 +343,7 @@ const observe = (margin, fn) =>
 
 const nearObserver = observe(800, (tile, entry, near) => {
   if (near && entry.kind === "dir") return drawFolderTexts(tile), wantSummary(tile, entry), wantTotal(entry);
+  if (near && entry.icon) return; // (a file given an icon: that, no preview)
   if (near) return entry.kind === "file" ? showText(tile, entry) : showThumb(tile, entry);
   if (thumbs.wanted.has(entry.path)) {
     tile.firstElementChild.classList.remove("loading");
@@ -1005,13 +1006,17 @@ function refreshPreview(tile, entry) {
   const near = isNear(tile);
   if (entry.kind === "file") {
     box.text = undefined; // its text read again (and drawn over the old)
-    if (near) showText(tile, entry, { again: true });
+    if (near && !entry.icon) showText(tile, entry, { again: true });
   } else if (typeof entry.thumb === "string") {
     if (box.querySelector("img") || near) setThumbImage(box, entry.thumb);
   } else if (entry.thumb === null && near && !askAgain.has(entry.path)) {
     thumbs.want(entry.path, { quiet: true }); // (no "loading" look: a file being written changes all the time, and that blinked)
   }
 }
+
+// A file's icon given it (its metadata's: a background terminal's script, say): Lucide's, or
+// "claude", claude.ai's.
+const fileIcon = (name) => (name === "claude" ? `<img class="kind claude-icon" src="/api/icon/claude" alt="">` : icon(`l:${name}`, "kind"));
 
 const fileMeta = (entry) => [fileType(entry.name).toUpperCase(), formatSize(entry.size), formatShortDate(entry.mtime)].filter(Boolean).join(" · ");
 
@@ -1025,7 +1030,7 @@ function makeTile(entry, index) {
   const box = document.createElement("div");
   box.className = "thumb";
   if (entry.kind !== "dir") {
-    box.innerHTML = icon(KIND_ICON[entry.kind], "kind");
+    box.innerHTML = entry.icon ? fileIcon(entry.icon) : icon(KIND_ICON[entry.kind], "kind");
     if ((entry.kind === "file" || entry.kind === "pdf") && fileType(entry.name)) { // under the icon, until text or a thumbnail covers it
       const ext = document.createElement("span");
       ext.className = "ext";
@@ -4009,6 +4014,7 @@ function makeProcessRow() {
     const p = row.item;
     if (p?.kind !== "terminal") return;
     e.preventDefault();
+    e.stopPropagation(); // (the sidebar's own menu would take its place)
     showMenu(e.clientX, e.clientY, [
       ["Rename…", () => renameProcess(p, row.querySelector(".process-name").textContent)],
       ["End", () => row.querySelector(".cancel").click()],
@@ -4077,6 +4083,21 @@ function showProcessRow(row, p) {
   put(cancel, "title", "Stop it (worked out again when it's asked for)");
 }
 
+// A background terminal dropped on a folder: a script there, named and with the icon it has in
+// the list, that starts it again (phil --background: back in the list, last).
+async function processScript(row, dir) {
+  const p = row.item;
+  const name = row.querySelector(".process-name").textContent;
+  const icon = !row.querySelector(".process-icon").hidden ? "claude" : !row.querySelector(".process-glyph").hidden ? row.querySelector(".process-glyph").dataset.icon?.replace(/^l:/, "") : "square-terminal";
+  try {
+    const { path } = await api("/api/terms-script", { method: "POST", body: JSON.stringify({ id: p.term, dir, name, icon }) });
+    flashStatus(`${path.split("/").pop()}: in ${dir}. It starts “${name}” again, in the background`);
+    if (dir === state.path) initialSelect = [path];
+  } catch (err) {
+    alert(`Couldn't make its script: ${err.message}`);
+  }
+}
+
 // A terminal in the background named (its host keeps it); blank: named by what runs there again.
 async function renameProcess(p, shown) {
   const answer = await askConfirm({ title: "Rename", detail: "Blank: named by what runs there.", ok: "Rename", danger: false, fields: [{ name: "name", label: "Name", value: p.name || shown }] });
@@ -4090,7 +4111,7 @@ function dragProcess(row, e) {
   if (e.button !== 0 || row.item?.kind !== "terminal" || e.target.closest(".cancel")) return;
   const rows = () => [...$("#processes").children].filter((r) => r.item?.kind === "terminal");
   const startY = e.clientY;
-  let moved = false, before = null;
+  let moved = false, before = null, folder = null; // (folder: dropped there, a script that starts it again)
   const mark = () => {
     const others = rows().filter((r) => r !== row);
     for (const r of others) {
@@ -4102,6 +4123,12 @@ function dragProcess(row, e) {
     if (!moved && Math.abs(ev.clientY - startY) < 5) return;
     moved = true;
     row.classList.add("dragging");
+    // Out of the list, over a folder (a tile, a place, the folder shown): a script there.
+    const inList = !!document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.("#processes-panel");
+    const over = inList ? null : outsideTargetAt(ev.clientX, ev.clientY);
+    folder = over && !over.gap ? over : null;
+    setOutsideTarget(folder);
+    if (folder) return (before = null), mark(), rows().forEach((r) => r.classList.remove("drop-before", "drop-after"));
     before = rows().filter((r) => r !== row).find((r) => {
       const b = r.getBoundingClientRect();
       return ev.clientY < b.top + b.height / 2;
@@ -4114,8 +4141,10 @@ function dragProcess(row, e) {
     removeEventListener("pointerup", up);
     row.classList.remove("dragging");
     for (const r of rows()) r.classList.remove("drop-before", "drop-after");
+    setOutsideTarget(null);
     if (!moved) return;
     row.addEventListener("click", (ev) => ev.stopImmediatePropagation(), { capture: true, once: true }); // (a drag, not a click)
+    if (folder) return void processScript(row, folder.path);
     const ids = rows().filter((r) => r !== row).map((r) => r.item.term);
     ids.splice(before ? ids.indexOf(before.item.term) : ids.length, 0, row.item.term);
     // In that order at once (the server's list follows).
