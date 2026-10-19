@@ -414,6 +414,7 @@ export class TerminalPanel {
     this.view = new Shell({ ...options, container: box(), viewer: true, onCwd: whenShown(true, onCwd), onBack: whenShown(true, onBack), onExit: () => this.showMain({ focus: true }) });
     this.view.container.hidden = true;
     this.viewing = false; // the box shown: the view's (one from the background), not the main one
+    this.lastCwd = null; // where the panel was last asked to be (a main shell started again: there)
     this.onSession = null; // () => …: which one's shown changed
     this.view.onSession = () => this.onSession?.();
   }
@@ -472,6 +473,7 @@ export class TerminalPanel {
   }
 
   async show(cwd, { focus = true } = {}) {
+    this.lastCwd = cwd;
     this.panel.hidden = false;
     if (this.viewing && this.view.isRunning) return this.view.focusSoon(focus);
     this.showMain();
@@ -487,15 +489,23 @@ export class TerminalPanel {
     this.current.fitNow();
   }
 
-  /** The panel's own shell in it again (the one from the background let go: back there). */
+  /**
+   * The panel's own shell in it again (the one from the background let go: back there); it
+   * has none (it went to the background, or ended): a new one, where the one shown was.
+   */
   showMain({ focus = false } = {}) {
     if (!this.viewing) return;
     this.viewing = false;
+    const at = this.view.cwd?.startsWith("/") ? this.view.cwd : this.lastCwd;
     this.view.letGo();
     this.view.needsShell = false;
     this.view.container.hidden = true;
     this.main.container.hidden = false;
     this.onSession?.();
+    if (!this.main.isRunning) {
+      if (this.main.exited) this.main.needsShell = true;
+      return void this.main.ensure(at).then(() => this.main.focusSoon(focus));
+    }
     if (this.main.cwd?.startsWith("/")) this.onCwd?.(this.main.cwd); // (the view where it is)
     this.main.focusSoon(focus);
   }
@@ -505,6 +515,7 @@ export class TerminalPanel {
    * kept as it is meanwhile; null: the panel's own (a new one, in `cwd`, if it has none).
    */
   async restore(session, cwd) {
+    this.lastCwd = cwd;
     this.panel.hidden = false;
     if (!session) {
       this.showMain();

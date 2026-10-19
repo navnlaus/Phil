@@ -3976,8 +3976,10 @@ function renderProcesses() {
   const list = state.processes ?? [];
   keyed($("#processes"), list, { key: (p) => p.id, make: makeProcessRow, show: showProcessRow });
   $("#processes-panel").hidden = !list.length;
-  if (list.length && !processTicker) processTicker = setInterval(() => [...$("#processes").children].forEach((row) => showProcessRow(row, row.item)), 1000);
-  if (!list.length) clearInterval(processTicker), (processTicker = null);
+  // (How long they've taken: folders' totals'; a terminal in the background has none.)
+  const timed = list.some((p) => p.kind !== "terminal");
+  if (timed && !processTicker) processTicker = setInterval(() => [...$("#processes").children].forEach((row) => showProcessRow(row, row.item)), 1000);
+  if (!timed) clearInterval(processTicker), (processTicker = null);
 }
 
 function makeProcessRow() {
@@ -4001,7 +4003,8 @@ const SHELLS = new Set(["bash", "sh", "zsh", "fish", "dash"]);
 
 function showProcessRow(row, p) {
   const [name, time, cancel, icon] = row.children;
-  showProcessTime(time, p);
+  if (p.kind !== "terminal") showProcessTime(time, p);
+  else put(time, "textContent", "");
   if (p.kind === "terminal") {
     // (The one this panel shows: marked; one another window's shows: dimmed.)
     row.classList.toggle("current", p.term === terminal.session);

@@ -634,10 +634,11 @@ whatever runs in it, goes on without the panel, as in screen or tmux. The panel
 closes; its next main shell is a new one. The sidebar's Processes list those,
 what runs there (`vim notes.md`, `sleep 600`; a shell at its prompt: the
 folder it's in; Claude Code: claude.ai's icon and its session's name, the
-terminal title it sets, else the folder) and for how long; × ends one (what runs there is hung up). A
-click shows one in the panel, in the main shell's place, as it was (its screen
-and scrollback: the last megabyte it wrote); the main shell stays as it is
-meanwhile, and comes back when that one ends (`exit`), when Alt+1 asks for it,
+terminal title it sets, else the folder); × ends one (what runs there is
+hung up). A click shows one in the panel, in the main shell's place, as it was
+(its screen and scrollback: the last megabyte it wrote); the main shell stays
+as it is meanwhile (none: a new one), and comes back when that one ends
+(`exit`), when Alt+1 asks for it,
 or when Super+° sends the one shown back to the background. The one shown is
 marked in Processes (one another window shows: dimmed; shown here, it's taken
 from there). They outlive the window and the engine (a new phil lists them):
