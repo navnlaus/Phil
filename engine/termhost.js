@@ -32,7 +32,7 @@ import { Pty } from "./pty.js";
 
 export const DATA = 0;
 export const JSON_FRAME = 1;
-const MAX_REPLAY = 1 << 20; // bytes of output kept for a client that attaches
+const MAX_REPLAY = 4 << 20; // bytes of output kept for a client that attaches (pictures vu drew too)
 
 /** A frame's bytes. */
 export function frame(type, payload) {
@@ -85,8 +85,19 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
   await Deno.chmod(path, 0o600).catch(() => {});
   let client = null; // { conn, send }
   let keep = false, keptAt = 0; // (keptAt: when first put in the background, its place among them)
-  const replay = [];
+  const replay = []; // [{chunk, osc}] (osc: it starts inside an OSC sequence, 1, just after an ESC in one, 2, or after an ESC, 3)
   let replaySize = 0;
+  // Where in an OSC sequence (a picture's, a title's) the output is: a replay that starts
+  // inside one (its start dropped) starts with one of its own, which takes the rest in.
+  let osc = 0, esc = false;
+  const noteOsc = (chunk) => {
+    for (const b of chunk) {
+      if (osc) osc = b === 0x07 || (osc === 2 && b === 0x5c) ? 0 : b === 0x1b ? 2 : 1;
+      else if (esc) (osc = b === 0x5d ? 1 : 0), (esc = false);
+      else esc = b === 0x1b;
+    }
+  };
+  const OSC_RESUME = [null, "\x1b]5379;", "\x1b]5379;\x1b", "\x1b"].map((s) => s && new TextEncoder().encode(s));
   // The terminal's title, as programs set it (ESC ] 0 or 2 ; title BEL or ESC \), across chunks.
   let title = "", titleAt = 0, titleCarry = "";
   let typed = "", typedAt = 0; // ({line}: the line Enter was pressed on, as the panel showed it)
@@ -114,9 +125,10 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
   (async () => {
     for await (const chunk of pty.output()) {
       noteTitle(chunk);
-      replay.push(chunk);
+      replay.push({ chunk, osc: osc || (esc ? 3 : 0) });
+      noteOsc(chunk);
       replaySize += chunk.length;
-      while (replaySize > MAX_REPLAY && replay.length > 1) replaySize -= replay.shift().length;
+      while (replaySize > MAX_REPLAY && replay.length > 1) replaySize -= replay.shift().chunk.length;
       client?.send(frame(DATA, chunk));
     }
     client?.send(frame(JSON_FRAME, { exited: true }));
@@ -177,7 +189,8 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
             }
             client = c;
             attached = true;
-            for (const chunk of replay) c.send(frame(DATA, chunk));
+            if (replay[0]?.osc) c.send(frame(DATA, OSC_RESUME[replay[0].osc]));
+            for (const { chunk } of replay) c.send(frame(DATA, chunk));
             const pid = pty.child.pid;
             const fg = Number(await run("ps", ["-o", "tpgid=", "-p", String(pid)])) || pid;
             c.send(frame(JSON_FRAME, { replayed: true, atPrompt: fg === pid, keep }));

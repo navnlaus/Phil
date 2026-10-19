@@ -12,6 +12,8 @@
 //   phil-engine --serve JSON   the background engine itself (internal)
 //   phil-engine --term-host JSON  a terminal panel's shell, apart from the engine
 //                              (termhost.js; internal)
+//   phil-engine --vu FILE...   files shown in a terminal, to read (vu.js: phil's
+//                              terminal's vu)
 //
 // Engine options, given with any app: --browser, --standalone, --quit (see
 // HELP). Everything else on the command line is the app's.
@@ -52,6 +54,7 @@ trace("main.js running");
 
 if (Deno.args[0] === "--serve") await serve(JSON.parse(Deno.args[1]));
 else if (Deno.args[0] === "--term-host") await (await import("./termhost.js")).termHost(JSON.parse(Deno.args[1]));
+else if (Deno.args[0] === "--vu") await (await import("./vu.js")).vu(Deno.args.slice(1));
 else await launch(Deno.args);
 
 async function launch(argv) {

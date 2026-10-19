@@ -89,9 +89,10 @@ class Shell {
 
   async start(cwd, session = null) {
     // xterm.js is big; it's only loaded once the panel is first opened.
-    const [{ Terminal }, { FitAddon }] = await Promise.all([
+    const [{ Terminal }, { FitAddon }, { ImageAddon }] = await Promise.all([
       import("/ui/vendor/xterm.mjs"),
       import("/ui/vendor/addon-fit.mjs"),
+      import("/ui/vendor/addon-image.mjs"),
     ]);
     const css = getComputedStyle(document.documentElement);
     const color = (name) => css.getPropertyValue(name).trim();
@@ -110,6 +111,8 @@ class Shell {
     });
     this.fit = new FitAddon();
     this.term.loadAddon(this.fit);
+    // Pictures drawn in it (iTerm's inline images, sixel): vu's (engine/vu.js), fitted to it.
+    this.term.loadAddon(new ImageAddon({ storageLimit: 256 }));
     this.term.open(this.container);
     this.fit.fit();
 
@@ -141,6 +144,12 @@ class Shell {
       else if (changed && path.startsWith("/")) this.onCwd(path);
       return true;
     });
+    // Questions to the terminal in an earlier shell's screen given again (vu's for its cell
+    // size, a program's for what terminal this is): long answered, not answered again into
+    // what runs there now.
+    for (const id of [{ final: "t" }, { final: "c" }, { prefix: ">", final: "c" }, { final: "n" }, { prefix: "?", final: "n" }]) {
+      this.term.parser.registerCsiHandler(id, () => this.replaying);
+    }
     this.term.onData((data) => {
       if (this.exited) {
         if (data === "\r") (this.needsShell = false), this.connect(this.restartCwd ?? cwd);
@@ -191,7 +200,7 @@ class Shell {
         const { session: id, open, replayed, atPrompt, keep, background, taken } = JSON.parse(e.data);
         if (id) (this.session = id), this.onSession?.();
         if (open) this.onOpen?.(open);
-        if (replayed) this.replayed(atPrompt, keep);
+        if (replayed) this.term.write("", () => this.replayed(atPrompt, keep)); // (once xterm.js has gone through it)
         if (background !== undefined) this.backgrounded?.(background);
         if (taken) {
           // Shown in another panel now (another window's): not here.

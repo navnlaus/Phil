@@ -16,6 +16,7 @@ import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
 import { DriveOptions } from "./driveoptions.js";
 import { onWrote } from "../../engine/written.js";
+import { engineCommand } from "../../engine/instance.js";
 import { buildInfo } from "../../engine/version.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 import { unfinished, watchDownloads } from "./downloads.js";
@@ -1026,6 +1027,7 @@ export function createServer({ profile, controlSocket }) {
       env: {
         PHIL_CD_FILE: cdFileOf(terminal),
         PHIL_TERMINAL: terminal,
+        PHIL_ENGINE_COMMAND: engineCommand().join(" "), // (vu's: shell-init.bash)
         ...(controlSocket ? { PHIL_ENGINE_SOCKET: controlSocket } : {}),
         ...(config.incognito ? { PHIL_INCOGNITO: "1" } : {}),
         ...env,

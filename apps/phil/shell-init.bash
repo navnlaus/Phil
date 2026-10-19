@@ -57,6 +57,10 @@ __phil_prompt() {
 # away, so the cd has to happen before them. $? is passed through for them.
 PROMPT_COMMAND="__phil_prompt${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}"
 
+# vu FILE...: files to read, as cat shows them: Markdown rendered, documents
+# (Word, RTF, ...) as Markdown, pictures drawn (engine/vu.js).
+vu() { ${PHIL_ENGINE_COMMAND:-phil-engine} --vu "$@"; }
+
 # ssh with nothing else, in a folder on a network mount (NFS, sshfs): to that
 # machine, in the same folder there. The remote shell runs these prompt hooks
 # too (sent along in the command, in a temporary rc file that removes
