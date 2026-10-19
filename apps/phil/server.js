@@ -16,6 +16,7 @@ import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
 import { DriveOptions } from "./driveoptions.js";
 import { onWrote } from "../../engine/written.js";
+import { buildInfo } from "../../engine/version.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 import { unfinished, watchDownloads } from "./downloads.js";
 import { watchBrowserDownloads } from "./browserdownloads.js";
@@ -559,6 +560,8 @@ export function createServer({ profile, controlSocket }) {
         }
         return json(await tagging.list(kind));
       }
+      case "GET /api/version": // Preferences: the commit it's built from
+        return json(await buildInfo());
       case "GET /api/themes": // the bottom bar's theme picker
         return json({ themes: await themeNames(), dir: themesDir(), theme: await currentTheme() });
       case "PUT /api/theme": // {theme}: picked there

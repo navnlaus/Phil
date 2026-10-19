@@ -21,6 +21,13 @@ data=${XDG_DATA_HOME:-$HOME/.local/share}
 bindir=${PHIL_BINDIR:-$HOME/.local/bin}
 engine=$bindir/phil-engine
 
+# The commit it's built from, for Preferences (engine/version.js): in the build, not left behind.
+trap 'rm -f engine/ui/build.json' EXIT
+if commit=$(git rev-parse --short HEAD 2>/dev/null); then
+  dirty=false
+  [[ -n $(git status --porcelain --untracked-files=no) ]] && dirty=true
+  printf '{"commit":"%s","branch":"%s","dirty":%s,"built":"%s"}\n' "$commit" "$(git rev-parse --abbrev-ref HEAD)" "$dirty" "$(date -Iseconds)" > engine/ui/build.json
+fi
 deno task compile
 install -Dm755 phil-engine "$engine"
 # phil's mpv plugin for salir (native/salir-mpv): video under the page, through libmpv.

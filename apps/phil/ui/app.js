@@ -1792,6 +1792,7 @@ async function openPrefsView() {
   for (const input of prefsView.querySelectorAll("[data-pref]")) input.checked = "off" in input.dataset ? s[input.dataset.pref] === true : s[input.dataset.pref] !== false;
   showTaggingPrefs();
   folderSizesSelect.value = ["all", "off"].includes(s.folderSizes) ? s.folderSizes : "";
+  showVersion();
   const r = await api("/api/themes").catch(() => null);
   if (r) {
     const names = r.themes.includes(s.theme) ? r.themes : [...r.themes, s.theme];
@@ -1799,6 +1800,15 @@ async function openPrefsView() {
     themeSelect.value = s.theme;
     prefsView.querySelector(".prefs-theme-dir").textContent = `The stylesheets in ${r.dir}. Every window follows.`;
   }
+}
+
+// The commit this phil is built from (engine/version.js), as git's short id.
+async function showVersion() {
+  const v = await api("/api/version").catch(() => null);
+  const el = prefsView.querySelector(".prefs-version");
+  if (!v?.commit) return void (el.textContent = "Unknown (not built from a git checkout)");
+  const when = v.built ? `built ${dayjs(v.built).format("MMM D, YYYY HH:mm")}` : "running from the source";
+  el.textContent = `${v.commit} on ${v.branch}${v.dirty ? ", with changes not committed" : ""}, ${when}`;
 }
 
 function closePrefsView() {
