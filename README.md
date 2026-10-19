@@ -122,9 +122,13 @@ itself (salir's direct windows), driven through salir's `--control` channel
   is given to salir to trust, that one alone (HTTP/2, below).
 - A window's class (Wayland app id) is the app's: `phil`, `phil-choose`,
   `phil-incognito`, `camview`…, for window rules.
-- A left-drag of files carries their `file://` URIs as any page's would; a
-  right- or middle-drag stays in the window. Files dropped in from other
-  programs come without their paths (Chromium keeps them from pages).
+- A left-drag of files takes them out of the window as files: onto a
+  browser's page (an upload), a file manager, a chat. A page's `file://` URIs
+  are blanked by Chromium as a drag leaves it, so the files go as File objects,
+  salir's (`salir.files`: the engine's windows allow it), asked for on the press
+  that may start the drag; a drag quicker than that carries the URIs. A right-
+  or middle-drag stays in the window. Files dropped in from other programs come
+  without their paths (Chromium keeps them from pages).
 - Right-clicking something phil has no menu for shows nothing.
 - Pages talk to the engine through `window.salir` (`engine/ui/kit.js`): "ready",
   "close", and a window of another app over this one (`openOver`, below).

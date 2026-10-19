@@ -219,7 +219,8 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       const id = String(nextWindow++);
       windows.set(id, { appId, opener: over?.opener, request: over?.request });
       const title = over ? await placer.attach({ pid: s.pid }) : null;
-      await s.send({ open: { id, url, app_id: appId, direct: !embeds, ...(title ? { initial_title: title } : {}) } });
+      // (files: its page may have local files as File objects, salir.files: phil's files dragged out as files.)
+      await s.send({ open: { id, url, app_id: appId, direct: !embeds, files: true, ...(title ? { initial_title: title } : {}) } });
       trace(`window ${id} opened`);
     },
 

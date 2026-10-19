@@ -3144,7 +3144,10 @@ function contentPoint(clientX, clientY) {
 // action stops both; the grid then has to take focus itself.
 grid.addEventListener("mousedown", (e) => {
   if (inRename(e)) return; // clicks in the name field place the cursor
-  if (startsFileDrag(e)) return void grid.focus({ preventScroll: true }); // the native drag, of files (below)
+  if (startsFileDrag(e)) {
+    prepareDragFiles(markedEntries().map((m) => m.path)); // (for the drag that may follow)
+    return void grid.focus({ preventScroll: true }); // the native drag, of files (below)
+  }
   if (e.target === grid && e.offsetX >= grid.clientWidth) return; // the scrollbar
   if (e.button === 0 || e.button === 1) e.preventDefault(); // no native drag; middle: no autoscroll or paste
   if (e.button !== 2) grid.focus({ preventScroll: true });
@@ -3540,6 +3543,34 @@ function startsFileDrag(e) {
 
 const fileUri = (path) => "file://" + path.split("/").map(encodeURIComponent).join("/");
 
+// Files dragged out of the window as files (onto a browser's page: an upload; a file manager,
+// a chat). A page's file:// URIs are blanked by Chromium as they leave it, so in salir they go
+// as File objects, salir.files' (the engine's windows may have them), asked for on the press
+// that may start the drag (a file dialog's rule: in an input event): by the drag, they're
+// there. A drag before they are carries the URIs, as elsewhere.
+let dragFiles = null; // { key (the paths), files (once given) }
+// When this window last started a drag of files. Dropped back on it, a drag that carries File
+// objects comes with no data at all (Chromium's), and its dragend may come first (phil forgets
+// the drag): a drag with nothing in it, soon after, is taken for that one (its paths: what
+// it announced, see dropFromOutside).
+let ownDragAt = 0;
+const isOwnEmptyDrag = (dt) => !dt?.types?.length && Date.now() - ownDragAt < 60_000;
+
+function prepareDragFiles(paths) {
+  if (!globalThis.salir?.files) return;
+  const key = paths.join("\n");
+  if (dragFiles?.key === key) return;
+  const entry = (dragFiles = { key, files: null });
+  globalThis.salir.files(paths).then((files) => (entry.files = files), () => {});
+}
+
+// The files for `paths` into the drag; false if they aren't there (yet).
+function addDragFiles(dt, paths) {
+  if (dragFiles?.key !== paths.join("\n") || !dragFiles.files) return false;
+  for (const f of dragFiles.files) dt.items.add(f);
+  return true;
+}
+
 grid.addEventListener("dragstart", (e) => {
   const i = tileIndex(e.target);
   if (i === -1 || !state.marked.has(state.view[i].path)) return e.preventDefault();
@@ -3554,9 +3585,11 @@ grid.addEventListener("dragstart", (e) => {
   setTimeout(() => picture.remove());
   fileDrag = { items, paths: new Set(items.map((m) => m.path)), dirs: items.filter((m) => m.kind === "dir").map((m) => m.path + "/"), button: 0 };
   fileDrag.id = announceDrag(items.map((m) => m.path), 0);
+  ownDragAt = Date.now();
   e.dataTransfer.effectAllowed = "copyMove";
-  e.dataTransfer.setData("text/uri-list", items.map((m) => fileUri(m.path)).join("\r\n"));
-  e.dataTransfer.setData("text/plain", items.map((m) => m.path).join("\n"));
+  const paths = items.map((m) => m.path);
+  if (!addDragFiles(e.dataTransfer, paths)) e.dataTransfer.setData("text/uri-list", paths.map(fileUri).join("\r\n"));
+  e.dataTransfer.setData("text/plain", paths.join("\n"));
 });
 
 // A place in the sidebar dragged: to another spot among its folders, or (a
@@ -3573,11 +3606,17 @@ $("#places").addEventListener("dragstart", (e) => {
   setTimeout(() => picture.remove());
   fileDrag = { items: [item], paths: new Set([item.path]), dirs: [item.path + "/"], button: 0, fixed };
   fileDrag.id = announceDrag([item.path], 0);
+  ownDragAt = Date.now();
   // (Moving it in the sidebar is a "move" too: the browser drops nothing whose
   // effect the drag didn't allow, and a page's drags can't allow "link".)
   e.dataTransfer.effectAllowed = "copyMove";
-  e.dataTransfer.setData("text/uri-list", fileUri(item.path));
+  if (!addDragFiles(e.dataTransfer, [item.path])) e.dataTransfer.setData("text/uri-list", fileUri(item.path));
   e.dataTransfer.setData("text/plain", item.path);
+});
+// (A left press on a place: its file, ready for the drag that may follow. See prepareDragFiles.)
+$("#places").addEventListener("mousedown", (e) => {
+  const place = e.button === 0 && placeItem(e.target);
+  if (place) prepareDragFiles([place.item.path]);
 });
 
 // Whatever is dragged over the window, nothing dropped on it loads in it (the
@@ -3700,7 +3739,7 @@ addEventListener("dragleave", (e) => {
 addEventListener("dragover", (e) => {
   e.preventDefault();
   if (!fileDrag) { // from outside
-    setOutsideTarget(carriesFiles(e.dataTransfer) ? outsideTargetAt(e.clientX, e.clientY) : null);
+    setOutsideTarget(carriesFiles(e.dataTransfer) || isOwnEmptyDrag(e.dataTransfer) ? outsideTargetAt(e.clientX, e.clientY) : null);
     e.dataTransfer.dropEffect = outsideTarget ? "copy" : "none";
     return;
   }
@@ -3712,6 +3751,7 @@ addEventListener("dragover", (e) => {
 addEventListener("drop", (e) => {
   e.preventDefault();
   const carried = filePaths(e.dataTransfer), links = downloadLinks(e.dataTransfer); // the drop's data: gone once this handler awaits
+  ownDragAt = 0;
   if (!fileDrag) return dropFromOutside(e, carried, links);
   const target = fileDrag?.target;
   const { items, dirs } = fileDrag ?? {};
