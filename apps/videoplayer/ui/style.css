@@ -9,6 +9,9 @@ body.idle, body.idle * { cursor: none !important; }
 #stage { position: fixed; inset: 0; outline: none; background: #000; }
 #crop { position: absolute; inset: 0; overflow: hidden; }
 #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+/* mpv's picture is under the page (mpv.js): the page see-through where it goes. */
+html.mpv, html.mpv body, html.mpv #stage { background: transparent; }
+#mpv { position: absolute; inset: 0; }
 
 #message { position: fixed; inset: 40% 20px auto; z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; color: var(--text-dim); }
 #message[hidden] { display: none; }

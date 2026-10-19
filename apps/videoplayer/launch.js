@@ -2,6 +2,8 @@
 import { resolve } from "@std/path";
 
 export const appId = "videoplayer";
+// Its windows hold an embed (mpv, under the page: ui/mpv.js): salir's composited ones.
+export const embeds = true;
 
 const HELP = `videoplayer — a video player
 

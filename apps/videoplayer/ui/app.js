@@ -1,10 +1,13 @@
 import { closeWindow, copyText, holdFocus, onCloseRequest, ready, tellParent, tooltips } from "../engine/ui/kit.js";
+import { mpvVideo } from "./mpv.js";
 
-// The player. A video the browser plays itself is played from the file; one it
-// can't (the server's probe says so, or it fails or shows no picture) from the
-// server's /stream, ffmpeg making it into an MP4 as it plays: that one starts
-// at `offset`, so its times here are offset + the element's, and seeking past
-// what's come is a new stream from there.
+// The player. In salir's windows with phil's mpv plugin: mpv, under the page
+// (mpv.js), playing every video from its file, decoded on the GPU. Elsewhere (a
+// browser: --browser) the <video>: a video it plays itself is played from the
+// file; one it can't (the server's probe says so, or it fails or shows no
+// picture) from the server's /stream, ffmpeg making it into an MP4 as it plays:
+// that one starts at `offset`, so its times here are offset + the element's, and
+// seeking past what's come is a new stream from there.
 //
 // Keys: Space / K play and pause; ← → seek (settings.seekStep; with Shift,
 // seekStepLong), J L 10 s; ↑ ↓ and the wheel the volume; M mutes; [ ] the speed,
@@ -20,7 +23,9 @@ import { closeWindow, copyText, holdFocus, onCloseRequest, ready, tellParent, to
 tooltips(); // the page's own, in the theme's style (kit.js)
 
 const $ = (sel) => document.querySelector(sel);
-const video = $("#video");
+const mpv = await mpvVideo($("#crop"));
+if (mpv) $("#video").remove(), document.documentElement.classList.add("mpv");
+const video = mpv ?? $("#video");
 const stage = $("#stage");
 const seekBar = $("#seek");
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
@@ -128,7 +133,12 @@ async function show(index) {
   // Where it was left, unless that's nearly the end.
   const start = state.settings.resume && position && (!info.duration || position < info.duration - 10) ? position : 0;
   setSubtitles(info.subtitles ?? [], start);
-  if (info.direct) {
+  if (mpv) {
+    state.streaming = false;
+    state.offset = 0;
+    mpv.open(e.path, start);
+    video.play().catch(() => {});
+  } else if (info.direct) {
     state.streaming = false;
     state.offset = 0;
     video.src = `file?path=${q(e.path)}`;
@@ -147,11 +157,12 @@ async function show(index) {
 }
 
 video.addEventListener("loadeddata", () => {
-  if (!state.streaming && state.info?.video && video.videoWidth === 0) startStream(now(), !video.paused);
+  if (!mpv && !state.streaming && state.info?.video && video.videoWidth === 0) startStream(now(), !video.paused);
 });
 video.addEventListener("error", () => {
   if (!video.getAttribute("src")) return; // (emptied between videos)
   spinner(false);
+  if (mpv) return showMessage(`Can't play ${entry()?.name ?? "this video"}: ${video.error?.message ?? "mpv couldn't"}`, true);
   if (!state.streaming) return startStream(now());
   showMessage(`Can't play ${entry()?.name ?? "this video"} here.`, true);
 });
@@ -276,18 +287,22 @@ const cropBox = $("#crop");
 
 // Lays the picture out: the crop's window centered in the stage, the video in it
 // at the scale that fills it, centered.
+// (mpv: the element is the crop's box, and mpv crops the picture itself: a native
+// picture isn't cut by the page's overflow.)
 function layoutCrop() {
   const W = stage.clientWidth, H = stage.clientHeight;
   const w = video.videoWidth, h = video.videoHeight;
   if (!state.crop || !w || !h) {
     Object.assign(cropBox.style, { left: "0", top: "0", width: "100%", height: "100%" });
     Object.assign(video.style, { left: "0", top: "0", width: "100%", height: "100%" });
+    mpv?.crop(null);
     return;
   }
   const r = state.crop === "fill" ? W / H : ratioOf(state.crop);
   const cw = r > w / h ? w : h * r, ch = r > w / h ? w / r : h; // the part kept, in video pixels
   const s = Math.min(W / cw, H / ch);
   Object.assign(cropBox.style, { left: `${(W - cw * s) / 2}px`, top: `${(H - ch * s) / 2}px`, width: `${cw * s}px`, height: `${ch * s}px` });
+  if (mpv) return mpv.crop(cw, ch);
   Object.assign(video.style, { left: `${((cw - w) / 2) * s}px`, top: `${((ch - h) / 2) * s}px`, width: `${w * s}px`, height: `${h * s}px` });
 }
 new ResizeObserver(layoutCrop).observe(stage);
@@ -518,6 +533,7 @@ function setSpeed(dir) {
 
 function frame(dir) {
   video.pause();
+  if (mpv) return mpv.frameStep(dir); // (exactly a frame: mpv knows its rate)
   seekTo(now() + dir / 30);
 }
 

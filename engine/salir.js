@@ -12,7 +12,9 @@
 // alone. Pages talk to the engine through window.salir (kit.js): "ready", "close".
 //
 // The window's class (Wayland app id), for window rules: the app's (phil,
-// phil-choose, phil-incognito...).
+// phil-choose, phil-incognito...). Windows are Chromium's own (salir's direct
+// ones), but an app's that hold embeds (videoplayer: mpv under the page), which
+// are composited; salir has phil's mpv plugin (native/salir-mpv) for those.
 
 import { join } from "@std/path";
 
@@ -30,6 +32,16 @@ export async function findSalir() {
   const home = Deno.env.get("HOME") ?? "/";
   for (const dir of [...(Deno.env.get("PATH") ?? "").split(":"), join(home, ".local/bin")]) {
     if (dir && await isProgram(join(dir, "salir"))) return join(dir, "salir");
+  }
+  return null;
+}
+
+/** phil's mpv plugin for salir: PHIL_SALIR_MPV, else installed (~/.local/lib/phil), else built here. */
+export async function findMpvPlugin() {
+  const home = Deno.env.get("HOME") ?? "/";
+  const candidates = [Deno.env.get("PHIL_SALIR_MPV"), join(home, ".local/lib/phil/salir-mpv.so"), new URL("../native/salir-mpv/salir-mpv.so", import.meta.url).pathname];
+  for (const path of candidates) {
+    if (path && await Deno.stat(path).then((s) => s.isFile, () => false)) return path;
   }
   return null;
 }
@@ -63,7 +75,10 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
         trace("profile in use by another salir: a temporary one");
       }
       await Deno.mkdir(profile, { recursive: true, mode: 0o700 }).catch(() => {});
-      const child = new Deno.Command(program, { args: ["--control", "--data", profile], stdin: "piped", stdout: "piped", stderr: "inherit" }).spawn();
+      const plugin = await findMpvPlugin();
+      trace(plugin ? `mpv plugin: ${plugin}` : "no mpv plugin");
+      const args = ["--control", "--data", profile, ...(plugin ? ["--plugin", `mpv=${plugin}`] : [])];
+      const child = new Deno.Command(program, { args, stdin: "piped", stdout: "piped", stderr: "inherit" }).spawn();
       const writer = child.stdin.getWriter();
       const encoder = new TextEncoder();
       const { promise: ready, resolve: isReady } = Promise.withResolvers();
@@ -168,8 +183,11 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       return windows.size;
     },
 
-    /** Opens a window on `url` (an app's server's, with its session token), its class `appId`. */
-    async openWindow(url, { appId }) {
+    /**
+     * Opens a window on `url` (an app's server's, with its session token), its class `appId`;
+     * `embeds`: composited (its page can hold embeds), not Chromium's own.
+     */
+    async openWindow(url, { appId, embeds = false }) {
       if (stopped) return;
       let s;
       try {
@@ -180,7 +198,7 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       clearTimeout(idleTimer);
       const id = String(nextWindow++);
       windows.add(id);
-      await s.send({ open: { id, url, app_id: appId, direct: true } });
+      await s.send({ open: { id, url, app_id: appId, direct: !embeds } });
       trace(`window ${id} opened`);
     },
 

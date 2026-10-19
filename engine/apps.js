@@ -3,6 +3,8 @@
 //   launch.js  Runs in the command that opens a window (`phil-engine <app> ...`)
 //              and in the engine's main thread, so it must load fast. Exports:
 //                appId       Wayland app id / window class of its windows
+//                embeds      optional, true: its windows hold embeds (salir's native
+//                            content under the page, as mpv), so they're composited
 //                parse(args, { cwd })
 //                            the app's command line: { help: text },
 //                            { run: async () => {} } for something that isn't a

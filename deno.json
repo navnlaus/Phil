@@ -8,6 +8,7 @@
     "imageresize": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run engine/main.js imageresize --standalone",
     "compile": "deno compile --allow-read --allow-write --allow-env --allow-ffi --allow-net --allow-run --include engine/server.js --include engine/ui --include themes --include apps -o phil-engine engine/main.js",
     "install": "bash scripts/install.sh",
+    "mpv-plugin": "cc -O2 -Wall -shared -fPIC -o native/salir-mpv/salir-mpv.so native/salir-mpv/mpv.c $(pkg-config --cflags --libs mpv)",
     "webgpu": "deno run --unstable-webgpu --allow-ffi --allow-read=experiments/webgpu experiments/webgpu/main.js"
   },
   "imports": {

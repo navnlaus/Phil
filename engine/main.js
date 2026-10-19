@@ -221,7 +221,7 @@ async function serve({ profile = {}, request = null, browser = false, standalone
     if (!app) return console.error(`${NAME}: no app called ${open?.app}`);
     // Its class: the app's, a variant's (phil --choose: phil-choose), incognito's.
     const appId = app.appId + (open.variant ? `-${open.variant}` : "") + (profile.incognito ? "-incognito" : "");
-    windows.openWindow(windowUrl(open), { appId });
+    windows.openWindow(windowUrl(open), { appId, embeds: !!app.embeds });
   };
 
   if (profile.incognito) console.log(`${NAME}: incognito`);

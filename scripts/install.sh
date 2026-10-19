@@ -23,6 +23,15 @@ engine=$bindir/phil-engine
 
 deno task compile
 install -Dm755 phil-engine "$engine"
+# phil's mpv plugin for salir (native/salir-mpv): video under the page, through libmpv.
+# Without libmpv's headers, none: videoplayer then plays what Chromium can.
+libdir=${PHIL_LIBDIR:-$HOME/.local/lib/phil}
+if pkg-config --exists mpv 2>/dev/null; then
+  deno task mpv-plugin
+  install -Dm755 native/salir-mpv/salir-mpv.so "$libdir/salir-mpv.so"
+else
+  echo "No libmpv (pkg-config mpv): no mpv plugin, so videos play only as salir's Chromium can" >&2
+fi
 # The themes, where they can be edited (~/.config/phil/themes).
 "$engine" --install-themes
 # An app's command runs the engine with the app's name.
