@@ -97,3 +97,7 @@ body.muted #btn-mute .cross { display: inline; }
 .nav svg { width: 24px; height: 24px; }
 #prev { left: 0; border-radius: 0 8px 8px 0; }
 #next { right: 0; border-radius: 8px 0 0 8px; }
+
+/* Detach (an arrow out of the window), and once detached, Attach (an arrow into it). */
+#btn-detach .in, #btn-detach.detached .out { display: none; }
+#btn-detach.detached .in { display: inline; }

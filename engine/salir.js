@@ -160,11 +160,11 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       else if (message?.phil === "close") session?.send({ close: window });
       else if (message?.phil === "open") onOpenRequest(window, message); // (another app's window over this one: kit.js openOver)
       else if (message?.phil === "tell") tellOpener(window, message.message); // (kit.js tellParent)
-      else if (message?.phil === "detach") { // (out of the Hyprland group it's in: its page's Detach)
-        const title = windows.get(window)?.attached;
-        placer.detach(title).then((ok) => {
-          if (ok) windows.get(window).attached = null;
-          session?.send({ send: { window, message: { phil: "detached", ok } } });
+      else if (message?.phil === "detach" || message?.phil === "attach") {
+        // Out of the Hyprland group it's in, or back in it (its page's Detach, Attach).
+        const title = windows.get(window)?.attached, back = message.phil === "attach";
+        (back ? placer.reattach(title) : placer.detach(title)).then((ok) => {
+          session?.send({ send: { window, message: { phil: back ? "attached" : "detached", ok } } });
         });
       }
     } else if (event.error) console.error(`${name}: salir: ${event.error}`);

@@ -19,7 +19,7 @@
 
 export const available = !!Deno.env.get("HYPRLAND_INSTANCE_SIGNATURE");
 
-const VERSION = "3"; // (a newer one replaces what an older phil put in Hyprland)
+const VERSION = "4"; // (a newer one replaces what an older phil put in Hyprland)
 
 async function hyprctl(...args) {
   try {
@@ -81,6 +81,26 @@ if A.version ~= ${luaString(VERSION)} then
     end
     if next(A.attached) == nil then A.timer:set_enabled(false) end
   end
+  -- A window let go (its page's Detach) put back with the one it came from (its Attach): in its
+  -- group again (made, if it has none), as when it opened. Whether it went.
+  function A.reattach(title, parent)
+    local c
+    for _, w in ipairs(hl.get_windows()) do if w.initial_title == title then c = w end end
+    local p = win(parent)
+    if not c or not p then return false end
+    if c.floating then hl.dispatch(hl.dsp.window.float({ action = "disable", window = sel(c.address) })) end
+    tag(parent, "+phil-attached")
+    tag(c.address, "+phil-attached")
+    local made = not p.group
+    if made then hl.dispatch(hl.dsp.group.toggle({ window = sel(parent) })) end
+    p = win(parent)
+    if not p.group then return false end
+    p.group:add(c)
+    A.attached[c.address] = { parent = parent, made = made }
+    A.timer:set_enabled(true)
+    A.say("attached " .. c.address .. " to " .. parent .. " again")
+    return true
+  end
   -- (An error here would be Hyprland's to show, every time: none, it stops.)
   A.timer = hl.timer(function() local ok, e = pcall(look); if not ok then A.say("error: " .. tostring(e)); A.timer:set_enabled(false) end end, { timeout = 300, type = "repeat" })
   A.timer:set_enabled(false)
@@ -120,6 +140,7 @@ end
 
 /** Attaches windows to others' tiles: attach() before the window opens. */
 export function createPlacer() {
+  const parents = new Map(); // attach()'s title -> the address of the window it's attached to
   return {
     /**
      * A window about to open in the tile of the active one (the window a page asked from: it
@@ -142,6 +163,7 @@ export function createPlacer() {
         return null;
       }
       console.log(`hyprland: attaching a window to ${parent.class} (${parent.address})`);
+      parents.set(title, parent.address);
       return title;
     },
 
@@ -149,6 +171,13 @@ export function createPlacer() {
      * The window opened with `title` (attach()'s) taken out of the group it's in (its page's
      * Detach button): Hyprland's "move out of group"; the timer above lets it go, floating.
      */
+    /** The window opened with `title`, detached, back with the window it was attached to (its page's Attach). */
+    async reattach(title) {
+      if (!available || !parents.has(title)) return false;
+      const out = await hyprctl("eval", `${SETUP}\nif not phil_attach.reattach(${luaString(title)}, ${luaString(parents.get(title))}) then error("not attached", 0) end`);
+      return out === "ok";
+    },
+
     async detach(title) {
       if (!available || !title) return false;
       const out = await hyprctl("eval", `for _, w in ipairs(hl.get_windows()) do if w.initial_title == ${luaString(title)} then hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = "address:" .. w.address })) end end`);
