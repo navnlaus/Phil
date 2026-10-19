@@ -78,12 +78,12 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
   const replay = [];
   let replaySize = 0;
   // The terminal's title, as programs set it (ESC ] 0 or 2 ; title BEL or ESC \), across chunks.
-  let title = "", titleCarry = "";
+  let title = "", titleAt = 0, titleCarry = "";
   const decoder = new TextDecoder();
   const noteTitle = (chunk) => {
     const text = titleCarry + decoder.decode(chunk, { stream: true });
     // deno-lint-ignore no-control-regex
-    for (const m of text.matchAll(/\x1b\][02];([^\x07\x1b]*)(?:\x07|\x1b\\)/g)) title = m[1];
+    for (const m of text.matchAll(/\x1b\][02];([^\x07\x1b]*)(?:\x07|\x1b\\)/g)) (title = m[1]), (titleAt = Date.now());
     const open = text.lastIndexOf("\x1b]");
     // deno-lint-ignore no-control-regex
     titleCarry = open !== -1 && !/\x07|\x1b\\/.test(text.slice(open)) ? text.slice(open).slice(-1024) : "";
@@ -132,7 +132,13 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
           if (data.info) {
             const pid = pty.child.pid;
             const fg = Number(await run("ps", ["-o", "tpgid=", "-p", String(pid)])) || pid; // the terminal's foreground process
-            const info = { id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep, keptAt, title };
+            // The title, if it's the program's in the foreground: set since it started (not one the
+            // shell set before it, at its prompt: ssh running a command there sets none).
+            const [uptime, stat] = (await run("cat", ["/proc/uptime", `/proc/${fg}/stat`])).split("\n");
+            const ticks = Number(stat?.slice(stat.lastIndexOf(")") + 2).split(" ")[19]); // (starttime, in 1/100 s since boot)
+            const fgStarted = Date.now() - (parseFloat(uptime) - ticks / 100) * 1000;
+            const current = !Number.isFinite(fgStarted) || titleAt >= fgStarted;
+            const info = { id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep, keptAt, title: current ? title : "" };
             c.send(frame(JSON_FRAME, { info }));
             await c.flushed;
             return conn.close();
