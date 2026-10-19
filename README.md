@@ -151,9 +151,15 @@ itself (salir's direct windows), driven through salir's `--control` channel
   Closed, phil's window is as it was. Taken out of the group (Super+Alt+G on
   Omarchy, Hyprland's "move out of group"), it's let go: it floats, a window
   like any other. (`engine/hyprland.js`: Lua run in Hyprland through `hyprctl
-  eval`, which knows the window by its first title.) Elsewhere they open where
-  the desktop puts them. Esc closes it, back to phil, with the video you were
-  on selected.
+  eval`, which knows the window by its first title, and the one it goes with
+  by its process, salir's.) They open and close without Hyprland's
+  animations, as they would inside phil. Elsewhere they open where the desktop
+  puts them. Esc closes it, back to phil, with the video you were on selected.
+  What Hyprland did with them, the last 30 things: `hyprctl eval
+  'error(table.concat(phil_attach.log, "\n"), 0)'`.
+- A window a page closes (Esc, ×) is off the screen at once; what it held is
+  shut down after (an mpv takes up to 0.4 s: a wall of cameras, a second or
+  so), one at a time, the other windows answering in between.
 - Composited windows (videoplayer's, camview's) have no clipboard of their
   own: pasting into their text fields doesn't work there.
 
@@ -165,7 +171,17 @@ deno task install
 
 Builds `phil-engine` and installs it to `~/.local/bin`, with a small `phil` and
 `jsonedit` command next to it, and makes phil the default file manager. Rerun it
-after changing the code.
+after changing the code. The windows are salir's: install it first (`make
+install` in its checkout, [github.com/navnlaus/salir](https://github.com/navnlaus/salir)).
+A running phil keeps its windows but takes no new ones: the next window is the
+new build.
+
+- phil's mpv plugin for salir (`native/salir-mpv`), built and put in
+  `~/.local/lib/phil` when libmpv's headers are there (`pkg-config mpv`), for
+  videoplayer's and camview's video.
+- The commit it's built from, its branch, whether there were changes not
+  committed and when (Preferences' Version; `engine/ui/build.json` in the
+  build, not left behind).
 
 - `~/.local/share/applications/phil.desktop` (with a "New Incognito Window"
   action) and `inode/directory=phil.desktop` in `~/.config/mimeapps.list`:
@@ -444,8 +460,10 @@ sidebar shows Transfers and Cameras (`showTransfers`, `showCameras` in
 `~/.config/phil/settings.json`), the theme (every window follows), whether the
 engine keeps a log (`"log"`; from its next start), auto-tagging (pictures
 and documents, each on or off: `tagPictures`, `tagDocuments`; every folder
-opened: `autoTagAll`; and the tag lists), and a way to the Transfers view and
-its download settings.
+opened: `autoTagAll`; and the tag lists), a way to the Transfers view and
+its download settings, and which phil this is: the commit it's built from
+("6205209 on main, built Oct 19, 2026 02:10"; running from the source, git's
+now).
 
 ### Themes
 
@@ -505,6 +523,9 @@ and `xdg-open` are used for "open externally". `udisks2` (`udisksctl`) mounts re
 engine/main.js      the command line: asks the running engine for a window, or starts one
 engine/instance.js  finding and talking to the running engine (Unix socket per profile)
 engine/salir.js     the windows: salir's, driven through its --control channel
+engine/hyprland.js  on Hyprland, an app's window in the tile of the one it's opened from (Lua in Hyprland)
+engine/version.js   the commit it's built from (Preferences)
+native/salir-mpv/   phil's mpv plugin for salir (C, libmpv's render API): video under the page
 engine/server.js    the apps' 127.0.0.1 HTTP servers (a worker): session, static files
 engine/tls.js       the servers' certificate, made at each start (HTTPS, for HTTP/2)
 engine/http.js      responses, files with Range
@@ -529,13 +550,14 @@ apps/phil/tagging.js, tagging/
                     auto-tagging: tagger.py (the Python helper: SigLIP 2, EmbeddingGemma 2),
                     tags.txt and document-tags.txt (phil's lists)
 apps/imageview/     launch.js, server.js, ui/
-apps/videoplayer/   launch.js, server.js (ffprobe, ffmpeg), ui/
+apps/videoplayer/   launch.js, server.js (ffprobe, ffmpeg), ui/ (mpv.js: mpv standing in for the <video>)
 apps/imageresize/   launch.js, server.js (vips), ui/
 apps/mediaview/     launch.js, server.js, ui/; media.js (names to titles), imdb.js and
                     imdb-build.js (IMDb's datasets as an SQLite database), store.js (its own)
 engine/media.js     media kinds by name, a folder's images or videos, vips previews of images a browser can't show
 engine/files.js     reading and saving files for the editors
 data/, scripts/install.sh  desktop entries, D-Bus service file, installer
+experiments/webgpu/ WebGPU in a native window from Deno, and in a browser (deno task webgpu); the CEF one became salir
 ```
 
 An app is a folder in `apps/` with a `launch.js` (its command line and window
