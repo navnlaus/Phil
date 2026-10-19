@@ -637,7 +637,8 @@ folder it's in; Claude Code: claude.ai's icon and its session's name, the
 terminal title it sets, else the folder; ssh'd in: what runs there, by the title
 its programs set (Claude Code's with its icon) or the command typed there,
 whichever's newer, the ssh command in the tip: the line Enter's pressed on goes
-to the terminal's host, Ctrl+C clears it); × ends one (what runs there is
+to the terminal's host, Ctrl+C clears it; right-click → Rename… names one, kept
+by its host, blank for its own name again); × ends one (what runs there is
 hung up). A click shows one in the panel, in the main shell's place, as it was
 (its screen and scrollback: the last megabyte it wrote); the main shell stays
 as it is meanwhile (none: a new one), and comes back when that one ends

@@ -570,6 +570,11 @@ export function createServer({ profile, controlSocket }) {
         }
         return json(await tagging.list(kind));
       }
+      case "POST /api/terms-rename": { // {id, name}: a terminal in the background named ("": as what runs there)
+        const { id, name } = await req.json();
+        await terms.rename(String(id), name);
+        return json({ ok: true });
+      }
       case "PUT /api/terms-order": // {ids}: the terminals in the background in this order (the sidebar's, dragged)
         await terms.setOrder((await req.json()).ids ?? []);
         return json({ ok: true });

@@ -3998,6 +3998,15 @@ function makeProcessRow() {
   row.addEventListener("click", () => (row.item.kind === "terminal" ? showBackgroundTerminal(row.item.term) : load(row.item.path)));
   row.addEventListener("mouseenter", () => row.item && showProcessRow(row, row.item)); // (its tip's time, as it is now)
   row.addEventListener("pointerdown", (e) => dragProcess(row, e));
+  row.addEventListener("contextmenu", (e) => {
+    const p = row.item;
+    if (p?.kind !== "terminal") return;
+    e.preventDefault();
+    showMenu(e.clientX, e.clientY, [
+      ["Rename…", () => renameProcess(p, row.querySelector(".process-name").textContent)],
+      ["End", () => row.querySelector(".cancel").click()],
+    ]);
+  });
   return row;
 }
 
@@ -4030,7 +4039,7 @@ function showProcessRow(row, p) {
     // (Over ssh, the newer of the title set there and the command typed there, its prompt left out.)
     const typed = (p.typed ?? "").replace(/^.*?[#$%>❯➜»]\s+(?=\S)/u, "");
     const remote = typed && (p.typedAt ?? 0) > (p.titleAt ?? 0) ? typed : titled || typed;
-    const label = claude ? session || folder || "claude" : ssh ? remote || p.command : SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" ");
+    const label = p.name || (claude ? session || folder || "claude" : ssh ? remote || p.command : SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" "));
     put(name, "textContent", label);
     if (claude && !icon.getAttribute("src")) icon.src = "/api/icon/claude";
     put(icon, "hidden", !claude);
@@ -4043,6 +4052,13 @@ function showProcessRow(row, p) {
   put(name, "textContent", folder); // (what it's doing: in its tip, the sidebar's narrow)
   put(row, "title", `${p.mode === "check" ? "Looking at the times of the folders in" : "Adding up the size of everything in"} ${p.path}, at the lowest priority`);
   put(cancel, "title", "Stop it (worked out again when it's asked for)");
+}
+
+// A terminal in the background named (its host keeps it); blank: named by what runs there again.
+async function renameProcess(p, shown) {
+  const answer = await askConfirm({ title: "Rename", detail: "Blank: named by what runs there.", ok: "Rename", danger: false, fields: [{ name: "name", label: "Name", value: p.name || shown }] });
+  if (!answer) return;
+  api("/api/terms-rename", { method: "POST", body: JSON.stringify({ id: p.term, name: answer.name }) }).catch(() => {});
 }
 
 // Terminals in the background dragged up or down among themselves: their order (and Alt+

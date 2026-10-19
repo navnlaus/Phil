@@ -23,6 +23,7 @@
 //                   on since it started, {line} from the panel: over ssh, the
 //                   command run there)
 //   {kill: true}    the shell hung up, the host gone
+//   {name}          its name, given (the sidebar's Rename; "": none), in info's
 // Not kept, the host ends when its client goes (the panel closed, the window,
 // the engine); in any case when the shell does.
 
@@ -83,6 +84,7 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
   // The terminal's title, as programs set it (ESC ] 0 or 2 ; title BEL or ESC \), across chunks.
   let title = "", titleAt = 0, titleCarry = "";
   let typed = "", typedAt = 0; // ({line}: the line Enter was pressed on, as the panel showed it)
+  let name = ""; // (given it: Rename)
   const decoder = new TextDecoder();
   const noteTitle = (chunk) => {
     const text = titleCarry + decoder.decode(chunk, { stream: true });
@@ -143,7 +145,7 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
             const fgStarted = Date.now() - (parseFloat(uptime) - ticks / 100) * 1000;
             const since = (at) => !Number.isFinite(fgStarted) || at >= fgStarted;
             const info = {
-              id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep, keptAt,
+              id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep, keptAt, name,
               ...(since(titleAt) ? { title, titleAt } : { title: "" }),
               ...(since(typedAt) ? { typed, typedAt } : { typed: "" }),
             };
@@ -152,6 +154,10 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
             return conn.close();
           }
           if (data.kill) return void pty.close();
+          if (typeof data.name === "string") {
+            name = data.name.trim().slice(0, 200);
+            return conn.close();
+          }
           if (data.attach) {
             if (client) {
               const before = client;
