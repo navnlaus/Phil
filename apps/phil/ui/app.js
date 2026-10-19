@@ -5033,8 +5033,10 @@ function endScriptRun() {
 // gets it); Ctrl+F toggles covering the window.
 function terminalKey(e) {
   const plainEsc = e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey;
+  // Shift+Esc: Esc for what runs there (vim's, Claude Code's), whatever Esc does here.
+  if (e.key === "Escape" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) return terminal.send("\x1b"), true;
   // One from the background shown: Esc puts it back there, the panel as it was before (the main
-  // terminal in it, or closed). (Ctrl+[ is Esc for what runs there.)
+  // terminal in it, or closed). (Shift+Esc, or Ctrl+[, is Esc for what runs there.)
   if (plainEsc && terminal.kept) {
     terminal.showMain({ focus: terminal.wasOpen });
     if (!terminal.wasOpen) setTerminalOpen(false);
