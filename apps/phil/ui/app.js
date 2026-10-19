@@ -4112,6 +4112,9 @@ function dragProcess(row, e) {
   const rows = () => [...$("#processes").children].filter((r) => r.item?.kind === "terminal");
   const startY = e.clientY;
   let moved = false, before = null, folder = null; // (folder: dropped there, a script that starts it again)
+  // What's dragged, under the pointer: the row itself, held where it was taken.
+  const box = row.getBoundingClientRect(), grab = [e.clientX - box.left, e.clientY - box.top];
+  let ghost = null;
   const mark = () => {
     const others = rows().filter((r) => r !== row);
     for (const r of others) {
@@ -4123,6 +4126,13 @@ function dragProcess(row, e) {
     if (!moved && Math.abs(ev.clientY - startY) < 5) return;
     moved = true;
     row.classList.add("dragging");
+    if (!ghost) {
+      ghost = Object.assign(row.cloneNode(true), { className: `${row.className} process-ghost` });
+      ghost.classList.remove("dragging");
+      ghost.style.width = `${box.width}px`;
+      document.body.append(ghost);
+    }
+    ghost.style.transform = `translate(${ev.clientX - grab[0]}px, ${ev.clientY - grab[1]}px)`;
     // Out of the list, over a folder (a tile, a place, the folder shown): a script there.
     const inList = !!document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.("#processes-panel");
     const over = inList ? null : outsideTargetAt(ev.clientX, ev.clientY);
@@ -4140,6 +4150,7 @@ function dragProcess(row, e) {
     removeEventListener("pointercancel", up);
     removeEventListener("pointerup", up);
     row.classList.remove("dragging");
+    ghost?.remove();
     for (const r of rows()) r.classList.remove("drop-before", "drop-after");
     setOutsideTarget(null);
     if (!moved) return;

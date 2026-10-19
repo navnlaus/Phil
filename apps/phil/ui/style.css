@@ -282,6 +282,8 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 .process-row.elsewhere .process-name { color: var(--text-dim); }
 /* One being dragged to another place among them, and where it'd go. */
 .process-row.dragging { opacity: 0.5; }
+/* The row being dragged, under the pointer. */
+.process-row.process-ghost { position: fixed; left: 0; top: 0; z-index: 40; pointer-events: none; background: var(--bg-raised); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); opacity: 0.95; }
 .process-row.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
 .process-row.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .process-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
