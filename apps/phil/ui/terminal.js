@@ -120,7 +120,7 @@ class Shell {
     this.blocks = new Blocks(this.term, {
       answer: (text) => this.send(text),
       replaying: () => this.replaying,
-      openLink: (url) => fetch("/api/open", { method: "POST", body: JSON.stringify({ url }) }),
+      openLink: (what) => fetch("/api/open", { method: "POST", body: JSON.stringify(what) }),
       copy: copyText,
     });
 

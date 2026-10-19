@@ -3,8 +3,9 @@
 // style) or as a web page (HTML), in rows the terminal leaves for it in its
 // text, scrolling with it. Through OSC 5379:
 //   ?                     does this terminal draw them? answered OSC 5379;blocks
-//   block;<JSON>          {markdown, images: {src: data URL}} or {html} (JSON: no
-//                         control characters in it, to end the sequence early)
+//   block;<JSON>          {markdown, images: {src: data URL}} or {html}, and base:
+//                         the folder it's from (JSON: no control characters in
+//                         it, to end the sequence early)
 // Each is a frame of its own, sandboxed: nothing runs in it (any program can
 // send one, cat of a file too). Its rows are made when it comes (as many as it
 // is tall at the terminal's width then), so a terminal's screen given again
@@ -16,14 +17,14 @@ import { render } from "/engine/ui/markdown.js";
 
 const OSC = 5379;
 // The theme's colors and fonts, given to a block (it's a page of its own).
-const VARS = ["--bg", "--bg-side", "--bg-raised", "--bg-hover", "--border", "--text", "--text-dim", "--accent", "--accent-bg", "--selection", "--mono",
+const VARS = ["--bg", "--bg-side", "--bg-raised", "--bg-hover", "--border", "--text", "--text-dim", "--accent", "--accent-bg", "--selection", "--mono", "--good", "--error",
   "--s-comment", "--s-string", "--s-number", "--s-keyword", "--s-literal", "--s-type", "--s-fn", "--s-attr", "--s-variable", "--s-meta", "--s-heading"];
 
 export class Blocks {
   /**
    * In `term` (xterm.js, opened): `answer(text)` sends text to what runs in it (as typed);
    * `replaying()`: an earlier screen's being given again (asked then: long answered);
-   * `openLink(url)`; `copy(text)`; `onKey(e)`: a key pressed in a block (the terminal's focus again).
+   * `openLink({url} | {path})`: a link's, in the default browser, a file's in its app; `copy(text)`.
    */
   constructor(term, { answer, replaying, openLink, copy }) {
     this.term = term;
@@ -87,6 +88,8 @@ export class Blocks {
     const doc = frame.contentDocument;
     if (!doc) return frame.remove(), true;
     await within(Promise.all([...doc.images].map((img) => img.decode().catch(() => {}))), 5000);
+    // (Its rows are as many as it's tall now: what's folded away is shown, and stays.)
+    for (const d of doc.querySelectorAll("details")) d.open = true;
     const { h } = this.cell();
     const rows = Math.max(1, Math.ceil(doc.documentElement.scrollHeight / h));
     frame.style.height = `${rows * h}px`;
@@ -104,7 +107,7 @@ export class Blocks {
       frame.remove();
       this.list = this.list.filter((b) => b !== block);
     });
-    this.wire(doc);
+    this.wire(doc, block, spec.base);
     frame.classList.remove("measuring");
     this.list.push(block);
     this.place();
@@ -132,20 +135,28 @@ export class Blocks {
     for (const b of [...this.list]) if (b.marker.line + b.rows > line) b.marker.dispose();
   }
 
-  // A block's own: the wheel scrolls the terminal, links open in the browser, its
-  // selection copies; a key or a click that selects nothing gives the terminal its focus.
-  wire(doc) {
+  // A block's own: the wheel scrolls the terminal, links open (in the browser; a file
+  // beside it in its app; #a-heading: the terminal goes there), its selection copies;
+  // a key or a click that selects nothing gives the terminal its focus.
+  wire(doc, block, base) {
     doc.addEventListener("wheel", (e) => {
       e.preventDefault();
       const lines = e.deltaMode === 1 ? e.deltaY : e.deltaY / this.cell().h;
       this.term.scrollLines(Math.round(lines) || Math.sign(e.deltaY));
     }, { passive: false });
     doc.addEventListener("click", (e) => {
+      if (e.target.closest?.("summary")) return e.preventDefault(); // (folded: shown all along)
       const a = e.target.closest?.("a[href]");
       if (!a) return;
       e.preventDefault();
       const href = a.getAttribute("href");
-      if (/^(https?|mailto):/i.test(href)) this.openLink(href);
+      if (href.startsWith("#")) {
+        const to = doc.getElementById(decodeURIComponent(href.slice(1)));
+        if (to) this.term.scrollToLine(block.marker.line + Math.floor(to.getBoundingClientRect().top / this.cell().h));
+      } else if (/^(https?|mailto):/i.test(href)) this.openLink({ url: href });
+      else if (base && !/^[a-z][\w+.-]*:/i.test(href)) {
+        this.openLink({ path: decodeURIComponent(new URL(href.split("#")[0], `file://${base}/`).pathname) });
+      }
     });
     doc.addEventListener("mouseup", () => {
       if (!doc.getSelection()?.toString()) this.term.focus();

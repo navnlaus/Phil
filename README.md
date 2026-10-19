@@ -702,7 +702,9 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
   viewer: it stays in the scrollback, the prompt after it):
   - Markdown as it reads in textedit, with textedit's renderer and style, its
     pictures in it: a page in the terminal's text, as wide as the terminal,
-    as tall as it is, scrolling with the rest. Its links open in the browser;
+    as tall as it is, scrolling with the rest (folded `<details>` shown open).
+    Its links open in the default browser, a link to a file beside it in that
+    file's app, and one to a heading (`#usage`) scrolls the terminal there;
     its text is selected and copied there (Ctrl+C, Ctrl+Insert), not with
     the terminal's own.
   - Word, RTF and OpenDocument documents, converted to Markdown first, as phil
@@ -919,8 +921,16 @@ Ctrl+K for bold, italic and links, and `# `, `- `, `1. `, `> ` at the start of a
 line turn it into a heading, list or quote. Code shows the Markdown itself
 (Ctrl+Shift+M switches). Going back to the code writes only the blocks that
 were edited as new Markdown; everything else keeps its exact source, so a
-small edit doesn't reformat the file. Front matter and raw HTML show as they
-are and can be edited in the code. Images show from the file's folder.
+small edit doesn't reformat the file. It reads what GitHub's Markdown has:
+headings (`#` and underlined, with GitHub's anchors), emphasis, code (fenced
+and indented), links and pictures (inline, by reference, bare web addresses),
+lists and tasks, quotes and alerts (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
+`[!WARNING]`, `[!CAUTION]`), tables, footnotes, entities (`&copy;`), and HTML
+(`<p align="center">`, `<details>` with Markdown in it, `<kbd>`, `<sub>`...),
+shown as it is, without what could run or load (scripts, handlers, frames,
+forms, styles; links only to pages). Front matter, HTML, reference
+definitions and footnotes are edited in the code. Images show from the file's
+folder.
 
 Documents (`.docx`, `.doc`, `.rtf`, `.odt` and other word processors' files)
 open for reading: LibreOffice turns them into Markdown (with its Markdown

@@ -281,12 +281,30 @@ async function sendPage(spec, ctx) {
   return true;
 }
 
-// Markdown's pictures, as markdown.js finds them.
+// Markdown's pictures, as markdown.js finds them: ![alt](src), ![alt][ref] or ![alt] with
+// [ref]: src somewhere, <img src>.
 const MD_PICTURE = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?/g;
+const MD_REF_PICTURE = /!\[([^\]]*)\](?:\[([^\]]*)\])?(?!\()/g;
+const MD_DEFINITION = /^ {0,3}\[([^\]^][^\]]*)\]:\s*<?([^\s>]+)>?/gm;
+const refLabel = (s) => s.trim().replace(/\s+/g, " ").toLowerCase();
+
+function pictureSources(md) {
+  const srcs = new Set([...md.matchAll(MD_PICTURE)].map((m) => m[1]));
+  for (const [tag] of md.matchAll(/<img\b[^>]*>/gi)) {
+    const src = attr(tag, "src");
+    if (src) srcs.add(src);
+  }
+  const defs = new Map([...md.matchAll(MD_DEFINITION)].map((m) => [refLabel(m[1]), m[2]]));
+  for (const m of md.matchAll(MD_REF_PICTURE)) {
+    const src = defs.get(refLabel(m[2] || m[1]));
+    if (src) srcs.add(src);
+  }
+  return [...srcs];
+}
 
 /** Markdown as a page: its pictures in it (data: URLs), as many as there's room for. */
 async function markdownPage(md, base) {
-  const srcs = [...new Set([...md.matchAll(MD_PICTURE)].map((m) => m[1]))];
+  const srcs = pictureSources(md);
   // Those already in the text (a document's) go once, in images, a short name in the text.
   const names = srcs.map((src, n) => (src.startsWith("data:") ? `vu-picture-${n}` : src));
   let text = md;
@@ -299,7 +317,7 @@ async function markdownPage(md, base) {
     room -= url.length + names[n].length;
     images[names[n]] = url;
   });
-  return { markdown: text, images };
+  return { markdown: text, images, base };
 }
 
 /** A web page as a page: its pictures and style sheets (those beside it) in it. */
@@ -319,7 +337,7 @@ async function htmlPage(html, base) {
     room -= url.length;
     html = html.replace(/<img\b[^>]*>/gi, (tag) => (attr(tag, "src") === srcs[n] ? tag.replace(/\bsrc\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, `src="${url}"`) : tag));
   });
-  return { html };
+  return { html, base };
 }
 
 /** A picture for a page: as it is if the browser shows it and it's small, else made smaller (vips). */

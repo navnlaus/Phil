@@ -24,3 +24,29 @@
 .markdown table { border-collapse: collapse; }
 .markdown th, .markdown td { border: 1px solid var(--border); padding: 5px 10px; }
 .markdown th { background: var(--bg-side); }
+.markdown kbd { font: 0.85em var(--mono); padding: 0.1em 0.4em; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--bg-raised); }
+.markdown mark { background: var(--accent-bg); color: inherit; }
+.markdown details { margin: 0 0 0.9em; }
+.markdown summary { cursor: pointer; }
+.markdown div.html { margin: 0 0 0.9em; }
+.markdown div.html > :last-child { margin-bottom: 0; }
+
+/* GitHub's alerts: > [!NOTE] ... */
+.markdown .alert { border-left-color: var(--alert); color: var(--text); }
+.markdown .alert-title { font-weight: 600; color: var(--alert); margin: 0.3em 0 0.4em; }
+.markdown .alert-title::before { margin-right: 0.4em; }
+.markdown .alert-note { --alert: var(--accent); }
+.markdown .alert-note .alert-title::before { content: "ⓘ"; }
+.markdown .alert-tip { --alert: var(--good); }
+.markdown .alert-tip .alert-title::before { content: "✓"; }
+.markdown .alert-important { --alert: var(--s-keyword); }
+.markdown .alert-important .alert-title::before { content: "❖"; }
+.markdown .alert-warning { --alert: var(--s-number); }
+.markdown .alert-warning .alert-title::before { content: "⚠"; }
+.markdown .alert-caution { --alert: var(--error); }
+.markdown .alert-caution .alert-title::before { content: "⊘"; }
+
+/* Footnotes: cited as numbers, listed at the end. */
+.markdown sup.fnref a { text-decoration: none; }
+.markdown .footnotes { margin-top: 2em; padding-top: 0.8em; border-top: 1px solid var(--border); font-size: 0.88em; color: var(--text-dim); }
+.markdown .footnotes .back { text-decoration: none; }
