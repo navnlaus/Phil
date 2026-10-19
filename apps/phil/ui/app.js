@@ -3995,7 +3995,8 @@ function makeProcessRow() {
   });
   const icon = Object.assign(document.createElement("img"), { className: "process-icon", alt: "", hidden: true });
   icon.onerror = () => (icon.hidden = true);
-  row.append(Object.assign(document.createElement("span"), { className: "process-name" }), Object.assign(document.createElement("span"), { className: "process-time" }), cancel, icon);
+  const glyph = Object.assign(document.createElement("span"), { className: "process-glyph", hidden: true }); // (the main terminal's, ssh's: Lucide's)
+  row.append(Object.assign(document.createElement("span"), { className: "process-name" }), Object.assign(document.createElement("span"), { className: "process-time" }), cancel, icon, glyph);
   row.addEventListener("click", () => {
     const p = row.item;
     if (p.kind === "main-terminal") switchTerminal(1);
@@ -4021,8 +4022,13 @@ const SHELLS = new Set(["bash", "sh", "zsh", "fish", "dash"]);
 const CLAUDE_MARK = /^[·✢✳✶✻✽◐◓◑◒]/u;
 
 function showProcessRow(row, p) {
-  const [name, time, cancel, icon] = row.children;
+  const [name, time, cancel, icon, glyph] = row.children;
+  const showGlyph = (which) => {
+    put(glyph, "hidden", !which);
+    if (which) putIcon(glyph, which);
+  };
   if (p.kind === "main-terminal") {
+    showGlyph("l:square-terminal");
     const at = terminal.main.cwd;
     put(name, "textContent", !at ? "Terminal" : at === state.init.home ? "~" : at === "/" ? "/" : at.split("/").pop());
     put(row, "title", ["The main terminal", at].filter(Boolean).join("\n"));
@@ -4058,11 +4064,13 @@ function showProcessRow(row, p) {
     put(name, "textContent", label);
     if (claude && !icon.getAttribute("src")) icon.src = "/api/icon/claude";
     put(icon, "hidden", !claude);
+    showGlyph(ssh && !claude ? "l:server" : null); // (ssh'd in: another machine's)
     // Its tip: what it is, where, how long it's been going.
     put(row, "title", [label, ssh && p.command, p.cwd || "", elapsed(p.started)].filter(Boolean).join("\n"));
     put(cancel, "title", "End it (what runs there is hung up)");
     return;
   }
+  showGlyph(null);
   const folder = p.path === "/" ? "/" : p.path.split("/").pop();
   put(name, "textContent", folder); // (what it's doing: in its tip, the sidebar's narrow)
   put(row, "title", `${p.mode === "check" ? "Looking at the times of the folders in" : "Adding up the size of everything in"} ${p.path}, at the lowest priority`);
