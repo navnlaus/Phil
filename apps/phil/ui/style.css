@@ -281,6 +281,9 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 .process-row.current { background: var(--accent-bg); color: var(--accent); }
 .process-row.elsewhere .process-name { color: var(--text-dim); }
 .process-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* (Claude Code's: claude.ai's icon, before its name.) */
+.process-icon { order: -1; flex: none; width: 14px; height: 14px; }
+.process-icon[hidden] { display: none; }
 .process-time { flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .process-row .cancel { flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text-dim); font-size: 14px; line-height: 1; cursor: pointer; }
 .process-row .cancel:hover { background: color-mix(in srgb, var(--text) 15%, transparent); color: var(--text); }

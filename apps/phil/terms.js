@@ -59,7 +59,7 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
     } catch { /* none yet */ }
     const infos = await Promise.all(ids.map((id) => ask(id, { info: true })));
     // (Shown in a panel too: their places, Alt+2 on, stay theirs.)
-    const now = infos.filter((i) => i?.keep).sort((a, b) => a.keptAt - b.keptAt).map(({ id, command, cwd, started, attached }) => ({ id, command, cwd, started, attached }));
+    const now = infos.filter((i) => i?.keep).sort((a, b) => a.keptAt - b.keptAt).map(({ id, command, cwd, started, attached, title }) => ({ id, command, cwd, started, attached, title }));
     if (JSON.stringify(now) !== JSON.stringify(background)) {
       background = now;
       onChange(background);
@@ -78,7 +78,8 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
 
     /**
      * The ones in the background, in the order they went there: [{id, command (what runs
-     * there now), cwd, started, attached (shown in a panel now)}].
+     * there now), cwd, started, attached (shown in a panel now), title (the terminal's, as
+     * its programs set it)}].
      */
     list: () => background,
 

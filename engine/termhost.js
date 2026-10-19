@@ -16,7 +16,9 @@
 //                   goes on when this client goes), and DATA as input. Another
 //                   client that attaches takes it over (the one before hears
 //                   {taken: true}).
-//   {info: true}    {info: {id, pid, command, cwd, started, attached, keep, keptAt}}
+//   {info: true}    {info: {id, pid, command, cwd, started, attached, keep, keptAt,
+//                   title}} (title: the last one a program set, OSC 0/2: Claude
+//                   Code's is its session's name)
 //   {kill: true}    the shell hung up, the host gone
 // Not kept, the host ends when its client goes (the panel closed, the window,
 // the engine); in any case when the shell does.
@@ -75,6 +77,17 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
   let keep = false, keptAt = 0; // (keptAt: when first put in the background, its place among them)
   const replay = [];
   let replaySize = 0;
+  // The terminal's title, as programs set it (ESC ] 0 or 2 ; title BEL or ESC \), across chunks.
+  let title = "", titleCarry = "";
+  const decoder = new TextDecoder();
+  const noteTitle = (chunk) => {
+    const text = titleCarry + decoder.decode(chunk, { stream: true });
+    // deno-lint-ignore no-control-regex
+    for (const m of text.matchAll(/\x1b\][02];([^\x07\x1b]*)(?:\x07|\x1b\\)/g)) title = m[1];
+    const open = text.lastIndexOf("\x1b]");
+    // deno-lint-ignore no-control-regex
+    titleCarry = open !== -1 && !/\x07|\x1b\\/.test(text.slice(open)) ? text.slice(open).slice(-1024) : "";
+  };
 
   const end = async () => {
     try {
@@ -88,6 +101,7 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
   // The shell's output: kept (the last MAX_REPLAY bytes), and to the client.
   (async () => {
     for await (const chunk of pty.output()) {
+      noteTitle(chunk);
       replay.push(chunk);
       replaySize += chunk.length;
       while (replaySize > MAX_REPLAY && replay.length > 1) replaySize -= replay.shift().length;
@@ -118,7 +132,7 @@ export async function termHost({ id, dir, command, cwd, env = {}, cols = 80, row
           if (data.info) {
             const pid = pty.child.pid;
             const fg = Number(await run("ps", ["-o", "tpgid=", "-p", String(pid)])) || pid; // the terminal's foreground process
-            const info = { id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep, keptAt };
+            const info = { id, pid, command: await run("ps", ["-o", "args=", "-p", String(fg)]), cwd: await run("readlink", [`/proc/${fg}/cwd`]), started, attached: !!client, keep, keptAt, title };
             c.send(frame(JSON_FRAME, { info }));
             await c.flushed;
             return conn.close();

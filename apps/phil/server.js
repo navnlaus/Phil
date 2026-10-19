@@ -570,6 +570,19 @@ export function createServer({ profile, controlSocket }) {
         }
         return json(await tagging.list(kind));
       }
+      case "GET /api/icon/claude": { // the sidebar's Processes: Claude Code in a terminal in the background
+        // claude.ai's favicon: fetched once, kept in phil's cache (not in phil itself: Anthropic's).
+        const file = join(dirname(config.cacheThumbDir), "icons", "claude.ico");
+        let icon = await Deno.readFile(file).catch(() => null);
+        if (!icon) {
+          const res = await fetch("https://claude.ai/favicon.ico", { signal: AbortSignal.timeout(5000) }).catch(() => null);
+          if (!res?.ok) return text(404, "No icon");
+          icon = new Uint8Array(await res.arrayBuffer());
+          await Deno.mkdir(dirname(file), { recursive: true }).catch(() => {});
+          await Deno.writeFile(file, icon).catch(() => {});
+        }
+        return new Response(icon, { headers: { "content-type": "image/vnd.microsoft.icon", "cache-control": "max-age=86400" } });
+      }
       case "GET /api/version": // Preferences: the commit it's built from
         return json(await buildInfo());
       case "GET /api/themes": // the bottom bar's theme picker

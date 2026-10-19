@@ -3990,7 +3990,9 @@ function makeProcessRow() {
     if (p.kind === "terminal" && !await askConfirm({ title: `End “${p.command}”?`, detail: `The terminal in the background is closed: what runs there is hung up (in ${p.cwd}).`, ok: "End it" })) return;
     api("/api/process-cancel", { method: "POST", body: JSON.stringify({ id: p.id }) }).catch(() => {});
   });
-  row.append(Object.assign(document.createElement("span"), { className: "process-name" }), Object.assign(document.createElement("span"), { className: "process-time" }), cancel);
+  const icon = Object.assign(document.createElement("img"), { className: "process-icon", alt: "", hidden: true });
+  icon.onerror = () => (icon.hidden = true);
+  row.append(Object.assign(document.createElement("span"), { className: "process-name" }), Object.assign(document.createElement("span"), { className: "process-time" }), cancel, icon);
   row.addEventListener("click", () => (row.item.kind === "terminal" ? showBackgroundTerminal(row.item.term) : load(row.item.path)));
   return row;
 }
@@ -3998,7 +4000,7 @@ function makeProcessRow() {
 const SHELLS = new Set(["bash", "sh", "zsh", "fish", "dash"]);
 
 function showProcessRow(row, p) {
-  const [name, time, cancel] = row.children;
+  const [name, time, cancel, icon] = row.children;
   showProcessTime(time, p);
   if (p.kind === "terminal") {
     // (The one this panel shows: marked; one another window's shows: dimmed.)
@@ -4009,8 +4011,14 @@ function showProcessRow(row, p) {
     const [program = "bash", ...args] = (p.command || "bash").split(/\s+/);
     const shown = program.split("/").pop().replace(/^-/, "");
     const folder = p.cwd === state.init.home ? "~" : p.cwd === "/" ? "/" : p.cwd?.split("/").pop();
-    put(name, "textContent", SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" "));
-    const what = SHELLS.has(shown) ? `its shell at its prompt` : p.command;
+    // Claude Code: claude.ai's icon, and its session's name (the terminal's title it sets, its
+    // status mark before it left out), else the folder.
+    const claude = shown === "claude";
+    const session = claude ? (p.title ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim() : "";
+    put(name, "textContent", claude ? session || folder || "claude" : SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" "));
+    if (claude && !icon.getAttribute("src")) icon.src = "/api/icon/claude";
+    put(icon, "hidden", !claude);
+    const what = SHELLS.has(shown) ? `its shell at its prompt` : claude ? `Claude Code${session ? ` (“${session}”)` : ""}` : p.command;
     const slot = (state.processes ?? []).filter((q) => q.kind === "terminal").indexOf(p) + 2;
     const where = p.term === terminal.session ? "Shown in the terminal panel" : p.attached ? "Shown in another window's terminal panel: a click shows it here" : "A click shows it in the terminal panel";
     put(row, "title", `A terminal in the background: ${what}, in ${p.cwd || "?"}. ${where}${slot <= 9 ? ` (Alt+${slot})` : ""}`);
