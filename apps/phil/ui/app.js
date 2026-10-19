@@ -4002,6 +4002,8 @@ function makeProcessRow() {
 }
 
 const SHELLS = new Set(["bash", "sh", "zsh", "fish", "dash"]);
+// Claude Code's terminal title starts with its status: idle (✳), or a spinner's frame.
+const CLAUDE_MARK = /^[·✢✳✶✻✽◐◓◑◒]/u;
 
 function showProcessRow(row, p) {
   const [name, time, cancel, icon] = row.children;
@@ -4018,14 +4020,19 @@ function showProcessRow(row, p) {
     const folder = p.cwd === state.init.home ? "~" : p.cwd === "/" ? "/" : p.cwd?.split("/").pop();
     // Claude Code: claude.ai's icon, and its session's name (the terminal's title it sets, its
     // status mark before it left out), else the folder.
-    const claude = shown === "claude";
-    const session = claude ? (p.title ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim() : "";
-    const label = claude ? session || folder || "claude" : SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" ");
+    // ssh'd in: what runs there, by the terminal's title its programs set (Claude Code's: its
+    // status mark first), the ssh command in the tip.
+    const ssh = shown === "ssh";
+    const remoteClaude = ssh && CLAUDE_MARK.test(p.title ?? "");
+    const claude = shown === "claude" || remoteClaude;
+    const titled = (p.title ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
+    const session = claude ? titled : "";
+    const label = claude ? session || folder || "claude" : ssh ? titled || p.command : SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" ");
     put(name, "textContent", label);
     if (claude && !icon.getAttribute("src")) icon.src = "/api/icon/claude";
     put(icon, "hidden", !claude);
     // Its tip: what it is, where, how long it's been going.
-    put(row, "title", [label, p.cwd || "", elapsed(p.started)].filter(Boolean).join("\n"));
+    put(row, "title", [label, ssh && p.command, p.cwd || "", elapsed(p.started)].filter(Boolean).join("\n"));
     put(cancel, "title", "End it (what runs there is hung up)");
     return;
   }

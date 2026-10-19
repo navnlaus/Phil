@@ -634,7 +634,8 @@ whatever runs in it, goes on without the panel, as in screen or tmux. The panel
 closes; its next main shell is a new one. The sidebar's Processes list those,
 what runs there (`vim notes.md`, `sleep 600`; a shell at its prompt: the
 folder it's in; Claude Code: claude.ai's icon and its session's name, the
-terminal title it sets, else the folder); × ends one (what runs there is
+terminal title it sets, else the folder; ssh'd in: what runs there, by the title
+its programs set, Claude Code's with its icon, the ssh command in the tip); × ends one (what runs there is
 hung up). A click shows one in the panel, in the main shell's place, as it was
 (its screen and scrollback: the last megabyte it wrote); the main shell stays
 as it is meanwhile (none: a new one), and comes back when that one ends
