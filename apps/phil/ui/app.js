@@ -3996,6 +3996,7 @@ function makeProcessRow() {
   icon.onerror = () => (icon.hidden = true);
   row.append(Object.assign(document.createElement("span"), { className: "process-name" }), Object.assign(document.createElement("span"), { className: "process-time" }), cancel, icon);
   row.addEventListener("click", () => (row.item.kind === "terminal" ? showBackgroundTerminal(row.item.term) : load(row.item.path)));
+  row.addEventListener("mouseenter", () => row.item && showProcessRow(row, row.item)); // (its tip's time, as it is now)
   return row;
 }
 
@@ -4018,13 +4019,12 @@ function showProcessRow(row, p) {
     // status mark before it left out), else the folder.
     const claude = shown === "claude";
     const session = claude ? (p.title ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim() : "";
-    put(name, "textContent", claude ? session || folder || "claude" : SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" "));
+    const label = claude ? session || folder || "claude" : SHELLS.has(shown) && folder ? folder : [shown, ...args].join(" ");
+    put(name, "textContent", label);
     if (claude && !icon.getAttribute("src")) icon.src = "/api/icon/claude";
     put(icon, "hidden", !claude);
-    const what = SHELLS.has(shown) ? `its shell at its prompt` : claude ? `Claude Code${session ? ` (“${session}”)` : ""}` : p.command;
-    const slot = (state.processes ?? []).filter((q) => q.kind === "terminal").indexOf(p) + 2;
-    const where = p.term === terminal.session ? "Shown in the terminal panel" : p.attached ? "Shown in another window's terminal panel: a click shows it here" : "A click shows it in the terminal panel";
-    put(row, "title", `A terminal in the background: ${what}, in ${p.cwd || "?"}. ${where}${slot <= 9 ? ` (Alt+${slot})` : ""}`);
+    // Its tip: what it is, where, how long it's been going.
+    put(row, "title", [label, p.cwd || "", elapsed(p.started)].filter(Boolean).join("\n"));
     put(cancel, "title", "End it (what runs there is hung up)");
     return;
   }
@@ -4036,9 +4036,13 @@ function showProcessRow(row, p) {
 
 // How long it's been going (h:mm:ss).
 function showProcessTime(time, p) {
-  const s = Math.max(0, Math.floor((Date.now() - p.started) / 1000));
+  put(time, "textContent", elapsed(p.started));
+}
+
+function elapsed(started) {
+  const s = Math.max(0, Math.floor((Date.now() - started) / 1000));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, "0");
-  put(time, "textContent", h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`);
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
 // The sidebar's Transfers: every copy, move, delete and download (paused,
