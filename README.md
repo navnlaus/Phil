@@ -1082,6 +1082,9 @@ shows the wall: every camera that's on).
   they're back, keeping their names, logins and settings. ONVIF's own discovery (WS-Discovery, multicast)
   isn't used: firewalls (ufw) drop its answers. One elsewhere: right-click →
   "Add camera…" with its address.
+- **Settings** (the wall's list, top right: Settings by a camera): its name,
+  which of its streams, its buffer (above), upside down (one that turns); kept
+  in `cameras.json`, its tile playing as they say at once.
 - **Logins**: a camera that wants one says "needs a login" in the sidebar;
   right-click → "Log in…". It's checked with the camera, sent as ONVIF's
   password digest, and kept, with the names you give them, in
@@ -1092,9 +1095,13 @@ shows the wall: every camera that's on).
   Extensions (decoded on the GPU), a fragment per frame, about a second behind
   live (in a browser that plays H.264). In salir, with phil's mpv plugin
   (see [Windows](#windows-salir)), mpv plays the camera's RTSP stream itself
-  instead, at low latency (`profile=low-latency`, no cache, no sound: a muted
-  track still holds the picture back to keep with it), decoded on the
-  GPU; without it, the MJPEG stream. It plays at its own pace: a player can stall when its speed
+  instead, decoded on the GPU, with no sound (a muted track still holds the
+  picture back to keep with it); without it, the MJPEG stream. Its buffer, a
+  camera's setting: automatic, none for a camera on this network (low latency:
+  `profile=low-latency`, no cache, shown as it comes), a second for one over
+  the internet (mpv plays it at its own pace that far behind, riding out the
+  network's hiccups, and waits for that much again after a stall); or none,
+  0.3, 0.5, 1, 2 or 5 seconds, set by hand. It plays at its own pace: a player can stall when its speed
   changes, so it never speeds up to catch up; more than 3 s behind (the
   window was hidden, say), it jumps ahead. The
   camera's streams are in the top bar (main, sub: Q switches). ffmpeg stops

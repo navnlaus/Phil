@@ -38,6 +38,25 @@ export const UI_DIR = new URL("./ui/", import.meta.url);
 
 const MOVE_HOLD_MS = 1500; // a move not repeated within this stops
 
+// Whether a stream's address is on this network (a private, link-local or loopback address, a
+// .local name, or a bare host name): there it's played with no buffer; else over the internet.
+function isLocalHost(address) {
+  let host;
+  try {
+    host = new URL(address).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!host.includes(".") && !host.includes(":")) return true; // ("camera", "gerpi": a LAN name)
+  if (host.endsWith(".local") || host.endsWith(".lan") || host === "localhost") return true;
+  const v4 = host.split(".").map(Number);
+  if (v4.length === 4 && v4.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+    const [a, b] = v4;
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+  }
+  return host === "::1" || /^f[cd]/.test(host) || host.startsWith("fe80:");
+}
+
 export function createServer({ profile = {} } = {}) {
   if (profile.incognito) cameras.keepInMemory();
   const moving = new Map(); // id -> {timer, speed}: moves under way
@@ -113,9 +132,10 @@ export function createServer({ profile = {} } = {}) {
           } catch (err) {
             throw httpError(err.status ?? (err.auth ? 403 : 502), err.message);
           }
-        case "GET /api/source": // ?id=&profile=: {url}: its stream as it is, for mpv (ui/app.js)
+        case "GET /api/source": // ?id=&profile=: {url, local}: its stream as it is, for mpv (ui/app.js); local: on this network
           try {
-            return json({ url: await cameras.rtspUrl(id, url.searchParams.get("profile")) });
+            const source = await cameras.rtspUrl(id, url.searchParams.get("profile"));
+            return json({ url: source, local: isLocalHost(source) });
           } catch (err) {
             throw httpError(err.status ?? (err.auth ? 403 : 502), err.message);
           }
@@ -130,9 +150,9 @@ export function createServer({ profile = {} } = {}) {
         case "POST /api/log":
           console.error(`camview: ${String((await req.json()).message ?? "").slice(0, 500)}`);
           return json({ ok: true });
-        case "PUT /api/camera": { // {id, invert} / {id, disabled} / {id, name} / {id, profile}
+        case "PUT /api/camera": { // {id, invert} / {id, disabled} / {id, name} / {id, profile} / {id, buffer}
           const { id: which, ...rest } = await req.json();
-          const changes = Object.fromEntries(Object.entries(rest).filter(([k]) => ["invert", "disabled", "name", "profile"].includes(k)));
+          const changes = Object.fromEntries(Object.entries(rest).filter(([k]) => ["invert", "disabled", "name", "profile", "buffer"].includes(k)));
           return json(await cameras.update(String(which ?? ""), changes));
         }
         case "GET /api/cameras/all": // every camera, with whether it's on, offline or off (the wall's list)

@@ -68,7 +68,13 @@ const idOf = (host, port) => `${host}:${port}`;
 const shown = (c) => ({
   id: c.id, host: c.host, port: c.port, name: c.name || c.model || c.host, model: [c.manufacturer, c.model].filter(Boolean).join(" "),
   login: !!c.user, needsLogin: !!c.auth && !c.user, seen: c.seen ?? 0, invert: !!c.invert, profile: c.profile ?? null,
+  buffer: BUFFERS.includes(c.buffer) ? c.buffer : "auto",
 });
+/**
+ * A camera's buffer (mpv's: seconds of its stream read ahead, to ride out a network's hiccups),
+ * or "auto": none on the local network, a second over the internet (camview's ui/app.js).
+ */
+export const BUFFERS = ["auto", 0, 0.3, 0.5, 1, 2, 5];
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
 const isStream = (c) => (c.type === "rtsp" && !c.tuya) || c.type === "page"; // added by its URL
 
@@ -288,7 +294,7 @@ export async function add(address, login = {}) {
   return shown(known.find((c) => c.id === id));
 }
 
-/** Changes a camera: {name}, {user, password} (checked first: rejected if the camera says no), {hidden}, {disabled}, {invert}, {profile}. */
+/** Changes a camera: {name}, {user, password} (checked first: rejected if the camera says no), {hidden}, {disabled}, {invert}, {profile}, {buffer}. */
 export async function update(id, changes) {
   const known = await load();
   const c = known.find((c) => c.id === id);
@@ -311,6 +317,7 @@ export async function update(id, changes) {
     if (!c.disabled) c.absent = false; // turned on: shown (looking again says if it's there)
   }
   if ("invert" in changes) c.invert = !!changes.invert;
+  if ("buffer" in changes) c.buffer = BUFFERS.includes(changes.buffer) && changes.buffer !== "auto" ? changes.buffer : undefined;
   if ("profile" in changes) { // the stream picked for it (camview's quality), wherever it's shown
     c.profile = typeof changes.profile === "string" && changes.profile ? changes.profile.slice(0, 200) : undefined;
     return (await save(known), shown(c)); // (its details stay: nothing about the camera changed)

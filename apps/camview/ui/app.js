@@ -183,10 +183,18 @@ async function playMpv(t, player) {
   }
   if (player !== t.player) return;
   const el = document.createElement("salir-embed");
-  // A live camera: shown as it comes (no buffer, no clock to keep to), over TCP. No sound
-  // at all (not muted: a muted track is still played, and the picture waits for it, ~1.2 s
-  // behind), and the decoder not holding frames back (low_delay: ~0.1 s on the GPU).
-  const options = { kind: "mpv", profile: "low-latency", untimed: "yes", cache: "no", aid: "no", "vd-lavc-o": "flags=+low_delay", "rtsp-transport": "tcp", "network-timeout": "10" };
+  // Its buffer (the camera's settings, the list's): automatic, none on the local network
+  // (shown as it comes: no cache, no clock to keep to), a second over the internet, whose
+  // hiccups it rides out (mpv plays it at its own pace, a second behind, waiting for that
+  // much again after a stall). Over TCP; no sound at all (not muted: a muted track is still
+  // played, and the picture waits for it, ~1.2 s behind), and the decoder not holding frames
+  // back (low_delay: ~0.1 s on the GPU).
+  const buffer = bufferOf(t.camera, source.local);
+  player.buffer = buffer;
+  const common = { kind: "mpv", aid: "no", "vd-lavc-o": "flags=+low_delay", "rtsp-transport": "tcp", "network-timeout": "10" };
+  const options = buffer
+    ? { ...common, cache: "yes", "cache-secs": String(buffer), "demuxer-readahead-secs": String(buffer), "cache-pause": "yes", "cache-pause-initial": "yes", "cache-pause-wait": String(buffer) }
+    : { ...common, profile: "low-latency", untimed: "yes", cache: "no" };
   for (const [k, v] of Object.entries(options)) el.setAttribute(k, v);
   el.className = "cam-mpv";
   player.embed = el;
@@ -210,6 +218,9 @@ async function playMpv(t, player) {
   el.send({ observe: ["width", "height", "video-codec", "estimated-vf-fps", "frame-drop-count", "demuxer-cache-duration", "video-bitrate"] });
   el.send({ command: ["loadfile", source.url, "replace"] });
 }
+
+// A camera's buffer, in seconds (its setting; automatic: none here, a second over the internet).
+const bufferOf = (camera, local) => (typeof camera.buffer === "number" ? camera.buffer : local ? 0 : 1);
 
 const streamUrl = (t, mode) => `stream?id=${encodeURIComponent(t.camera.id)}&profile=${encodeURIComponent(t.profile ?? "")}&mode=${mode}`;
 
@@ -862,7 +873,8 @@ function makeRow(c) {
   const row = document.createElement("div");
   row.className = "row";
   row.dataset.id = c.id;
-  row.innerHTML = `<label class="switch"><input type="checkbox"><span></span></label><div class="what"><span class="name"></span><span class="detail"></span></div><button type="button" class="remove"></button>`;
+  row.innerHTML = `<label class="switch"><input type="checkbox"><span></span></label><div class="what"><span class="name"></span><span class="detail"></span></div><button type="button" class="settings-button" title="Its settings: name, stream, buffer">Settings</button><button type="button" class="remove"></button><div class="settings" hidden></div>`;
+  row.querySelector(".settings-button").onclick = () => toggleSettings(row);
   row.querySelector("input").onchange = async (e) => {
     await fetch("api/camera", { method: "PUT", body: JSON.stringify({ id: row.camera.id, disabled: !e.target.checked }) }).catch(() => {});
     refresh();
@@ -888,6 +900,61 @@ function showRow(row, c) {
   const remove = row.querySelector(".remove");
   remove.textContent = c.kind === "stream" ? "Remove" : "Forget";
   remove.title = c.kind === "stream" ? "Remove this stream" : "Forget this camera";
+}
+
+// A camera's settings, under its row in the list: its name, which of its streams, its buffer
+// (mpv's: automatic, or how many seconds read ahead), upside down (one that turns). Each
+// change kept (cameras.json) and its tile playing as it says at once.
+const BUFFER_CHOICES = [
+  ["auto", "Automatic (none on this network, 1 s over the internet)"],
+  [0, "None: as it comes (the quickest; a network's hiccups show)"],
+  [0.3, "0.3 s"], [0.5, "0.5 s"], [1, "1 s"], [2, "2 s"], [5, "5 s (the smoothest)"],
+];
+
+async function toggleSettings(row) {
+  const box = row.querySelector(".settings");
+  box.hidden = !box.hidden;
+  row.querySelector(".settings-button").classList.toggle("on", !box.hidden);
+  if (box.hidden) return;
+  const c = row.camera;
+  box.innerHTML = `<label>Name <input type="text" class="s-name" spellcheck="false" autocomplete="off"></label>
+    <label class="s-stream-label" hidden>Stream <select class="s-stream"></select></label>
+    <label>Buffer <select class="s-buffer"></select></label>
+    <label class="check s-invert-label" hidden><input type="checkbox" class="s-invert"> Upside down (pan and tilt turned around)</label>`;
+  const name = box.querySelector(".s-name"), stream = box.querySelector(".s-stream"), buffer = box.querySelector(".s-buffer"), invert = box.querySelector(".s-invert");
+  name.value = c.name;
+  buffer.replaceChildren(...BUFFER_CHOICES.map(([v, label]) => new Option(label, String(v))));
+  buffer.value = String(c.buffer ?? "auto");
+  invert.checked = !!c.invert;
+  const change = async (changes) => {
+    const saved = await api("api/camera", { method: "PUT", body: JSON.stringify({ id: c.id, ...changes }) }).catch((err) => (showMessage(err.message, { toast: true }), null));
+    if (!saved) return;
+    Object.assign(c, changes);
+    const t = tiles.find((t) => t.camera.id === c.id);
+    if (t) {
+      Object.assign(t.camera, changes);
+      if ("profile" in changes) t.profile = changes.profile;
+      if ("name" in changes) showTileName(t);
+      if ("profile" in changes || "buffer" in changes) play(t); // (as it says now)
+    }
+    if ("name" in changes) row.querySelector(".name").textContent = changes.name;
+  };
+  name.onchange = () => name.value.trim() && change({ name: name.value.trim() });
+  name.onkeydown = (e) => e.key === "Enter" && name.blur();
+  buffer.onchange = () => change({ buffer: buffer.value === "auto" ? "auto" : Number(buffer.value) });
+  stream.onchange = () => change({ profile: stream.value });
+  invert.onchange = () => change({ invert: invert.checked });
+  // Its streams and whether it turns: asked of it (an offline one: just the rest).
+  if (c.state === "off" || c.kind === "page") return;
+  const info = await api(`api/camera?id=${encodeURIComponent(c.id)}`).catch(() => null);
+  const profiles = info?.profiles ?? [];
+  if (profiles.length > 1) {
+    stream.replaceChildren(...profiles.map((p) => new Option(p.width ? `${p.width}×${p.height}` : p.name, p.token)));
+    const sized = profiles.filter((p) => p.width).sort((a, b) => b.width * b.height - a.width * a.height);
+    stream.value = profiles.some((p) => p.token === c.profile) ? c.profile : (sized[0] ?? profiles[0]).token;
+    box.querySelector(".s-stream-label").hidden = false;
+  }
+  box.querySelector(".s-invert-label").hidden = !info?.ptz;
 }
 
 async function toggleList(open = panel.hidden) {

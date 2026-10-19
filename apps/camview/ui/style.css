@@ -133,7 +133,16 @@ body:hover #wall-list-button, #wall-list-button:focus-visible, #wall-list-button
 @keyframes wall-spin { to { transform: rotate(360deg); } }
 #wall-list .list-state:empty { display: none; }
 #wall-list .rows { display: flex; flex-direction: column; }
-#wall-list .row { display: flex; align-items: center; gap: 10px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
+#wall-list .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
+#wall-list .settings-button { flex: none; height: 26px; padding: 0 8px; font-size: 12px; }
+#wall-list .settings-button.on { background: var(--accent-bg); color: var(--accent); }
+/* Its settings, under it. */
+#wall-list .settings { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; padding: 4px 0 6px 44px; font-size: 12px; }
+#wall-list .settings[hidden] { display: none; }
+#wall-list .settings label:not(.check) { display: flex; flex-direction: column; gap: 3px; color: var(--text-dim); }
+#wall-list .settings label[hidden] { display: none; }
+#wall-list .settings input[type="text"], #wall-list .settings select { width: 100%; box-sizing: border-box; color: var(--text); }
+#wall-list .settings { padding-right: 4px; min-width: 0; }
 #wall-list .row .what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 #wall-list .row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #wall-list .row .detail { color: var(--text-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
