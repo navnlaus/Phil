@@ -631,33 +631,35 @@ goes where that one is).
 
 **In the background** (Super+°, Super+` elsewhere): the main shell, and
 whatever runs in it, goes on without the panel, as in screen or tmux. The panel
-closes; its next main shell is a new one. The sidebar's Processes list those,
-what runs there (`vim notes.md`, `sleep 600`; a shell at its prompt: the
-folder it's in; Claude Code: claude.ai's icon and its session's name, the
-terminal title it sets, else the folder; ssh'd in: what runs there, by the title
-its programs set (Claude Code's with its icon) or the command typed there,
-whichever's newer, the ssh command in the tip: the line Enter's pressed on goes
-to the terminal's host, Ctrl+C clears it; right-click → Rename… names one, kept
-by its host, blank for its own name again); × ends one (what runs there is
-hung up). A click shows one in the panel, in the main shell's place, as it was
-(its screen and scrollback: the last megabyte it wrote); the main shell stays
-as it is meanwhile (none: a new one), and comes back when that one ends
-(`exit`), when Alt+1 asks for it,
-or when Super+° sends the one shown back to the background. Meanwhile the main
-shell's first in Processes (a click: back to it). The one shown is
-marked in Processes (one another window shows: dimmed; shown here, it's taken
-from there). They outlive the window and the engine (a new phil lists them):
-each shell runs in a process of its own (`phil-engine --term-host`, detached),
-on a Unix socket in `$XDG_RUNTIME_DIR/phil/main.terms/`. Not in incognito
-windows.
+closes; its next main shell is a new one. Not in incognito windows.
+
+- **The sidebar's Processes** list them, each by what runs there: `vim
+  notes.md`, `sleep 600`; a shell at its prompt, by its folder; Claude Code
+  with claude.ai's icon and its session's name (the terminal title it sets),
+  else the folder. ssh'd in (a server icon): what runs on the other machine, by
+  the title its programs set there (Claude Code's: its icon) or the command
+  typed there, whichever's newer (the line Enter's pressed on goes to the
+  terminal's host; Ctrl+C clears it). The tip: that, the ssh command, the
+  folder, how long it's been going.
+- **A click** shows one in the panel, in the main shell's place, as it was (its
+  screen and scrollback: the last megabyte it wrote). The main shell stays as it
+  is meanwhile (none: a new one) and comes back when that one ends (`exit`), on
+  Alt+1, or when Super+° sends the one shown back; until then it's first in
+  Processes (a terminal icon; a click: back to it). The one shown is marked
+  there; one another window shows is dimmed (shown here, it's taken from there).
+- **Right-click** → Rename… (kept by its host; blank: named by what runs there
+  again), End. × ends one too (what runs there is hung up).
+- **Drag** one up or down for another order (their Alt+ numbers with it), kept
+  for every window.
+- **They outlive the window and the engine**: each shell runs in a process of
+  its own (`phil-engine --term-host`, detached), on a Unix socket in
+  `$XDG_RUNTIME_DIR/phil/main.terms/`; a new phil lists them.
 
 Switching (the panel opens): **Alt+1** the main shell (a new one in the folder
 shown if there's none), **Alt+2** the first in the background, **Alt+3** the
-next…, in the sidebar's order (the one they went there in; drag one up or down
-in Processes for another, kept for every window: their numbers stay theirs);
-**Ctrl+Tab** (Shift: back) the next, round to the main one.
-`phil --terminal [folder]` opens a window with the terminal covering it, the
-keyboard in it.
+next…, in the sidebar's order; **Ctrl+Tab** (Shift: back) the next, round to
+the main one. `phil --terminal [folder]` opens a window with the terminal
+covering it, the keyboard in it.
 
 Double-clicking a script or program runs it there: a file with a `#!` line, a
 shell script by its name (`.sh`, `.bash`, `.zsh`, `.fish`), or an executable
