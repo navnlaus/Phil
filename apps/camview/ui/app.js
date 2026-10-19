@@ -183,8 +183,10 @@ async function playMpv(t, player) {
   }
   if (player !== t.player) return;
   const el = document.createElement("salir-embed");
-  // A live camera: shown as it comes (no buffer, no clock to keep to), muted, over TCP.
-  const options = { kind: "mpv", profile: "low-latency", untimed: "yes", cache: "no", mute: "yes", "rtsp-transport": "tcp", "network-timeout": "10" };
+  // A live camera: shown as it comes (no buffer, no clock to keep to), over TCP. No sound
+  // at all (not muted: a muted track is still played, and the picture waits for it, ~1.2 s
+  // behind), and the decoder not holding frames back (low_delay: ~0.1 s on the GPU).
+  const options = { kind: "mpv", profile: "low-latency", untimed: "yes", cache: "no", aid: "no", "vd-lavc-o": "flags=+low_delay", "rtsp-transport": "tcp", "network-timeout": "10" };
   for (const [k, v] of Object.entries(options)) el.setAttribute(k, v);
   el.className = "cam-mpv";
   player.embed = el;
