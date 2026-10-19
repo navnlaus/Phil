@@ -648,7 +648,8 @@ windows.
 
 Switching (the panel opens): **Alt+1** the main shell (a new one in the folder
 shown if there's none), **Alt+2** the first in the background, **Alt+3** the
-next…, in the order they went there (the sidebar's: their numbers stay theirs);
+next…, in the sidebar's order (the one they went there in; drag one up or down
+in Processes for another, kept for every window: their numbers stay theirs);
 **Ctrl+Tab** (Shift: back) the next, round to the main one.
 `phil --terminal [folder]` opens a window with the terminal covering it, the
 keyboard in it.

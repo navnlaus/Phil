@@ -3997,6 +3997,7 @@ function makeProcessRow() {
   row.append(Object.assign(document.createElement("span"), { className: "process-name" }), Object.assign(document.createElement("span"), { className: "process-time" }), cancel, icon);
   row.addEventListener("click", () => (row.item.kind === "terminal" ? showBackgroundTerminal(row.item.term) : load(row.item.path)));
   row.addEventListener("mouseenter", () => row.item && showProcessRow(row, row.item)); // (its tip's time, as it is now)
+  row.addEventListener("pointerdown", (e) => dragProcess(row, e));
   return row;
 }
 
@@ -4032,6 +4033,51 @@ function showProcessRow(row, p) {
   put(name, "textContent", folder); // (what it's doing: in its tip, the sidebar's narrow)
   put(row, "title", `${p.mode === "check" ? "Looking at the times of the folders in" : "Adding up the size of everything in"} ${p.path}, at the lowest priority`);
   put(cancel, "title", "Stop it (worked out again when it's asked for)");
+}
+
+// Terminals in the background dragged up or down among themselves: their order (and Alt+
+// numbers) for every window, kept by the server (terms.js); a line shows where it goes.
+function dragProcess(row, e) {
+  if (e.button !== 0 || row.item?.kind !== "terminal" || e.target.closest(".cancel")) return;
+  const rows = () => [...$("#processes").children].filter((r) => r.item?.kind === "terminal");
+  const startY = e.clientY;
+  let moved = false, before = null;
+  const mark = () => {
+    const others = rows().filter((r) => r !== row);
+    for (const r of others) {
+      r.classList.toggle("drop-before", r === before);
+      r.classList.toggle("drop-after", !before && r === others.at(-1));
+    }
+  };
+  const move = (ev) => {
+    if (!moved && Math.abs(ev.clientY - startY) < 5) return;
+    moved = true;
+    row.classList.add("dragging");
+    before = rows().filter((r) => r !== row).find((r) => {
+      const b = r.getBoundingClientRect();
+      return ev.clientY < b.top + b.height / 2;
+    }) ?? null;
+    mark();
+  };
+  const up = () => {
+    removeEventListener("pointermove", move);
+    removeEventListener("pointercancel", up);
+    removeEventListener("pointerup", up);
+    row.classList.remove("dragging");
+    for (const r of rows()) r.classList.remove("drop-before", "drop-after");
+    if (!moved) return;
+    row.addEventListener("click", (ev) => ev.stopImmediatePropagation(), { capture: true, once: true }); // (a drag, not a click)
+    const ids = rows().filter((r) => r !== row).map((r) => r.item.term);
+    ids.splice(before ? ids.indexOf(before.item.term) : ids.length, 0, row.item.term);
+    // In that order at once (the server's list follows).
+    const byId = new Map((state.processes ?? []).filter((p) => p.kind === "terminal").map((p) => [p.term, p]));
+    state.processes = [...(state.processes ?? []).filter((p) => p.kind !== "terminal"), ...ids.map((id) => byId.get(id))];
+    renderProcesses();
+    api("/api/terms-order", { method: "PUT", body: JSON.stringify({ ids }) }).catch(() => {});
+  };
+  addEventListener("pointermove", move);
+  addEventListener("pointerup", up);
+  addEventListener("pointercancel", up);
 }
 
 // How long it's been going (h:mm:ss).

@@ -570,6 +570,9 @@ export function createServer({ profile, controlSocket }) {
         }
         return json(await tagging.list(kind));
       }
+      case "PUT /api/terms-order": // {ids}: the terminals in the background in this order (the sidebar's, dragged)
+        await terms.setOrder((await req.json()).ids ?? []);
+        return json({ ok: true });
       case "GET /api/icon/claude": { // the sidebar's Processes: Claude Code in a terminal in the background
         // claude.ai's favicon: fetched once, kept in phil's cache (not in phil itself: Anthropic's).
         const file = join(dirname(config.cacheThumbDir), "icons", "claude.ico");

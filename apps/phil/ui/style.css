@@ -280,6 +280,10 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 /* A terminal in the background shown in this window's panel; one shown in another window's. */
 .process-row.current { background: var(--accent-bg); color: var(--accent); }
 .process-row.elsewhere .process-name { color: var(--text-dim); }
+/* One being dragged to another place among them, and where it'd go. */
+.process-row.dragging { opacity: 0.5; }
+.process-row.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.process-row.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .process-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* (Claude Code's: claude.ai's icon, before its name.) */
 .process-icon { order: -1; flex: none; width: 14px; height: 14px; }

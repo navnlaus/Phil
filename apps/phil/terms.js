@@ -58,8 +58,11 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
       for await (const e of Deno.readDir(dir)) if (e.name.endsWith(".sock")) ids.push(e.name.slice(0, -5));
     } catch { /* none yet */ }
     const infos = await Promise.all(ids.map((id) => ask(id, { info: true })));
-    // (Shown in a panel too: their places, Alt+2 on, stay theirs.)
-    const now = infos.filter((i) => i?.keep).sort((a, b) => a.keptAt - b.keptAt).map(({ id, command, cwd, started, attached, title }) => ({ id, command, cwd, started, attached, title }));
+    // (Shown in a panel too: their places, Alt+2 on, stay theirs.) In the order they were
+    // dragged to (order.json), else the one they went there in.
+    const order = await Deno.readTextFile(join(dir, "order.json")).then(JSON.parse, () => []);
+    const rank = (i) => (order.includes(i.id) ? order.indexOf(i.id) : order.length);
+    const now = infos.filter((i) => i?.keep).sort((a, b) => rank(a) - rank(b) || a.keptAt - b.keptAt).map(({ id, command, cwd, started, attached, title }) => ({ id, command, cwd, started, attached, title }));
     if (JSON.stringify(now) !== JSON.stringify(background)) {
       background = now;
       onChange(background);
@@ -141,6 +144,13 @@ export function createTerms({ controlSocket, incognito, onChange = () => {} }) {
           });
         },
       };
+    },
+
+    /** Their order (`ids`, dragged in the sidebar): kept, for every window and engine. */
+    async setOrder(ids) {
+      if (!persistent) return;
+      await Deno.writeTextFile(join(dir, "order.json"), JSON.stringify(ids.map(String)));
+      lookSoon(0);
     },
 
     /** Ends one in the background (its shell hung up). */
