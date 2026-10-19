@@ -19,7 +19,7 @@
 
 export const available = !!Deno.env.get("HYPRLAND_INSTANCE_SIGNATURE");
 
-const VERSION = "2"; // (a newer one replaces what an older phil put in Hyprland)
+const VERSION = "3"; // (a newer one replaces what an older phil put in Hyprland)
 
 async function hyprctl(...args) {
   try {
@@ -48,10 +48,11 @@ if A.version ~= ${luaString(VERSION)} then
   local function sel(address) return "address:" .. address end
   local function win(address) return address and hl.get_window(sel(address)) end
   local function tag(address, t) hl.dispatch(hl.dsp.window.tag({ tag = t, window = sel(address) })) end
-  -- The pair: no tab bar, border or shadow (decorations); the video opaque (as Omarchy's video apps).
+  -- The pair: no tab bar, border or shadow (decorations); the video opaque (as Omarchy's video apps),
+  -- and there and gone at once, as it would be inside the window (no animation).
   A.rules = {
     hl.window_rule({ name = "phil-attached", match = { tag = "phil-attached" }, decorate = false }),
-    hl.window_rule({ name = "phil-over", match = { initial_title = "^phil-over-.*$" }, tag = "-default-opacity", opacity = "1 1" }),
+    hl.window_rule({ name = "phil-over", match = { initial_title = "^phil-over-.*$" }, tag = "-default-opacity", opacity = "1 1", no_anim = true }),
   }
   local function release(child, a)
     A.say("released " .. child)

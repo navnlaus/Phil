@@ -415,9 +415,9 @@ function back() {
 
 function close() {
   stopMove();
+  closeWindow(); // (first: the window goes at once, mpv's teardown after, unseen)
   for (const t of tiles) stop(t);
   if (document.fullscreenElement) document.exitFullscreen();
-  closeWindow();
 }
 
 // The stream picked (Q, or its menu): kept for that camera, in every window (its settings: cameras.json).
