@@ -32,14 +32,14 @@ export async function vu(args) {
   }
   const tty = Deno.stdout.isTerminal();
   const out = new Output(tty);
-  const width = Math.max(20, Math.min(MAX_WIDTH, tty ? Deno.consoleSize().columns : 80));
+  const width = Math.max(20, Math.min(MAX_WIDTH, (tty && Deno.consoleSize().columns) || 80));
   // Where a picture goes, at most (px): the terminal's width, its height but for the line
   // with the command and the prompt after, each with a blank line before it as prompts often
   // have (asked once there's a picture).
   let asked = null;
   const box = () => (asked ??= cellSize().then((cell) => {
-    const { columns, rows } = Deno.consoleSize();
-    return { w: columns * (cell ?? CELL).w, h: Math.max(4, rows - 4) * (cell ?? CELL).h };
+    const { columns, rows } = Deno.consoleSize(); // (0 x 0 in some: script's)
+    return { w: (columns || 80) * (cell ?? CELL).w, h: Math.max(4, (rows || 24) - 4) * (cell ?? CELL).h };
   }));
   let status = 0;
   for (const [n, path] of files.entries()) {
