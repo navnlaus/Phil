@@ -1125,3 +1125,9 @@ box over it; the settings on the right; the result is made as you change them
 
 Its working copies live in `$XDG_RUNTIME_DIR` (memory) and go when the engine
 exits. `deno task imageresize file` runs it from the source.
+
+## License
+
+Public domain: the Unlicense (`LICENSE`), no rights reserved. What's bundled
+from others keeps its own license, next to it: xterm.js (MIT), Lucide's icons
+(ISC), Day.js (MIT), highlight.js (BSD-3-Clause), hls.js (Apache-2.0).
