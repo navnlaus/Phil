@@ -463,6 +463,8 @@ export function createServer({ profile, controlSocket }) {
         await Deno.writeTextFile(`${out}.done`, "");
         return json({ ok: true });
       }
+      case "POST /api/choose-folder": // {start}: a folder chosen in a file chooser window (phil --choose dir), from `start`: {path}; null: cancelled
+        return json({ path: await chooseFolder(String((await req.json()).start ?? ""), config.incognito) });
       case "POST /api/locate": // {text, base, mode, login, choice}: what's typed in a file chooser's box, as a path (locate.js)
         try {
           return json(await locate({ ...(await req.json()), incognito: config.incognito }));
@@ -1686,6 +1688,24 @@ async function networkMounts() {
     }
   } catch { /* no findmnt: fstab only */ }
   return [...found.values()];
+}
+
+// A folder chosen in phil's file chooser (a window of its own: phil --choose dir), from
+// `start` (none, or not a folder: home); null: cancelled.
+async function chooseFolder(start, incognito) {
+  const dir = await Deno.makeTempDir({ prefix: "phil-choose-" });
+  try {
+    const out = join(dir, "chosen");
+    const from = start.startsWith("/") && await isDir(start) ? start : home();
+    const { success, stderr } = await new Deno.Command(engineCommand()[0], {
+      args: [...engineCommand().slice(1), "phil", ...(incognito ? ["--incognito"] : []), "--choose", "dir", "--out", out, from],
+      stdin: "null", stdout: "null", stderr: "piped",
+    }).output();
+    if (!success) throw httpError(500, new TextDecoder().decode(stderr).trim() || "phil --choose failed");
+    return (await Deno.readTextFile(out).catch(() => "")).split("\n")[0] || null;
+  } finally {
+    await Deno.remove(dir, { recursive: true }).catch(() => {});
+  }
 }
 
 async function isDir(path) {

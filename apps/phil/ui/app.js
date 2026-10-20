@@ -4587,6 +4587,21 @@ $("#tv-dir-here").onclick = () => {
   input.value = state.path;
   saveDownloadSetting(input);
 };
+// Browse…: a folder chosen in phil's file chooser (a window of its own), from the one set.
+$("#tv-dir-browse").onclick = async (e) => {
+  const button = e.currentTarget, input = $("#tv-dir");
+  button.disabled = true;
+  try {
+    const { path } = await api("/api/choose-folder", { method: "POST", body: JSON.stringify({ start: input.value.trim() }) });
+    if (!path) return;
+    input.value = path;
+    saveDownloadSetting(input);
+  } catch (err) {
+    alert(`Couldn't open the file chooser\n${err.message}`);
+  } finally {
+    button.disabled = false;
+  }
+};
 
 const partDone = (b) => b.d.state === "completed" || (b.part?.length != null && b.part.downloaded >= b.part.length);
 const barKind = (b) => (b.m ? "media" : b.w ? (b.w.stoppable ? "web-stop" : "web") : b.d ? (partDone(b) ? "downloaded" : "download") : b.stopped ? (b.stopped.copying.file ? "stopped-file" : "stopped") : b.t.op === "delete" ? "delete" : "copy");

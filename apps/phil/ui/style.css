@@ -979,8 +979,9 @@ body.incognito::before {
 .tv-error { margin: 12px 0 0; color: var(--error); }
 .tv-error[hidden] { display: none; }
 @media (max-width: 560px) { .tv-fields { grid-template-columns: 1fr; gap: 6px; } .tv-file { grid-template-columns: minmax(0, 1fr) 60px 36px 22px 22px; } .tv-file-bar { display: none; } }
-#tv-dir-here { flex: none; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised); color: var(--text); }
-#tv-dir-here:hover { background: var(--bg-hover); }
+#tv-dir-here, #tv-dir-browse { flex: none; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised); color: var(--text); }
+#tv-dir-here:hover, #tv-dir-browse:hover:not(:disabled) { background: var(--bg-hover); }
+#tv-dir-browse:disabled { opacity: 0.5; }
 
 /* A file chooser (phil --choose): over the status bar, the answer (chosen, or typed). */
 body.choosing #files { --chooser-h: 48px; }
