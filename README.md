@@ -98,9 +98,9 @@ a phil window with a box at the bottom, and Open or Save, and Cancel. The box
 shows what's selected (its name; more than one: `"a.txt" "b.txt"`; to save, the
 suggested name, its extension left out of the selection), and takes what's
 typed: a name (in the folder shown), a path (`~/...` too, or `file://`), a web
-address (`https://...`: downloaded into a new folder of its own in /tmp,
-`/tmp/phil-download-XXXXXX/`, in the Transfers list as it comes, and that file
-chosen) or a network location (`smb://`,
+address (`https://...`: downloaded into phil's engine's folder in /tmp,
+`/tmp/phil-download-XXXXXX/`, one for each engine, in the Transfers list as it
+comes, and that file chosen) or a network location (`smb://`,
 `sftp://`, `ftp://`, `nfs://`...: mounted by gvfs, `gio mount`, its login asked
 for in the window when it wants one, its files under `/run/user/<uid>/gvfs`).
 A folder typed is opened (folders asked for: chosen); to save, the name typed
