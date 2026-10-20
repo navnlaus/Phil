@@ -1,8 +1,8 @@
 // What's typed in a file chooser's box (phil --choose: ui/app.js), as a path
 // here: an app's Open or Save gets local paths only (the portal answers with
 // file:// ones). A name or a path is in the folder shown (~: home); a web
-// address (http, https) is downloaded into the download folder, its progress
-// in the Transfers list as it comes; a network location (smb://, sftp://,
+// address (http, https) is downloaded into a folder of its own in /tmp, its
+// progress in the Transfers list as it comes; a network location (smb://, sftp://,
 // ftp://, nfs://, afp://...) is mounted by gvfs (gio mount: its files under
 // /run/user/<uid>/gvfs, there till it's unmounted), its login, or its question
 // (a host's key not known yet), asked in the window first.
@@ -21,13 +21,13 @@ const enc = new TextEncoder();
  * {login: message, user (its user name, if it asks for one), failed (a wrong one
  * given)} or {question, choices}. Throws, saying why, when it can't be had.
  */
-export async function locate({ text, base, mode, login = null, choice = null, downloads, incognito = false }) {
+export async function locate({ text, base, mode, login = null, choice = null, incognito = false }) {
   const typed = String(text ?? "").trim();
   if (!typed) throw new Error("Nothing typed");
   if (/^file:\/\//i.test(typed)) return at(decodeURIComponent(new URL(typed).pathname));
   if (/^https?:\/\//i.test(typed)) {
     if (mode !== "open") throw new Error("A web address can only be opened (a file from it, downloaded)");
-    return { path: await download(typed, downloads, incognito), kind: "file", folder: true };
+    return { path: await download(typed, incognito), kind: "file", folder: true };
   }
   if (/^[a-z][\w+.-]*:\/\//i.test(typed)) return network(typed, { login, choice });
   const path = typed.replace(/^~(?=\/|$)/, Deno.env.get("HOME") ?? "/");
@@ -110,9 +110,10 @@ async function gioInfo(url) {
 
 // ---------------------------------------------------------------- web addresses
 
-// Downloaded into `dir`, under its own name (one there already: "name (2).ext"), into
-// a .part file first; in the Transfers list (a report: browserdownloads.js) meanwhile.
-async function download(url, dir, incognito) {
+// Downloaded into a folder of its own in /tmp (/tmp/phil-download-XXXXXX: made new,
+// only this user's), under its own name, into a .part file first; in the Transfers
+// list (a report: browserdownloads.js) meanwhile.
+async function download(url, incognito) {
   const stop = new AbortController();
   const timer = setTimeout(() => stop.abort(), ANSWER_MS);
   let res;
@@ -124,11 +125,8 @@ async function download(url, dir, incognito) {
     clearTimeout(timer);
   }
   if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText}`.trim());
-  await Deno.mkdir(dir, { recursive: true });
-  const name = fileName(res);
-  const dot = name.lastIndexOf(".") > 0 ? name.lastIndexOf(".") : name.length;
-  let path = join(dir, name);
-  for (let n = 2; await Deno.lstat(path).then(() => true, () => false); n++) path = join(dir, `${name.slice(0, dot)} (${n})${name.slice(dot)}`);
+  const dir = await Deno.makeTempDir({ dir: "/tmp", prefix: "phil-download-" });
+  const path = join(dir, fileName(res));
   const part = `${path}.part`;
   const total = Number(res.headers.get("content-length")) || null;
   const id = crypto.randomUUID(), started = Date.now();
@@ -152,7 +150,7 @@ async function download(url, dir, incognito) {
     await Deno.rename(part, path);
     return path;
   } catch (err) {
-    await Deno.remove(part).catch(() => {});
+    await Deno.remove(dir, { recursive: true }).catch(() => {});
     throw new Error(`The download stopped: ${err.message}`);
   } finally {
     await Deno.remove(reportFile).catch(() => {});
