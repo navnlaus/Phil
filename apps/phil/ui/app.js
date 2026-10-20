@@ -784,8 +784,9 @@ async function load(path, { recount = false } = {}) {
   render(selectPath);
   grid.scrollTop = selectPath ? grid.scrollTop : scrollPositions.get(listing.path) ?? 0;
   if (selectPath) tiles.get(selectPath)?.scrollIntoView({ block: "center" });
-  // Don't steal focus from the terminal when the view follows a `cd` typed there.
-  if (!document.activeElement?.closest("#term-panel")) grid.focus({ preventScroll: true });
+  // Don't steal focus from the terminal when the view follows a `cd` typed there (or a
+  // file chooser's box, a folder typed there).
+  if (!document.activeElement?.closest("#term-panel, #chooser")) grid.focus({ preventScroll: true });
   if (restoreTerminal) {
     restoreTerminal = false;
     if (startCovered) setTerminalCover(true);
@@ -1978,7 +1979,7 @@ function open(index) {
   // a folder opens as ever.
   if (choosing && entry.kind !== "dir") {
     if (choosing.mode === "open") return answerChoice(choosing.multiple && state.marked.has(entry.path) ? chosenPaths() : [entry.path]);
-    if (choosing.mode === "save") return (chooser.querySelector(".ch-name").value = entry.name), answerChoice(chosenPaths());
+    if (choosing.mode === "save") return (chooserBox.value = choosing.name = entry.name), choose();
     return; // (folders asked for)
   }
   if (entry.kind === "dir") navigate(entry.path);
@@ -1993,25 +1994,21 @@ function open(index) {
 // ---------------------------------------------------------------- choosing (phil --choose)
 
 // An app's Open or Save dialog (through xdg-desktop-portal-termfilechooser: phil
-// --choose): phil as ever, with a bar at the bottom saying what's asked. The answer
-// goes to the server (POST /api/choose), which hands it to the waiting command;
-// closing the window, any way, is cancelling.
+// --choose): phil as ever, with a box at the bottom for the answer: what's selected
+// (its name), or what's typed there (a name, a path, a web or network address). The
+// answer goes to the server (POST /api/choose), which hands it to the waiting
+// command; closing the window, any way, is cancelling.
 const choosing = (() => {
   const p = new URLSearchParams(location.search);
   const mode = p.get("choose");
-  return ["open", "dir", "save"].includes(mode) ? { mode, multiple: p.get("multiple") === "1", out: p.get("out"), name: p.get("name") ?? "", answered: false, picked: null } : null;
+  return ["open", "dir", "save"].includes(mode) ? { mode, multiple: p.get("multiple") === "1", out: p.get("out"), name: p.get("name") ?? "", answered: false, picked: null, shown: "", busy: false } : null;
 })();
 const chooser = $("#chooser");
-const inFolder = (name) => (state.path === "/" ? "/" : state.path + "/") + name;
+const chooserBox = chooser.querySelector(".ch-name");
 
-// What would be chosen now: to save, the name in this folder; files (or folders)
-// selected; folders asked for, none selected: the folder shown.
+// What's selected that would be chosen: files (or folders); folders asked for, none
+// selected: the folder shown.
 function chosenPaths() {
-  if (!choosing) return [];
-  if (choosing.mode === "save") {
-    const name = chooser.querySelector(".ch-name").value.trim();
-    return name && !name.includes("/") && state.path ? [inFolder(name)] : [];
-  }
   const marked = markedEntries();
   if (choosing.mode === "dir") {
     const dirs = marked.filter((e) => e.kind === "dir").map((e) => e.path);
@@ -2021,28 +2018,105 @@ function chosenPaths() {
   return choosing.multiple ? files : files.slice(0, 1);
 }
 
-// The bar as the selection is: its button, what it would choose; to save, a file
-// clicked gives its name.
+// The selection's name, as the box shows it (names quoted, when there are more); to
+// save, a file's.
+function selectionText() {
+  const marked = markedEntries();
+  if (choosing.mode === "save") return marked.length === 1 && marked[0].kind !== "dir" ? marked[0].name : "";
+  const fit = marked.filter((e) => (e.kind === "dir") === (choosing.mode === "dir")).map((e) => e.name);
+  const names = choosing.multiple ? fit : fit.slice(0, 1);
+  return names.length > 1 ? names.map((n) => `"${n}"`).join(" ") : names[0] ?? "";
+}
+
+// The box as the selection is (when it changes): its name; what's typed there stays
+// till something's selected (to save, the name stays as it is).
 function updateChooser() {
   if (!choosing) return;
-  const marked = markedEntries();
-  const one = marked.length === 1 && marked[0].kind !== "dir" ? marked[0] : null;
-  if (choosing.mode === "save" && one && one.path !== choosing.picked) chooser.querySelector(".ch-name").value = one.name;
-  choosing.picked = one?.path ?? null;
-  const paths = chosenPaths();
-  chooser.querySelector(".ch-ok").disabled = !paths.length;
-  chooser.querySelector(".ch-picked").textContent = choosing.mode === "save" ? `in ${state.path ?? ""}`
-    : paths.length > 1 ? `${paths.length} chosen` : paths[0] ? (paths[0].split("/").pop() || "/") : "";
+  const now = `${state.path}\n${[...state.marked].join("\n")}`;
+  if (now !== choosing.picked) {
+    choosing.picked = now;
+    const text = selectionText();
+    if (text || (choosing.mode !== "save" && chooserBox.value === choosing.shown)) {
+      chooserBox.value = text;
+      choosing.shown = text;
+      if (text && choosing.mode === "save") choosing.name = text;
+    }
+  }
+  chooser.querySelector(".ch-ok").disabled = choosing.mode !== "dir" && !chooserBox.value.trim();
+}
+
+// The answer (Open, Save, Enter): what's selected, or what's typed (locate()); a folder
+// typed is opened (folders asked for: it's the answer). To save over a file: asked first.
+async function choose() {
+  if (!choosing || choosing.answered || choosing.busy) return;
+  const text = chooserBox.value.trim();
+  if (choosing.mode !== "save" && text === choosing.shown) return answerChoice(chosenPaths());
+  if (!text) return;
+  const typed = choosing.multiple && /^".*"$/.test(text) ? [...text.matchAll(/"([^"]+)"/g)].map((m) => m[1]) : [text];
+  choosing.busy = true;
+  try {
+    const found = [];
+    for (const one of typed) {
+      const got = await locate(one);
+      if (!got) return;
+      found.push(got);
+    }
+    if (found.length === 1 && found[0].kind === "dir" && choosing.mode !== "dir") {
+      navigate(found[0].path);
+      chooserBox.value = choosing.shown = choosing.mode === "save" ? choosing.name : "";
+      return;
+    }
+    const nameOf = (f) => f.path.split("/").pop() || f.path;
+    const parentOfIt = (f) => f.path.slice(0, f.path.lastIndexOf("/")) || "/";
+    for (const f of found) {
+      const why = choosing.mode === "save" ? (!f.folder ? `There's no folder ${parentOfIt(f)}` : f.kind === "dir" ? `${nameOf(f)} is a folder` : "")
+        : f.kind === null ? `There's no ${f.path}`
+        : choosing.mode === "dir" && f.kind !== "dir" ? `${nameOf(f)} isn't a folder`
+        : choosing.mode === "open" && f.kind === "dir" ? `${nameOf(f)} is a folder`
+        : "";
+      if (why) return void alert(why);
+    }
+    const [one] = found;
+    if (choosing.mode === "save" && one.kind === "file" && !(await askConfirm({ title: `Replace ${nameOf(one)}?`, detail: `There's a file called that in ${parentOfIt(one)} already.`, ok: "Replace" }))) return;
+    answerChoice(found.map((f) => f.path));
+  } finally {
+    choosing.busy = false;
+  }
+}
+
+// What's typed, as a path here (the server's: apps/phil/locate.js): {path, kind, folder}.
+// A network location's login, or question (a host not known), asked first; null: not
+// had (cancelled, or it said why).
+async function locate(text, asked = {}) {
+  const web = /^https?:\/\//i.test(text), remote = !web && !/^file:/i.test(text) && /^[a-z][\w+.-]*:\/\//i.test(text);
+  if (web || remote) flashStatus(`${web ? "Downloading" : "Connecting to"} ${text}…`, 3_600_000);
+  let got;
+  try {
+    got = await api("/api/locate", { method: "POST", body: JSON.stringify({ text, base: state.path, mode: choosing.mode, ...asked }) });
+  } catch (err) {
+    alert(`Can't open ${text}\n${err.message}`);
+    return null;
+  } finally {
+    if (web || remote) (flashStatus.until = 0), updateProgress();
+  }
+  if (got.login !== undefined) {
+    const login = await askConfirm({
+      title: got.failed ? "That didn't work: log in again" : "Log in", detail: got.login, ok: "Log in", danger: false,
+      fields: [...("user" in got ? [{ name: "user", label: "User name", value: got.user }] : []), { name: "password", label: "Password", type: "password" }],
+    });
+    return login && locate(text, { ...asked, login });
+  }
+  if (got.question !== undefined) {
+    const [title, ...rest] = got.question.split("\n");
+    const [first, second, third] = got.choices;
+    const answer = await askConfirm({ title, detail: rest.join("\n"), ok: first ?? "OK", extra: third ? second : null, cancel: third ?? second ?? "Cancel", danger: false });
+    return answer ? locate(text, { ...asked, choice: answer === "extra" ? 2 : 1 }) : null;
+  }
+  return got;
 }
 
 async function answerChoice(paths) {
   if (!choosing || choosing.answered) return;
-  if (choosing.mode === "save" && paths.length) {
-    const name = paths[0].split("/").pop();
-    const there = state.entries.find((e) => e.name === name);
-    if (there?.kind === "dir") return void askConfirm({ title: `${name} is a folder`, detail: "Give the file another name.", ok: "OK", cancel: null, danger: false });
-    if (there && !(await askConfirm({ title: `Replace ${name}?`, detail: `There's a file called that in ${state.path} already.`, ok: "Replace" }))) return;
-  }
   choosing.answered = true;
   // (Saved: the app's download there is in the Transfers list: browserdownloads.js.)
   await api("/api/choose", { method: "POST", body: JSON.stringify({ out: choosing.out, paths, save: choosing.mode === "save" }) }).catch(() => {});
@@ -2052,13 +2126,21 @@ async function answerChoice(paths) {
 if (choosing) {
   document.body.classList.add("choosing");
   chooser.hidden = false;
-  const name = chooser.querySelector(".ch-name"), ok = chooser.querySelector(".ch-ok");
-  chooser.querySelector(".ch-what").textContent = { open: choosing.multiple ? "Choose files" : "Choose a file", dir: choosing.multiple ? "Choose folders" : "Choose a folder", save: "Save as" }[choosing.mode];
+  const name = chooserBox, ok = chooser.querySelector(".ch-ok");
+  name.title = name.ariaLabel = { open: choosing.multiple ? "Choose files" : "Choose a file", dir: choosing.multiple ? "Choose folders" : "Choose a folder", save: "Save as" }[choosing.mode];
+  name.placeholder = {
+    open: choosing.multiple ? "Files: their names (quoted), a path, or a web or network address" : "A file: its name, a path, or a web or network address",
+    dir: "A folder: its name, a path or a network address (none: the folder shown)",
+    save: "Its name, or a path",
+  }[choosing.mode];
   ok.textContent = choosing.mode === "save" ? "Save" : "Open";
-  name.hidden = choosing.mode !== "save";
   name.value = choosing.name;
-  name.addEventListener("input", updateChooser);
-  name.addEventListener("keydown", (e) => e.stopPropagation()); // the name's keys, not the folder's (Enter saves)
+  name.addEventListener("input", () => {
+    // (To save: a file's name typed, kept when a folder's typed after it; a file's has an extension.)
+    if (choosing.mode === "save" && /^[^/]+\.[^/.]+$/.test(name.value.trim())) choosing.name = name.value.trim();
+    updateChooser();
+  });
+  name.addEventListener("keydown", (e) => e.stopPropagation()); // the box's keys, not the folder's (Enter: the answer)
   // Esc cancels, as a dialog's: anywhere in the window, unless something over it takes it
   // first (a menu, a dialog, an app shown, renaming, the filter cleared).
   addEventListener("keydown", (e) => {
@@ -2074,7 +2156,7 @@ if (choosing) {
     e.stopPropagation();
     answerChoice([]);
   }, true); // (first: the name's keys go no further)
-  chooser.onsubmit = (e) => (e.preventDefault(), answerChoice(chosenPaths()));
+  chooser.onsubmit = (e) => (e.preventDefault(), choose());
   chooser.querySelector(".ch-cancel").onclick = () => answerChoice([]);
   // Closed some other way (its X, Super+W): cancelled.
   addEventListener("pagehide", () => {

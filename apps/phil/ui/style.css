@@ -982,15 +982,11 @@ body.incognito::before {
 #tv-dir-here { flex: none; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised); color: var(--text); }
 #tv-dir-here:hover { background: var(--bg-hover); }
 
-/* A file chooser (phil --choose): over the status bar, what's asked and the answer. */
+/* A file chooser (phil --choose): over the status bar, the answer (chosen, or typed). */
 body.choosing #files { --chooser-h: 48px; }
 #chooser { position: absolute; left: 0; right: 0; bottom: var(--status-h); z-index: 5; height: var(--chooser-h); display: flex; align-items: center; gap: 10px; padding: 0 12px; border-top: 1px solid var(--border); background: var(--bg-side); }
 #chooser[hidden] { display: none; }
-#chooser .ch-what { flex: none; font-weight: 600; }
 #chooser .ch-name { flex: 1; min-width: 0; height: 30px; }
-#chooser .ch-name[hidden] { display: none; }
-#chooser .ch-picked { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-size: 12px; }
-#chooser .ch-name:not([hidden]) + .ch-picked { flex: none; max-width: 30%; }
 #chooser button { flex: none; height: 30px; padding: 0 16px; }
 #chooser .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 #chooser .primary:disabled { opacity: 0.45; }

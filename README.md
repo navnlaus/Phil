@@ -94,11 +94,18 @@ terminals, like phil's).
 ### phil as the file chooser
 
 `phil --choose open|dir|save [--multiple] --out FILE [path]` is a file chooser:
-a phil window with a bar at the bottom saying what's asked ("Choose a file",
-"Choose folders", "Save as" with the suggested name, its extension left out of
-the selection), and Open or Save, and Cancel. Double-click (or Enter) on a file
-chooses it; folders asked for, none selected: the folder shown; to save, a file
-clicked gives its name, and replacing one asks first. It waits until the choice
+a phil window with a box at the bottom, and Open or Save, and Cancel. The box
+shows what's selected (its name; more than one: `"a.txt" "b.txt"`; to save, the
+suggested name, its extension left out of the selection), and takes what's
+typed: a name (in the folder shown), a path (`~/...` too, or `file://`), a web
+address (`https://...`: downloaded into the download folder, in the Transfers
+list as it comes, and that file chosen) or a network location (`smb://`,
+`sftp://`, `ftp://`, `nfs://`...: mounted by gvfs, `gio mount`, its login asked
+for in the window when it wants one, its files under `/run/user/<uid>/gvfs`).
+A folder typed is opened (folders asked for: chosen); to save, the name typed
+before it stays. Double-click (or Enter) on a file chooses it; folders asked
+for, none selected or typed: the folder shown; to save, a file clicked gives its
+name, and replacing one asks first (`apps/phil/locate.js`). It waits until the choice
 is made (or the window is closed, any way: cancelled), then the chosen paths
 are in FILE, one per line (nothing: cancelled). Esc cancels, anywhere in it, unless something over it takes it first (a menu, a dialog, the viewer, renaming, a filter being cleared). This is the wrapper interface
 of `xdg-desktop-portal-termfilechooser`, which makes it the desktop's file

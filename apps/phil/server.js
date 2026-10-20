@@ -20,7 +20,8 @@ import { engineCommand } from "../../engine/instance.js";
 import { buildInfo } from "../../engine/version.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 import { unfinished, watchDownloads } from "./downloads.js";
-import { watchBrowserDownloads } from "./browserdownloads.js";
+import { downloadDir, watchBrowserDownloads } from "./browserdownloads.js";
+import { locate } from "./locate.js";
 import { feed, setDownloads } from "./downloadfeed.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
@@ -462,6 +463,12 @@ export function createServer({ profile, controlSocket }) {
         await Deno.writeTextFile(`${out}.done`, "");
         return json({ ok: true });
       }
+      case "POST /api/locate": // {text, base, mode, login, choice}: what's typed in a file chooser's box, as a path (locate.js)
+        try {
+          return json(await locate({ ...(await req.json()), downloads: downloadDir(), incognito: config.incognito }));
+        } catch (err) {
+          throw httpError(400, err.message);
+        }
       case "GET /api/download-settings": // panda-dl's: {running, config}
         return json(await downloads.settings());
       case "PUT /api/download-settings": // {name: value, ...}: some of them changed; answers as GET

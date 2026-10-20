@@ -223,11 +223,9 @@
         </div>
       </div>
 
-      <!-- A file chooser (phil --choose: an app's Open or Save): what's asked, and the answer. -->
+      <!-- A file chooser (phil --choose: an app's Open or Save): the answer, chosen or typed. -->
       <form id="chooser" hidden>
-        <span class="ch-what"></span>
-        <input class="ch-name" type="text" spellcheck="false" autocomplete="off" aria-label="File name" hidden>
-        <span class="ch-picked"></span>
+        <input class="ch-name" type="text" spellcheck="false" autocomplete="off">
         <button type="button" class="ch-cancel">Cancel</button>
         <button type="submit" class="ch-ok primary">Open</button>
       </form>

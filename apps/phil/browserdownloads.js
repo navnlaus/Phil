@@ -43,7 +43,7 @@ const BROWSERS = [
 const home = () => Deno.env.get("HOME") ?? "/";
 const configHome = () => Deno.env.get("XDG_CONFIG_HOME") || join(home(), ".config");
 // The download folder (XDG's, from user-dirs.dirs; ~/Downloads otherwise).
-function downloadDir() {
+export function downloadDir() {
   try {
     const m = /^XDG_DOWNLOAD_DIR="([^"]+)"/m.exec(Deno.readTextFileSync(join(configHome(), "user-dirs.dirs")));
     if (m) return m[1].replace("$HOME", home());
