@@ -409,7 +409,12 @@ the details, and a folder's tile its most common ones. Tags come two ways:
   Markdown files too): a Python environment in `~/.local/share/phil/tagging`
   (it picks the PyTorch that works with your GPU, down to the GTX 10 series,
   or the CPU's) and the models: about 8 GB with PyTorch for an NVIDIA GPU
-  (EmbeddingGemma 2 another 1.5 GB), much less for the CPU. A Python helper
+  (EmbeddingGemma 2 another 1.5 GB), much less for the CPU. With
+  [uv](https://docs.astral.sh/uv/), PyTorch and its CUDA libraries (6–7 GB of
+  that) are shared with uv's other environments: linked from uv's cache when
+  they're there, downloaded into it when they aren't, and it says which. An
+  environment from before with its own copy is replaced, and that copy deleted.
+  Without uv, it's a venv with its own copy. A Python helper
   does the work, offline, started when there's tagging to do and gone when
   idle; each model is loaded only once it's needed. A file is looked at once
   and remembered (its embedding, next to the thumbnails), so coming back to a
