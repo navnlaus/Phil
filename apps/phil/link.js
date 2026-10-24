@@ -14,7 +14,8 @@
 //
 // Then the phone checks in (POST /link/hello: its addresses, battery) when it
 // starts, when its network changes and every five minutes; phil lists it as in
-// reach if it has in the last few. Opening it mounts sftp://phil@<address>:<port>/
+// reach if it has in the last few, and answers with the app's version here: a
+// phone with an older one offers to update itself (GET /link/app.apk). Opening it mounts sftp://phil@<address>:<port>/
 // (gio mount, locate.js), at its Wi-Fi address if it's on this one, else its
 // Tailscale one, the login answered and its host key the one it paired with. What's shared to phil on the phone (Share → "Send to PC") comes
 // in at POST /link/upload, into the Downloads folder, in the Transfers list as
@@ -181,8 +182,11 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
     const phone = await phoneFor(tokenOf(req));
     if (!phone) return jsonError(httpError(401, "Not paired"));
     switch (route) {
-      case "GET /link/me": // (the app, opening) still paired?
-        return json({ name: phone.name, pc: await hostname() });
+      case "GET /link/me": // (the app, opening) still paired? And the app's version here.
+        return json({ name: phone.name, pc: await hostname(), app: await appVersion() });
+      case "GET /link/app.apk": // the app, for a phone updating itself (it checks the sha256 /link/me gave it)
+        if (!await appVersion()) return text(404, "No app here");
+        return serveFile(req, apk, { "content-type": "application/vnd.android.package-archive" });
       case "POST /link/hello":
         return json(await hello(phone, await req.json(), remote));
       case "POST /link/unpair":
@@ -264,7 +268,19 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
     phone.sharing = body.sharing !== false;
     await save();
     changed();
-    return { hosts: await addressesHere() };
+    return { hosts: await addressesHere(), app: await appVersion() };
+  }
+
+  // The app's version here (scripts/install.sh puts it next to it): {code, name, sha256},
+  // or null. A phone with an older one is offered it (its check-ins have this).
+  async function appVersion() {
+    if (!apk) return null;
+    try {
+      const v = JSON.parse(await Deno.readTextFile(`${apk}.json`));
+      return Number.isInteger(v.code) && /^[0-9a-f]{64}$/.test(v.sha256) && await Deno.stat(apk).then((s) => s.isFile, () => false) ? v : null;
+    } catch {
+      return null;
+    }
   }
 
   async function phoneFor(token) {

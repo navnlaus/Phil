@@ -491,6 +491,12 @@ and over [Tailscale](https://tailscale.com) away from it.
   sends files from the phone into it.
 - Share → "Send to PC" on the phone sends files (or text, as a note) into the
   PC's Downloads, in the Transfers list as they come.
+- Updates: when phil here has a newer build of the app (`deno task install`
+  after `android/build.sh`), the phone says so in a notification and a bar in
+  the app. Update downloads it from phil, checks it against the SHA-256 phil
+  gave, and hands it to Android, which asks you to confirm. The first time,
+  Android asks you to allow phil to install apps. Android takes an update only
+  if it's signed with the same key as the app it replaces.
 
 Pairing: "Add a phone…" (Preferences, the sidebar's right-click menu, or the +
 by Phones) shows a code. The app finds phil on the Wi-Fi, or is given its

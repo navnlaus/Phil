@@ -45,6 +45,8 @@ fi
 # the Android SDK): "Add a phone…" offers it to the phone.
 if [[ -f android/build/phil.apk ]]; then
   install -Dm644 android/build/phil.apk "$data/phil/phil.apk"
+  # (its version: phones with an older one are offered it)
+  [[ -f android/build/phil.apk.json ]] && install -Dm644 android/build/phil.apk.json "$data/phil/phil.apk.json"
 fi
 # An app's command runs the engine with the app's name.
 for app in phil jsonedit textedit imageview videoplayer imageresize camview mediaview phil-editor; do

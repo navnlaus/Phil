@@ -209,7 +209,8 @@ final class Serve {
         JSONObject s = new JSONObject().put("paired", store.paired()).put("name", store.pcName()).put("reachable", false);
         if (store.paired() && Net.reachable(store) != null) {
             try {
-                Net.call(store, "GET", "/link/me", null);
+                JSONObject me = Net.call(store, "GET", "/link/me", null);
+                Updater.offered(context, me.optJSONObject("app"));
                 s.put("reachable", true).put("themeChanged", fetchTheme());
             } catch (Net.Answer e) {
                 if (e.status == 401) {
@@ -218,6 +219,8 @@ final class Serve {
                 }
             }
         }
+        String update = Updater.waiting(context);
+        if (update != null) s.put("update", update); // (a newer app on the PC: its version's name)
         status = s;
         statusAt = System.currentTimeMillis();
         return s;

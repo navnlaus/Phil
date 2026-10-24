@@ -389,6 +389,9 @@ async function checkPc(said = false) {
     return;
   }
   Object.assign(state.pc, { paired: s.paired, reachable: s.reachable, name: s.name });
+  // A newer phil on the PC: offered.
+  $("#update").hidden = !s.update;
+  if (s.update) $("#update span").textContent = `phil ${s.update} is ready on ${s.name}`;
   if (s.forgotten) toast("The PC forgot this phone: pair it again to see its files");
   if (s.themeChanged) for (const link of [$("#theme-base"), $("#theme")]) link.href = link.href.replace(/\?.*$/, "") + `?v=${Date.now()}`;
   if (s.reachable) {
@@ -430,6 +433,10 @@ $("#menu").onclick = (e) => {
   if (what === "setup") globalThis.Phil?.setup();
 };
 $("#send-here").onclick = () => globalThis.Phil?.pickAndSend(state.path);
+$("#update button").onclick = () => {
+  globalThis.Phil?.update();
+  toast("Downloading the update…");
+};
 
 addEventListener("popstate", (e) => {
   if (!$("#sheet").hidden) closeSheet();

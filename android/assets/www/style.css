@@ -29,6 +29,10 @@ button { font: inherit; color: inherit; }
 #places .side:first-child { margin-left: 2px; }
 #places button.away { opacity: 0.55; }
 
+/* A newer phil on the PC: the bar under the places. */
+#update { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px 6px 14px; background: var(--accent-bg); color: var(--accent); font-size: 13px; }
+#update button { padding: 6px 14px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; }
+
 /* ---------------------------------------------------------------- phil's tiles (as on the PC) */
 
 #grid { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 2px; padding: 2px; }

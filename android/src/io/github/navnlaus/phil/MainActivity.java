@@ -104,6 +104,14 @@ public class MainActivity extends Activity {
         LinkService.listener = (event) -> runOnUiThread(() -> web.evaluateJavascript("window.philEvent && philEvent(" + event + ")", null));
         if (store.paired() && store.sharing()) LinkService.start(this);
         show();
+        if (Updater.UPDATE.equals(getIntent().getAction())) Updater.install(this);
+    }
+
+    // The update notification tapped while the app's open.
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (Updater.UPDATE.equals(intent.getAction())) Updater.install(this);
     }
 
     private void show() {
@@ -298,6 +306,11 @@ public class MainActivity extends Activity {
                     android.widget.Toast.makeText(MainActivity.this, "No app opens " + f.getName(), android.widget.Toast.LENGTH_SHORT).show();
                 }
             });
+        }
+
+        // The newer app the PC has: downloaded and installed (Android asks first).
+        @JavascriptInterface public void update() {
+            Updater.install(MainActivity.this);
         }
 
         @JavascriptInterface public void setup() {

@@ -41,8 +41,9 @@ while read -r path sum; do
   jars+=("$file")
 done < libs.txt
 
-# Its version: phil's commit count (the code goes up with each), and the commit.
-code=$(git rev-list --count HEAD 2>/dev/null || echo 1)
+# Its version: phil's commit count (the code goes up with each; PHIL_ANDROID_VERSION:
+# another, for testing updates).
+code=${PHIL_ANDROID_VERSION:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}
 name="1.0.$code"
 
 out=build
@@ -85,4 +86,6 @@ fi
 "$bt/apksigner" sign --ks "$keys/release.jks" --ks-pass "file:$keys/password" --ks-key-alias phil \
   --out "$out/phil.apk" "$out/aligned.apk"
 rm -f "$out/unsigned.apk" "$out/aligned.apk" "$out/phil.apk.idsig"
+# Its version, for phil to offer it to phones that have an older one (apps/phil/link.js).
+printf '{"code":%s,"name":"%s","sha256":"%s"}\n' "$code" "$name" "$(sha256sum "$out/phil.apk" | cut -d' ' -f1)" > "$out/phil.apk.json"
 echo "android/$out/phil.apk ($name, $(du -h "$out/phil.apk" | cut -f1))"

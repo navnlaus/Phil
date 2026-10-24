@@ -188,6 +188,7 @@ public class LinkService extends Service {
                 if (level >= 0) body.put("battery", new JSONObject().put("percent", level * 100 / Math.max(1, scale)).put("charging", plugged != 0));
             }
             JSONObject answer = Net.call(store, "POST", "/link/hello", body);
+            Updater.offered(this, answer.optJSONObject("app")); // (a newer app there: offered)
             JSONArray hosts = answer.optJSONArray("hosts");
             if (hosts != null) {
                 List<String> all = store.hosts();
