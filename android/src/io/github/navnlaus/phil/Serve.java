@@ -114,6 +114,8 @@ final class Serve {
                 return json(Local.list(new File(param(u, "path")), "1".equals(u.getQueryParameter("hidden"))));
             case "summary":
                 return json(Local.summary(thumbs, new File(param(u, "path"))));
+            case "audio":
+                return json(Local.audio(new File(param(u, "path"))));
             case "thumb": {
                 File t = thumbs.local(new File(param(u, "path")));
                 return t == null ? error(404, "No thumbnail") : response(200, "image/jpeg", new FileInputStream(t), Map.of("cache-control", "max-age=31536000, immutable"));
@@ -164,6 +166,8 @@ final class Serve {
                 return json(Net.call(store, "GET", "/m/api/list?path=" + Uri.encode(param(u, "path")) + ("1".equals(u.getQueryParameter("hidden")) ? "&hidden=1" : ""), null));
             case "summary":
                 return json(Net.call(store, "GET", "/m/api/summary?path=" + Uri.encode(param(u, "path")), null));
+            case "audio":
+                return json(Net.call(store, "GET", "/m/api/audio?path=" + Uri.encode(param(u, "path")), null));
             case "thumb": { // a thumbnail phil there may have to make: kept here by the file's path, size and time
                 String path = param(u, "path");
                 File t = thumbs.pc(Thumbs.pcName(path, num(u, "size"), num(u, "mtime")), (o) -> fetch("/m/thumb?path=" + Uri.encode(path), o));

@@ -49,11 +49,12 @@ const enc = new TextEncoder();
  * The link, for phil's server: `configDir` (~/.config/phil), `broadcast` (to
  * every window), `thumbs` (thumbs.js's Thumbnailer), `list(dir)` (a folder's
  * entries as phil's page gets them: thumbnails made, folder summaries saved),
- * `summary(dir)` (a folder's summary, made now), `touched(dir)` (a file was
+ * `summary(dir)` (a folder's summary, made now), `audio(path)` (a song's title,
+ * artist, album and length: audio.js), `touched(dir)` (a file was
  * added there), `apk` (phil's Android app, offered while pairing, if it's
  * there). Call start(); stop() frees the port (an engine retiring).
  */
-export function createLink({ configDir, broadcast, thumbs, list, summary: summaryOf, touched = () => {}, apk = null }) {
+export function createLink({ configDir, broadcast, thumbs, list, summary: summaryOf, audio = () => Promise.resolve(null), touched = () => {}, apk = null }) {
   const stateFile = join(configDir, "phones.json");
   const certDir = join(configDir, "link");
   let phones = null; // [phone], loaded first
@@ -200,6 +201,8 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
         return json(await placesHere());
       case "GET /m/api/list":
         return json(await listing(pathParam(url), url.searchParams.get("hidden") === "1"));
+      case "GET /m/api/audio": // a song's title, artist, album and length (audio.js), for its tile
+        return json(await audio(pathParam(url)).catch(() => ({})));
       case "GET /m/api/summary": // a folder's, for its tile (its previews: thumbnails by name, /m/thumbs/...)
         return json(appSummary(await summaryOf(pathParam(url))));
       case "GET /m/file":
@@ -381,7 +384,8 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
   async function listing(dir, hidden) {
     dir = normalize(dir);
     const entries = (await list(dir)).filter((e) => hidden || !e.name.startsWith(".")).map((e) => ({
-      name: e.name, path: e.path, kind: e.kind === "file" ? audioKind(e.name) ?? "file" : e.kind, size: e.size, mtime: e.mtime,
+      name: e.name, path: e.path, kind: e.kind, size: e.size, mtime: e.mtime,
+      ...(e.kind === "audio" ? { audio: e.audio ?? null } : {}),
       thumb: typeof e.thumb === "string" && e.thumb.startsWith("/thumbs/") ? `/m${e.thumb}` : null,
       summary: e.kind === "dir" ? appSummary(e.summary) : undefined,
     }));
@@ -473,8 +477,6 @@ async function themeNow() {
   return { name, base: await read("base.css"), css: await read(`${name}.css`) };
 }
 
-const AUDIO_EXT = /\.(mp3|m4a|aac|flac|ogg|oga|opus|wav|wma|alac|aiff?)$/i;
-const audioKind = (name) => (AUDIO_EXT.test(name) ? "audio" : null);
 
 async function placesHere() {
   const home = Deno.env.get("HOME") ?? "/";

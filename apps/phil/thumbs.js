@@ -134,6 +134,7 @@ export class Thumbnailer {
     this.latest = new Map(); // path -> URL of the last thumbnail it had (shown while it's being written)
     this.looks = new Map(); // path -> its size and time when last looked at, while it's recent (busyFor)
     this.writing = new Set(); // paths seen changing between two looks
+    this.settled = new Map(); // path -> its size and time when phil finished writing it (written())
     this.downloads = []; // what downloads under way are writing (a file, or a folder and all in it)
     this.runningOn = new Map(); // device -> jobs running on it
     this.systemDevice = null; // the device "/" is on: all the jobs at once
@@ -183,6 +184,7 @@ export class Thumbnailer {
   busyFor(path, stat) {
     if (this.downloads.some((d) => path === d || path.startsWith(d + "/"))) return 5000; // being downloaded: asked again in a while
     const mtime = stat.mtime?.getTime() ?? 0, since = Date.now() - mtime, look = `${stat.size} ${mtime}`;
+    if (this.settled.get(path) === look) return 0; // (phil wrote it, and it's done: written())
     if (since < QUIET_MS) {
       if (this.looks.has(path) && this.looks.get(path) !== look) this.writing.add(path);
       this.looks.set(path, look);
@@ -195,6 +197,16 @@ export class Thumbnailer {
       return 0;
     }
     return Math.max(0, QUIET_MS - since);
+  }
+
+  // `path` was written by phil, all at once, and is done (a song's tags saved): not
+  // "being written", and its last thumbnail no longer what it shows.
+  written(path, stat) {
+    this.writing.delete(path);
+    this.latest.delete(path);
+    this.looks.delete(path);
+    this.settled.set(path, `${stat.size} ${stat.mtime?.getTime() ?? 0}`);
+    if (this.settled.size > 1000) this.settled.delete(this.settled.keys().next().value);
   }
 
   // The last thumbnail `path` had: what it shows while it's being written.
@@ -421,11 +433,14 @@ export class Thumbnailer {
     const byContent = fp && join(this.contentDir, fp);
     const tmp = (suffix) => join(dir, `${key}.${crypto.randomUUID().slice(0, 8)}.tmp${suffix}.jpg`);
     const dest = tmp("");
-    const frame = kind === "video" ? tmp(".frame") : null;
+    const frame = kind === "video" || kind === "audio" ? tmp(".frame") : null;
     try {
-      if (frame) {
+      if (kind === "video") {
         // Grab a frame large enough that even portrait video still covers the 16:9 box.
         await run("ffmpegthumbnailer", ["-i", path, "-o", frame, "-s", String(this.width * 2), "-q", "9", "-c", "jpeg"], frame, job.background);
+      } else if (kind === "audio") {
+        // A song: its cover art (the picture in the file); none, no thumbnail.
+        await run("ffmpeg", ["-v", "error", "-y", "-i", path, "-an", "-map", "0:v:0", "-frames:v", "1", "-q:v", "2", frame], frame, job.background);
       }
       // A PDF (vips renders its first page) is cropped from the top, so its
       // title and headings show; everything else around the middle.

@@ -18,7 +18,7 @@ const hiddenButton = $("#btn-hidden");
 const zoomInput = $("#zoom");
 const contextMenu = $("#context");
 
-const KIND_ICON = { dir: "folder", image: "image", video: "video", pdf: "file", file: "file" };
+const KIND_ICON = { dir: "folder", image: "image", video: "video", audio: "music", pdf: "file", file: "file" };
 // How names and details sit on the tiles: a theme, ~/.config/phil/themes/<theme>.css
 // (engine/themes.js). Chosen with "theme" in ~/.config/phil/settings.json; phil
 // only reads it.
@@ -131,7 +131,9 @@ function putIcon(el, name, cls = "") {
 }
 const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 const parentOf = (path) => (path === "/" ? null : path.replace(/\/[^/]+$/, "") || "/");
-const hasThumb = (e) => e.kind === "image" || e.kind === "video" || e.kind === "pdf"; // a PDF's: its first page
+const hasThumb = (e) => e.kind === "image" || e.kind === "video" || e.kind === "audio" || e.kind === "pdf"; // a PDF's: its first page; a song's: its cover art
+// A song whose tags (title, artist: audio.js) aren't known yet: asked for with its thumbnail.
+const songUnread = (e) => e.kind === "audio" && e.audio == null;
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -247,7 +249,7 @@ const thumbs = {
       if (msg.downloads) return onDownloads(msg.downloads);
       if (msg.processes) return (state.processes = msg.processes), renderProcesses();
       if (msg.browserDownloads) return (state.browserDownloads = msg.browserDownloads), showTransfers();
-      if (msg.made) return onMadeInBackground(msg.made, msg.url);
+      if (msg.made) return onMadeInBackground(msg.made, msg.url, msg.audio);
       if (msg.hook) return onHookRan(msg.hook);
       if (msg.transfer) return onTransfer(msg.transfer);
       if (msg.stoppedTransfers) return loadStoppedTransfers();
@@ -262,7 +264,7 @@ const thumbs = {
       this.quiet.delete(path);
       if (msg.folder) onFolderSummary(path, msg.summary);
       else if ("text" in msg) onTextReady(path, msg.text);
-      else onThumbReady(path, msg.url, msg.busy);
+      else onThumbReady(path, msg.url, msg.busy, msg.audio);
       updateProgress();
     };
     this.ws.onclose = () => setTimeout(() => this.connect(), 1000);
@@ -462,9 +464,9 @@ function resort() {
 
 function showThumb(tile, entry) {
   const box = tile.firstElementChild;
-  if (typeof entry.thumb === "string") return setThumbImage(box, entry.thumb);
-  if (entry.thumb === null && !askAgain.has(entry.path)) { // (not one being written: asked again when it may have settled)
-    box.classList.add("loading");
+  if (typeof entry.thumb === "string") setThumbImage(box, entry.thumb);
+  if ((entry.thumb === null || songUnread(entry)) && !askAgain.has(entry.path)) { // (not one being written: asked again when it may have settled)
+    if (entry.thumb === null) box.classList.add("loading");
     thumbs.want(entry.path);
   }
 }
@@ -493,19 +495,20 @@ function setThumbImage(box, url) {
 function makeRestSoon() {
   clearTimeout(makeRestSoon.timer);
   makeRestSoon.timer = setTimeout(() => {
-    const paths = state.view.filter((e) => e.kind !== "dir" && e.thumb === null).map((e) => e.path);
+    const paths = state.view.filter((e) => e.kind !== "dir" && (e.thumb === null || songUnread(e))).map((e) => e.path);
     if (paths.length || thumbs.backgroundPaths?.length) thumbs.background(paths);
   }, 1500);
 }
 
 // One made in the background: kept for when its tile comes near (drawn now if
 // it's waiting for it there).
-function onMadeInBackground(path, url) {
+function onMadeInBackground(path, url, audio) {
   const tile = tiles.get(path);
   const entry = tile && state.view[tile.dataset.index];
-  if (entry?.path !== path || entry.thumb) return;
-  if (thumbs.wanted.has(path)) return; // its own answer comes too
-  entry.thumb = url;
+  if (entry?.path !== path) return;
+  if (audio && entry.audio == null) (entry.audio = audio), showSong(tile, entry);
+  if (entry.thumb || thumbs.wanted.has(path)) return; // (its own answer comes too)
+  if (url) entry.thumb = url;
 }
 
 // A file being written (a download) gets no thumbnail till it's settled: asked
@@ -525,9 +528,13 @@ function isNear(tile) { // as nearObserver's zone
   return tile.isConnected && r.bottom > g.top - 800 && r.top < g.bottom + 800;
 }
 
-function onThumbReady(path, url, busy = false) {
+function onThumbReady(path, url, busy = false, audio = undefined) {
   const tile = tiles.get(path);
   if (!tile) return;
+  if (audio !== undefined) {
+    const entry = state.view[tile.dataset.index];
+    if (entry?.path === path) (entry.audio = audio ?? {}), showSong(tile, entry);
+  }
   if (busy) {
     tile.firstElementChild.classList.remove("loading");
     return wantLater(path, busy, (t, e) => e?.path === path && thumbs.want(path, { quiet: true }));
@@ -980,6 +987,7 @@ function updateTile(tile, entry) {
   put(tile.querySelector(".label .meta"), "textContent", fileMeta(entry));
   put(tile, "title", fileTitle(entry));
   showMarks(tile, entry);
+  showSong(tile, entry);
   if (tile.dataset.content === tileContent(entry)) return;
   tile.dataset.content = tileContent(entry);
   contentChanged.push(tile);
@@ -1013,7 +1021,8 @@ function refreshPreview(tile, entry) {
     if (near && !entry.icon) showText(tile, entry, { again: true });
   } else if (typeof entry.thumb === "string") {
     if (box.querySelector("img") || near) setThumbImage(box, entry.thumb);
-  } else if (entry.thumb === null && near && !askAgain.has(entry.path)) {
+  }
+  if ((entry.thumb === null || songUnread(entry)) && near && !askAgain.has(entry.path)) {
     thumbs.want(entry.path, { quiet: true }); // (no "loading" look: a file being written changes all the time, and that blinked)
   }
 }
@@ -1022,7 +1031,22 @@ function refreshPreview(tile, entry) {
 // "claude", claude.ai's.
 const fileIcon = (name) => (name === "claude" ? `<img class="kind claude-icon" src="/api/icon/claude" alt="">` : icon(`l:${name}`, "kind"));
 
-const fileMeta = (entry) => [fileType(entry.name).toUpperCase(), formatSize(entry.size), formatShortDate(entry.mtime)].filter(Boolean).join(" · ");
+const fileMeta = (entry) => [fileType(entry.name).toUpperCase(), entry.audio?.duration && songLength(entry.audio.duration), formatSize(entry.size), formatShortDate(entry.mtime)].filter(Boolean).join(" · ");
+const songLength = (s) => (s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}` : Math.floor(s / 60)) + `:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+// A song's tile: its title in place of its name, its artist over it (where a
+// description goes), how long it is in its details. Its file's name: hovering.
+function showSong(tile, entry) {
+  if (entry.kind !== "audio") return;
+  const name = tile.querySelector(".label .name");
+  const text = entry.audio?.title || entry.name;
+  const node = [...name.childNodes].find((n) => n.nodeType === Node.TEXT_NODE); // (after a link's or lock's icon)
+  if (!node) name.append(text);
+  else if (node.nodeValue !== text) node.nodeValue = text;
+  put(tile.querySelector(".label .meta"), "textContent", fileMeta(entry));
+  put(tile, "title", fileTitle(entry));
+  showMarks(tile, entry);
+}
 
 function makeTile(entry, index) {
   const tile = document.createElement("div");
@@ -1060,6 +1084,7 @@ function makeTile(entry, index) {
     meta.textContent = fileMeta(entry);
     tile.title = fileTitle(entry);
     showMarks(tile, entry);
+    showSong(tile, entry);
   }
   return tile;
 }
@@ -1075,7 +1100,7 @@ const folderIcon = (entry) => entry.icon ?? (entry.mediaFolder && mediaViewOn() 
 
 function showMarks(tile, entry) {
   const desc = tile.querySelector(".label .desc");
-  const description = entry.description ?? carried.get(entry.path) ?? ""; // phil's, or the file's own
+  const description = entry.description ?? carried.get(entry.path) ?? entry.audio?.artist ?? ""; // phil's, or the file's own (a song's: its artist)
   put(desc, "textContent", description);
   tile.classList.toggle("has-desc", !!description);
   showTileTags(tile, entry);
@@ -1124,7 +1149,8 @@ function showState(tile, entry) {
 }
 
 // The hover text's lines about the description, links, permissions and hooks.
-const fileTitle = (entry) => `${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.mtime)}` + titleNotes(entry);
+const fileTitle = (entry) => `${entry.name}\n` + (entry.audio?.title ? `${[entry.audio.title, entry.audio.artist].filter(Boolean).join(" — ")}${entry.audio.album ? `\n${entry.audio.album}` : ""}\n` : "") +
+  `${formatSize(entry.size)} · ${formatDate(entry.mtime)}` + titleNotes(entry);
 
 function titleNotes(entry) {
   const notes = entry.description ? [entry.description] : [];
@@ -1992,7 +2018,7 @@ function open(index) {
   if (entry.kind === "dir") navigate(entry.path);
   else if (entry.kind === "image") openInApp("imageview", { file: entry.path, sort: state.settings.sort });
   else if (entry.kind === "video") openInApp("videoplayer", { file: entry.path, sort: state.settings.sort });
-  else if (entry.kind === "pdf") openExternal(entry.path);
+  else if (entry.kind === "pdf" || entry.kind === "audio") openExternal(entry.path); // (a song: in the music player that plays them)
   else if (isJson(entry)) openInApp("jsonedit", { file: entry.path });
   else if (isDocument(entry)) openInApp("textedit", { file: entry.path }); // to read, as Markdown; "Open with default app" to edit
   else openFile(entry);
@@ -2673,6 +2699,105 @@ const dialogOpen = () => confirmDialog.open || propsDialog.open;
 // Right-click → Properties (Alt+Enter): what it is, size, dates, owner and
 // permissions, and phil's own: a command to run when the file changes (see
 // apps/phil/hooks.js).
+// A song's tab in Properties (MP3, FLAC...): what it is, its cover art (replaced, removed)
+// and every tag it has, editable, and others added (audio.js). Returns what saves the
+// changes into the file (resolving to whether there were any), or null: not a song.
+const SONG_TAGS = [["title", "Title"], ["artist", "Artist"], ["album", "Album"], ["album_artist", "Album artist"], ["track", "Track"], ["disc", "Disc"],
+  ["date", "Year"], ["genre", "Genre"], ["composer", "Composer"], ["comment", "Comment"]];
+const LONG_TAGS = new Set(["comment", "lyrics", "unsyncedlyrics", "description", "synopsis"]);
+
+function songTab(entry) {
+  const $p = (sel) => propsDialog.querySelector(sel);
+  const tabs = $p(".tabs"), general = $p(".tab-general"), tab = $p(".song");
+  const song = entry.kind === "audio";
+  const show = (which) => {
+    for (const b of tabs.children) b.classList.toggle("on", b.dataset.tab === which);
+    general.hidden = which !== "general";
+    tab.hidden = which !== "song";
+  };
+  tabs.hidden = !song;
+  show("general");
+  if (!song) return null;
+  tabs.querySelector("[data-tab=song]").textContent = fileType(entry.name).toUpperCase() || "Song";
+  for (const b of tabs.children) b.onclick = () => show(b.dataset.tab);
+  const box = $p(".song-tags"), facts = $p(".song-facts"), error = $p(".song-error");
+  box.replaceChildren();
+  facts.replaceChildren();
+  error.hidden = true;
+  const fields = new Map(); // tag -> its input
+  const field = (key, value = "") => {
+    const label = Object.assign(document.createElement("label"), { textContent: SONG_TAGS.find(([k]) => k === key)?.[1] ?? key.replaceAll("_", " ") });
+    const input = LONG_TAGS.has(key) ? document.createElement("textarea") : Object.assign(document.createElement("input"), { type: "text" });
+    Object.assign(input, { value, spellcheck: false, autocomplete: "off" });
+    input.id = label.htmlFor = `song-${key}`;
+    input.onkeydown = (e) => {
+      e.stopPropagation(); // typing here isn't the page's keys
+      if (e.key === "Enter" && input.tagName === "INPUT") e.preventDefault(), propsDialog.close("save");
+    };
+    box.append(label, input);
+    fields.set(key, input);
+    return input;
+  };
+  const coverImg = $p(".cover img"), none = $p(".cover .none"), removeButton = $p(".cover-remove");
+  const showCover = (url) => {
+    coverImg.hidden = !url;
+    none.hidden = !!url;
+    removeButton.hidden = !url;
+    if (url) coverImg.src = url;
+    else coverImg.removeAttribute("src");
+  };
+  showCover(null);
+  let info = null, cover = "keep";
+  const fact = (label, value) => value && facts.append(Object.assign(document.createElement("dt"), { textContent: label }), Object.assign(document.createElement("dd"), { textContent: value }));
+  const ready = api(`/api/audio?path=${encodeURIComponent(entry.path)}`).then((i) => {
+    info = i;
+    fact("Format", i.codec ?? i.format);
+    fact("Length", i.duration && songLength(i.duration));
+    fact("Bitrate", i.bitrate && `${Math.round(i.bitrate / 1000)} kb/s`);
+    fact("Sound", [i.sampleRate && `${(i.sampleRate / 1000).toLocaleString()} kHz`, i.channels && (i.channels === 1 ? "mono" : i.channels === 2 ? "stereo" : `${i.channels} channels`)].filter(Boolean).join(", "));
+    fact("Cover", i.cover && `${i.cover.width} × ${i.cover.height} ${(i.cover.codec ?? "").toUpperCase()}`);
+    for (const [key] of SONG_TAGS) field(key, i.tags[key] ?? "");
+    for (const [key, value] of Object.entries(i.tags)) if (!fields.has(key)) field(key, value);
+    showCover(i.cover ? `/api/audio-cover?path=${encodeURIComponent(entry.path)}&t=${Date.now()}` : null);
+  }, (err) => Object.assign(error, { hidden: false, textContent: err.message }));
+  $p(".cover-buttons").hidden = /\.(ogg|oga|opus|spx)$/i.test(entry.name); // (ffmpeg can't write an Ogg's cover)
+  $p(".cover-replace").onclick = () => $p(".cover-file").click();
+  $p(".cover-file").onchange = () => {
+    const file = $p(".cover-file").files[0];
+    $p(".cover-file").value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      cover = { data: String(reader.result).split(",")[1], type: file.type === "image/png" ? "image/png" : "image/jpeg" };
+      showCover(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+  removeButton.onclick = () => ((cover = "remove"), showCover(null));
+  const keyInput = $p(".song-key");
+  keyInput.value = "";
+  const add = () => {
+    const key = keyInput.value.trim().toLowerCase().replace(/\s+/g, "_");
+    if (!/^[\w.:-]{1,64}$/.test(key)) return keyInput.focus();
+    (fields.get(key) ?? field(key)).focus();
+    keyInput.value = "";
+  };
+  $p(".song-add button").onclick = add;
+  keyInput.onkeydown = (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") e.preventDefault(), add();
+  };
+  return async () => {
+    await ready;
+    if (!info) return false;
+    const tags = Object.fromEntries([...fields].map(([k, input]) => [k, input.value.trim()]).filter(([, v]) => v));
+    const sorted = (o) => JSON.stringify(Object.entries(o).filter(([, v]) => v).sort());
+    if (cover === "keep" && sorted(tags) === sorted(info.tags)) return false;
+    await api("/api/audio", { method: "PUT", body: JSON.stringify({ path: entry.path, tags, cover }) });
+    return true;
+  };
+}
+
 async function showProperties(entry) {
   let p;
   try {
@@ -2788,6 +2913,8 @@ async function showProperties(entry) {
     if (e.key === "Enter") e.preventDefault(), propsDialog.close("save");
   };
 
+  const saveSong = songTab(entry); // (a song: its tab, its tags)
+
   propsDialog.returnValue = "";
   propsDialog.showModal();
   descInput.focus();
@@ -2800,6 +2927,13 @@ async function showProperties(entry) {
   propsDialog.addEventListener("close", async () => {
     grid.focus({ preventScroll: true });
     if (propsDialog.returnValue !== "save") return;
+    if (saveSong) {
+      try {
+        if (await saveSong()) flashStatus(`${entry.name}: its tags saved`);
+      } catch (err) {
+        alert(`Couldn't save ${entry.name}'s tags\n${err.message}`);
+      }
+    }
     const changes = {};
     const description = descInput.value.trim(), onChange = input.value.trim();
     if (description !== (p.meta?.description ?? "")) changes.description = description;

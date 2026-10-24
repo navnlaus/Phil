@@ -72,6 +72,8 @@ button { font: inherit; color: inherit; }
 .label .name, .label .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .label .name { font-size: 11px; font-weight: 600; }
 .label .meta { font-size: 10px; }
+.label .desc { order: -2; font-size: 10px; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.9; }
+.label .desc:empty { display: none; }
 .label .meta:empty { display: none; }
 .tile.hidden-file { opacity: 0.6; }
 

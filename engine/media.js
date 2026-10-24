@@ -1,4 +1,4 @@
-// What kind of media a file is, by its name, the ones of a kind in a folder,
+// What kind of media a file is (a song: "audio"), by its name, the ones of a kind in a folder,
 // and images the webview can't decode (HEIC, TIFF, ...) converted for it.
 // Shared by phil, imageview and videoplayer.
 import { dirname, extname, join } from "@std/path";
@@ -13,11 +13,14 @@ const VIDEO_EXT = new Set([
   "m2ts", "mts", "ts", "3gp", "ogv", "vob",
 ]);
 
-/** "image", "video", "pdf" or "file". */
+const AUDIO_EXT = new Set(["mp3", "m4a", "aac", "flac", "ogg", "oga", "opus", "wav", "wma", "alac", "aif", "aiff", "ape", "wv", "mka"]);
+
+/** "image", "video", "audio", "pdf" or "file". */
 export function mediaKind(name) {
   const ext = extname(name).slice(1).toLowerCase();
   if (IMAGE_EXT.has(ext)) return "image";
   if (VIDEO_EXT.has(ext)) return "video";
+  if (AUDIO_EXT.has(ext)) return "audio";
   if (ext === "pdf") return "pdf";
   return "file";
 }

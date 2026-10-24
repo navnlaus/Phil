@@ -23,6 +23,7 @@ import { unfinished, watchDownloads } from "./downloads.js";
 import { watchBrowserDownloads } from "./browserdownloads.js";
 import { locate } from "./locate.js";
 import { createLink } from "./link.js";
+import { AudioInfo, readAudio, readCover, writeAudio } from "./audio.js";
 import { feed, setDownloads } from "./downloadfeed.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
@@ -43,6 +44,8 @@ export function createServer({ profile, controlSocket }) {
     },
   });
   setTimeout(() => thumbs.pruneContent().catch(() => {}), 60_000); // content entries left by deleted files
+  // Songs' titles, artists and albums for their tiles (audio.js), kept with the thumbnails.
+  const audioInfo = new AudioInfo(config.incognito ? null : join(thumbs.dir, "audio"), (path, stat) => thumbs.key(path, stat));
   // Incognito leaves no traces, so its folder summaries last for the session only.
   const sockets = new Set(); // every page's WebSocket, for {theme}
   let terms = null; // the terminal panels' shells (below)
@@ -379,6 +382,30 @@ export function createServer({ profile, controlSocket }) {
         const out = await new Deno.Command("qrencode", { args: ["-t", "SVG", "-m", "1", "-o", "-", url.searchParams.get("text") ?? ""], stdin: "null", stdout: "piped", stderr: "null" }).output().catch(() => null);
         if (!out?.success) return text(404, "No qrencode");
         return new Response(out.stdout, { headers: { "content-type": "image/svg+xml", "cache-control": "no-cache" } });
+      }
+      case "GET /api/audio": // a song's tags, what it is (format, length, bitrate...), and whether it has cover art (audio.js)
+        try {
+          return json(await readAudio(requirePath(path)));
+        } catch (err) {
+          throw httpError(400, `Can't read it: ${err.message}`);
+        }
+      case "GET /api/audio-cover": { // its cover art, as it's in the file
+        const cover = await readCover(requirePath(path)).catch(() => null);
+        if (!cover) return text(404, "No cover art");
+        return new Response(cover.bytes, { headers: { "content-type": cover.type, "cache-control": "no-cache" } });
+      }
+      case "PUT /api/audio": { // {path, tags: {name: value} (all of them), cover: "keep" | "remove" | {data: base64, type}}: written into the song
+        const { path: song, tags, cover } = await req.json();
+        if (typeof tags !== "object" || !tags) throw httpError(400, "tags, please");
+        const newCover = cover && typeof cover === "object" ? { bytes: Uint8Array.from(atob(String(cover.data ?? "")), (c) => c.charCodeAt(0)), type: cover.type } : cover ?? "keep";
+        try {
+          const info = await writeAudio(requirePath(song), { tags, cover: newCover });
+          thumbs.written(song, await Deno.stat(song)); // (done: its new cover, or none, at once)
+          totals.touched(dirname(song));
+          return json(info);
+        } catch (err) {
+          throw httpError(400, `Couldn't save it: ${err.message}`);
+        }
       }
       case "GET /api/space": // ?path=...&path=...: the sidebar's drives, size and free space
         return json(await freeSpace(url.searchParams.getAll("path")));
@@ -758,7 +785,8 @@ export function createServer({ profile, controlSocket }) {
         const folder = !stat.isFile ? null : d.isSymlink ? await Deno.realPath(path).then((real) => Deno.stat(dirname(real))).catch(() => null) : dirStat;
         entry.writable = canWrite(stat, folder, who);
       }
-      if (stat && (kind === "image" || kind === "video" || kind === "pdf")) entry.thumb = previews ? await thumbs.lookup(path, stat) : false; // (false: none, nothing asked)
+      if (stat && (kind === "image" || kind === "video" || kind === "audio" || kind === "pdf")) entry.thumb = previews ? await thumbs.lookup(path, stat) : false; // (false: none, nothing asked)
+      if (stat && kind === "audio") entry.audio = await audioInfo.lookup(path, stat); // its title and artist, if read (null: asked with its thumbnail)
       if (kind === "dir" && !d.isSymlink && dirStat && stat.dev !== dirStat.dev) mountPoints.push(entry);
       else if (kind === "dir") entry.total = counted ? await totals.get(path, entry.mtime) : null; // { bytes, stale } or null; the page asks for stale ones
       if (kind === "dir") entry.summary = await folders.get(path);
@@ -892,13 +920,16 @@ export function createServer({ profile, controlSocket }) {
         }
         const ctrl = new AbortController();
         pending.set(path, ctrl);
+        const song = mediaKind(path) === "audio";
+        const audio = song ? audioInfo.get(path).catch(() => ({})) : null; // (a song: its title and artist too)
+        const withAudio = async (msg) => (song ? { ...msg, audio: await audio } : msg);
         previewsOn(path).then((on) => (on ? thumbs.get(path, ctrl.signal) : false)) // (a drive without them: none, as one that can't be made)
-          .then((url) => send({ path, url }))
-          .catch((err) => {
+          .then(async (url) => send(await withAudio({ path, url })))
+          .catch(async (err) => {
             if (ctrl.signal.aborted) return;
             if (err.busy) return send({ path, url: null, busy: err.retryIn }); // being written: asked again when it may have settled
-            console.error(`phil: ${err.message}`);
-            send({ path, url: false });
+            if (!song) console.error(`phil: ${err.message}`); // (a song without cover art: no thumbnail, as ever)
+            send(await withAudio({ path, url: false }));
           })
           .finally(() => pending.delete(path));
       }
@@ -946,7 +977,8 @@ export function createServer({ profile, controlSocket }) {
         const path = paths[next++];
         if (typeof path !== "string" || mediaKind(path) === "file" || !(await previewsOn(path))) continue;
         const url = await thumbs.get(path, signal, { background: true }).catch(() => null);
-        if (url && !signal.aborted) send({ made: path, url });
+        const audio = mediaKind(path) === "audio" ? await audioInfo.get(path).catch(() => null) : undefined;
+        if ((url || audio) && !signal.aborted) send({ made: path, url, ...(audio ? { audio } : {}) });
       }
     };
     await Promise.all(Array.from({ length: 6 }, worker));
@@ -1333,6 +1365,7 @@ export function createServer({ profile, controlSocket }) {
     thumbs,
     list: (dir) => readEntries(dir), // (thumbnails and folder summaries looked up, as for phil's page)
     summary: (dir) => summarize(dir, "name", new AbortController().signal),
+    audio: (path) => audioInfo.get(path),
     touched: (dir) => totals.touched(dir),
     apk: join(Deno.env.get("XDG_DATA_HOME") || join(home(), ".local", "share"), "phil", "phil.apk"), // (scripts/install.sh puts it there)
   });

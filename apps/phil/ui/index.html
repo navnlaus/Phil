@@ -260,6 +260,12 @@
     <form method="dialog">
       <p class="title"></p>
       <p class="where"></p>
+      <!-- A song: its own tab, for its tags (audio.js). -->
+      <div class="tabs" role="tablist" hidden>
+        <button type="button" role="tab" data-tab="general" class="on">General</button>
+        <button type="button" role="tab" data-tab="song">MP3</button>
+      </div>
+      <div class="tab-general">
       <dl class="facts"></dl>
       <section class="phil">
         <h3>phil</h3>
@@ -302,6 +308,27 @@
           <p class="hint">While a phil window shows this folder, when the file changes, the command runs in bash, in the folder, with the file as $1.</p>
           <pre class="output" hidden></pre>
         </div>
+      </section>
+      </div>
+      <section class="song" hidden>
+        <div class="song-head">
+          <div class="cover"><img alt=""><span class="none">No cover art</span></div>
+          <div>
+            <dl class="song-facts"></dl>
+            <div class="cover-buttons">
+              <button type="button" class="cover-replace">Replace cover…</button>
+              <button type="button" class="cover-remove">Remove cover</button>
+              <input type="file" class="cover-file" accept="image/jpeg,image/png" hidden>
+            </div>
+          </div>
+        </div>
+        <div class="song-tags"></div>
+        <div class="song-add">
+          <input type="text" class="song-key" spellcheck="false" autocomplete="off" placeholder="Another tag: its name (lyrics, publisher, bpm…)">
+          <button type="button">Add</button>
+        </div>
+        <p class="hint">Saved into the file: its tags written again, the sound left as it is. An empty one is removed.</p>
+        <p class="song-error" hidden></p>
       </section>
       <div class="buttons">
         <button value="cancel">Cancel</button>

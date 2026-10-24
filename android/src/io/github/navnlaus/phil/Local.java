@@ -35,6 +35,7 @@ final class Local {
     private static final int PREVIEWS = 4;
     private static final Collator ORDER = Collator.getInstance();
     private static final Map<String, Object[]> summaries = new ConcurrentHashMap<>(); // folder -> {its mtime, summary}
+    private static final Map<String, Object[]> songs = new ConcurrentHashMap<>(); // song -> {its mtime, what its tile shows}
 
     static {
         ORDER.setStrength(Collator.SECONDARY);
@@ -115,6 +116,33 @@ final class Local {
     // Folders first, then by name (numbers as numbers would be nice; the collator is close enough).
     private static void sort(List<File> files) {
         files.sort((a, b) -> a.isDirectory() != b.isDirectory() ? (a.isDirectory() ? -1 : 1) : ORDER.compare(a.getName(), b.getName()));
+    }
+
+    // A song's title, artist, album and length (s), from its tags, for its tile (as phil's audio.js has them).
+    static JSONObject audio(File f) throws JSONException {
+        Object[] known = songs.get(f.getPath());
+        if (known != null && (long) known[0] == f.lastModified()) return (JSONObject) known[1];
+        JSONObject out = new JSONObject();
+        android.media.MediaMetadataRetriever r = new android.media.MediaMetadataRetriever();
+        try {
+            r.setDataSource(f.getPath());
+            String title = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE);
+            String artist = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST);
+            if (artist == null) artist = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST);
+            String album = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM);
+            String ms = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION);
+            if (title != null && !title.isEmpty()) out.put("title", title);
+            if (artist != null && !artist.isEmpty()) out.put("artist", artist);
+            if (album != null && !album.isEmpty()) out.put("album", album);
+            if (ms != null) out.put("duration", Long.parseLong(ms) / 1000.0);
+        } catch (Exception ignored) { /* none: its name */
+        } finally {
+            try {
+                r.release();
+            } catch (Exception ignored) { /* gone */ }
+        }
+        songs.put(f.getPath(), new Object[] {f.lastModified(), out});
+        return out;
     }
 
     // A folder's summary (made, its thumbnails too: Thumbs).

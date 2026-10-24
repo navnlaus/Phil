@@ -32,8 +32,8 @@ const ICONS = { // phil's (apps/phil/ui/index.html), and Lucide's for the places
 const svg = (name, cls = "") => `<svg viewBox="0 0 24 24" class="${cls}">${ICONS[name] ?? ICONS.file}</svg>`;
 const KIND_ICON = { dir: "folder", image: "image", video: "video", pdf: "file", file: "file", audio: "music" };
 const VIEWED = new Set(["image", "video", "audio"]);
-// What has a thumbnail: on the phone, songs too (their cover art); phil on the PC makes none of those.
-const hasThumb = (side, e) => ["image", "video", "pdf"].includes(e.kind) || (side === "phone" && e.kind === "audio");
+// What has a thumbnail (a song's: its cover art).
+const hasThumb = (e) => ["image", "video", "pdf", "audio"].includes(e.kind);
 const root = document.documentElement;
 
 const state = {
@@ -120,7 +120,7 @@ function tile(e) {
     box.innerHTML = svg(KIND_ICON[e.kind] ?? "file", "kind");
     const ext = fileType(e.name);
     if (ext && (e.kind === "file" || e.kind === "pdf")) box.append(Object.assign(document.createElement("span"), { className: "ext", textContent: ext }));
-    if (hasThumb(side, e)) {
+    if (hasThumb(e)) {
       const img = Object.assign(document.createElement("img"), { alt: "", loading: "lazy", decoding: "async" });
       img.onload = () => (img.classList.add("shown"), box.classList.add("has-img"));
       img.onerror = () => img.remove();
@@ -129,12 +129,16 @@ function tile(e) {
     }
   }
   const label = Object.assign(document.createElement("div"), { className: "label" });
-  label.append(Object.assign(document.createElement("span"), { className: "name", textContent: e.name }), Object.assign(document.createElement("span"), { className: "meta" }));
+  label.append(Object.assign(document.createElement("span"), { className: "desc" }), Object.assign(document.createElement("span"), { className: "name", textContent: e.name }),
+    Object.assign(document.createElement("span"), { className: "meta" }));
   t.append(box, label);
   if (e.kind === "dir") {
     showFolder(t, summaries.get(`${side}:${e.path}`) ?? e.summary);
     if (!summaries.has(`${side}:${e.path}`) && !(e.summary?.complete)) watching.observe(t);
-  } else label.lastChild.textContent = [fileType(e.name).toUpperCase(), formatSize(e.size), formatDate(e.mtime)].filter(Boolean).join(" · ");
+  } else {
+    showSong(t, e);
+    if (e.kind === "audio" && !e.audio) watching.observe(t); // (its tags read when it comes into view)
+  }
   const marks = [e.kind === "video" && ["play", "fill"], e.kind === "dir" && ["folder", "folder fill"]].filter(Boolean);
   if (marks.length) {
     const m = Object.assign(document.createElement("span"), { className: "marks" });
@@ -147,6 +151,15 @@ function tile(e) {
   t.oncontextmenu = (ev) => (ev.preventDefault(), actions(e)); // (a long press)
   return t;
 }
+
+// A file's details; a song's: its title in place of its name, its artist over it, how long it is.
+function showSong(t, e) {
+  const song = e.kind === "audio" && e.audio ? e.audio : {};
+  t.querySelector(".name").textContent = song.title || e.name;
+  t.querySelector(".desc").textContent = song.artist ?? "";
+  t.querySelector(".meta").textContent = [fileType(e.name).toUpperCase(), song.duration && songLength(song.duration), formatSize(e.size), formatDate(e.mtime)].filter(Boolean).join(" · ");
+}
+const songLength = (s) => (s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}` : Math.floor(s / 60)) + `:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 // A folder's face (its first pictures, or an icon for what it holds) and what it holds.
 function showFolder(t, summary) {
@@ -187,7 +200,7 @@ function contents({ files, dirs, size }) {
   return parts.join(" · ") || "Empty";
 }
 
-// Folders' summaries, asked for as their tiles come into view (three at a time), kept for the session.
+// Folders' summaries (and songs' tags), asked for as their tiles come into view (three at a time), kept for the session.
 const summaries = new Map(); // "side:path" -> summary
 const queue = [];
 let asking = 0;
@@ -206,6 +219,12 @@ function pump() {
     if (!t.isConnected) continue;
     const side = state.side, e = t.entry;
     asking++;
+    if (e.kind === "audio") { // a song's title and artist
+      api(`${base(side)}/audio?path=${encodeURIComponent(e.path)}`)
+        .then((info) => (e.audio = info, t.isConnected && showSong(t, e)), () => {})
+        .finally(() => (asking--, pump()));
+      continue;
+    }
     api(`${base(side)}/summary?path=${encodeURIComponent(e.path)}`)
       .then((s) => {
         if (s.complete !== false) summaries.set(`${side}:${e.path}`, s);

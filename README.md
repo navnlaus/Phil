@@ -298,6 +298,27 @@ changes again within 30 seconds of its last change keeps its tile as it is
 (redrawn on every change, it flashed), then gets its preview once it's been
 quiet that long. A file changed once (saved) is redrawn at once.
 
+### Songs
+
+A song's tile (MP3, FLAC, M4A, Ogg, Opus, WAV…) shows its cover art (the
+picture in the file, taken out with ffmpeg) as its thumbnail, its title in
+place of its file name, its artist over it, and how long it is in its
+details ("MP3 · 3:20 · 3.1 MB · Oct 24"). Hovering shows the file's name and
+the album. The tags are read with ffprobe once a tile comes into view, and kept
+next to the thumbnails (`<thumb-dir>/<W>x<H>/audio/`). A song without tags
+keeps its name, and one without cover art, the music icon. A double-click opens
+it in the app that plays songs.
+
+A song's Properties has a tab of its own, named for its format (MP3, FLAC…).
+It shows the song's format, length, bitrate, sample rate and cover. Every tag
+it has is a field you can edit (title, artist, album, album artist, track,
+disc, year, genre, composer and comment always, and any others it has, such as
+lyrics). "Another tag" adds one. The cover can be replaced (with a picture
+shrunk to 1200 pixels at most) or removed. Saving writes the tags into the file
+with ffmpeg, which copies the sound as it is. An emptied tag is removed. MP3s
+get ID3v2.3, which most players read. ffmpeg can't write cover art into Ogg
+files, so theirs stays.
+
 ### Folder tiles
 
 A folder's tile shows what it holds: how many folders and files, the files'
@@ -864,7 +885,7 @@ It is a real terminal (xterm.js on a pseudo-terminal), started with your
 | F2 | rename in place (Enter or clicking elsewhere renames, Esc cancels) |
 | Shift+Delete | permanently delete the selection, after a confirmation (Enter / Esc). A big folder shows how far it is (a red bar on it and in the sidebar's Transfers), × stops it (what's gone is gone). What phil kept of what's deleted goes too: its metadata, thumbnails, documents read as Markdown, folder summaries, sizes and tagging |
 | right-click a text or JSON file → Add to Config | a link to it in `Documents/Config`, for config files used often but kept all over (a name that's taken gets its folder's in front: `waybar-config`) |
-| right-click → Properties, Alt+Enter | type, size (a folder's: everything in it), dates, owner, permissions and what you can do with it; and phil's own: a **description** shown above the name, a folder's **icon**, and, for a file, an **on-change hook**: a command run when the file changes (below) |
+| right-click → Properties, Alt+Enter | type, size (a folder's: everything in it), dates, owner, permissions and what you can do with it; and phil's own: a **description** shown above the name, a folder's **icon**, and, for a file, an **on-change hook**: a command run when the file changes (below). A song's has its own tab, for its tags and cover art ([Songs](#songs)) |
 | drop files from another phil window (any button: middle moves, the others ask) or another program (a file manager…) | onto a folder (its tile, a place in the sidebar, a part of the path) or the folder's empty space: "Move to" / "Copy to" (all from that folder already: "Copy here"), with the same progress, pause and resume |
 | right-drag onto a folder | menu: "Move to" / "Copy to" (folder tiles, path segments in the top bar, the sidebar); out of the window, the files go on being dragged, for the app they're dropped on to copy, move or ask |
 | a copy or move under way | a bar on the folder it goes to, on what it's making there, on the file it's at (that file's percentage), and in the sidebar's Transfers, with the percentage and speed (time left in its tooltip); while it gets ready (counting, rsync listing the files, or on a resume comparing them with what's there) a turning icon and what it's doing (in the sidebar, the icon); ⏸ pauses, × stops (what's done stays: a move removes each file only once it's copied). Its record (in phil's metadata, every few seconds) outlives a crash: a copy cut off shows "Stopped at 45%" on its folder, and the file it was at "Cut off at 18%" (a file that takes more than a few seconds has a record of its own; in the sidebar's Transfers, just the percentage); ↻ resumes it where it stopped: finished files are skipped, and a file that was cut off is appended to, from where it stopped, then checked whole against the original (rsync --inplace --append-verify; after a crash too); copying the same thing there again goes on with it too; × forgets it. rsync stops with phil, so nothing copies on unseen. Moves within a drive, and copies within one that clones files (btrfs), are instant and skip it. Folders being copied into show their size as it goes: the folder a copy (of one item) is making, "1.3 GB of 3.0 GB"; the folder it goes into, its size growing by what's been copied. Before it starts (a resume too), what's left to copy is checked against the destination's free space: too little, it says so and doesn't start. A copy that fails says why, from rsync's errors ("No space left on device", not the broken pipe the other side reports) |
