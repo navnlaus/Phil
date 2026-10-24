@@ -26,13 +26,11 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.provider.OpenableColumns;
-import android.webkit.CookieManager;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -55,6 +53,8 @@ public class LinkService extends Service {
     private static final int ONGOING = 1;
     private static final long HELLO_EVERY_MS = 5 * 60_000;
 
+    // The light phil's window, told what's done (JSON: {sent: dir}, {downloaded: path}) while it's open.
+    static volatile java.util.function.Consumer<String> listener;
     private final Sftp sftp = new Sftp();
     private final ExecutorService work = Executors.newSingleThreadExecutor(); // transfers, one at a time
     private final ExecutorService net = Executors.newSingleThreadExecutor(); // check-ins
@@ -131,11 +131,11 @@ public class LinkService extends Service {
             List<Uri> uris = new ArrayList<>();
             ClipData clip = intent.getClipData();
             if (clip != null) for (int i = 0; i < clip.getItemCount(); i++) if (clip.getItemAt(i).getUri() != null) uris.add(clip.getItemAt(i).getUri());
-            String text = intent.getStringExtra(Intent.EXTRA_TEXT);
-            work.execute(() -> send(uris, uris.isEmpty() ? text : null));
+            String text = intent.getStringExtra(Intent.EXTRA_TEXT), dir = intent.getStringExtra("dir");
+            work.execute(() -> send(uris, uris.isEmpty() ? text : null, dir));
         } else if (DOWNLOAD.equals(action)) {
-            String url = intent.getStringExtra("url"), name = intent.getStringExtra("name");
-            work.execute(() -> download(url, name));
+            String path = intent.getStringExtra("path"), name = intent.getStringExtra("name");
+            work.execute(() -> download(path, name));
         } else if (HELLO.equals(action)) {
             net.execute(this::hello);
         }
@@ -259,8 +259,8 @@ public class LinkService extends Service {
 
     // ------------------------------------------------------------ transfers
 
-    // Files shared to phil (or text): sent to the PC, into its Downloads.
-    private void send(List<Uri> uris, String text) {
+    // Files shared to phil (or text): sent to the PC, into `dir` there (null: its Downloads).
+    private void send(List<Uri> uris, String text, String dir) {
         int id = nextNote++;
         int done = 0;
         String failed = null;
@@ -268,7 +268,7 @@ public class LinkService extends Service {
             if (text != null) {
                 byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
                 upload(id, "Note " + new java.text.SimpleDateFormat("yyyy-MM-dd HH.mm", java.util.Locale.ROOT).format(new java.util.Date()) + ".txt",
-                    bytes.length, new java.io.ByteArrayInputStream(bytes));
+                    bytes.length, new java.io.ByteArrayInputStream(bytes), dir);
                 done++;
             }
             for (Uri uri : uris) {
@@ -280,8 +280,9 @@ public class LinkService extends Service {
                         if (!c.isNull(1)) size = c.getLong(1);
                     }
                 }
+                if ("file".equals(uri.getScheme()) && size < 0) size = new File(uri.getPath()).length();
                 try (InputStream in = getContentResolver().openInputStream(uri)) {
-                    upload(id, name, size, in);
+                    upload(id, name, size, in, dir);
                 }
                 done++;
             }
@@ -289,16 +290,20 @@ public class LinkService extends Service {
             failed = e.getMessage();
         }
         int total = uris.size() + (text != null ? 1 : 0);
+        String where = dir == null ? "its Downloads" : new File(dir).getName();
         note(id, failed == null ? "Sent to " + store.pcName() : "Couldn't send it to " + store.pcName(),
-            failed == null ? (total == 1 ? "1 file, into its Downloads" : total + " files, into its Downloads") : done + " of " + total + " sent. " + failed, -1, null);
+            failed == null ? (total == 1 ? "1 file, into " + where : total + " files, into " + where) : done + " of " + total + " sent. " + failed, -1, null);
+        tell("sent", dir == null ? "" : dir);
     }
 
-    private void upload(int id, String name, long size, InputStream in) throws IOException {
+    private void upload(int id, String name, long size, InputStream in, String dir) throws IOException {
         IOException last = null;
+        String to = (dir == null ? "/link/upload?" : "/m/api/upload?dir=" + URLEncoder.encode(dir, "UTF-8") + "&")
+            + "name=" + URLEncoder.encode(name, "UTF-8") + (size >= 0 ? "&size=" + size : "");
         for (String host : store.hosts()) {
             HttpsURLConnection c;
             try {
-                c = Net.open(host, store.pcPort(), "/link/upload?name=" + URLEncoder.encode(name, "UTF-8") + (size >= 0 ? "&size=" + size : ""), store.fingerprint(), null, 4000);
+                c = Net.open(host, store.pcPort(), to, store.fingerprint(), null, 4000);
                 c.setRequestMethod("POST");
                 c.setRequestProperty("authorization", "Bearer " + store.token());
                 c.setRequestProperty("content-type", "application/octet-stream");
@@ -329,17 +334,12 @@ public class LinkService extends Service {
         throw last != null ? last : new IOException("No address for " + store.pcName());
     }
 
-    // A file from the light phil (its download link), into the phone's Download folder.
-    private void download(String url, String suggested) {
+    // A PC file (the light phil's "Save to phone"), into the phone's Download folder.
+    private void download(String path, String suggested) {
         String name = suggested;
         int id = nextNote++;
         try {
-            URL u = new URL(url);
-            HttpsURLConnection c = Net.open(u.getHost(), u.getPort(), u.getFile(), store.fingerprint(), null, 5000);
-            String cookies = CookieManager.getInstance().getCookie(url);
-            if (cookies != null) c.setRequestProperty("cookie", cookies);
-            int status = c.getResponseCode();
-            if (status >= 400) Net.answer(c, status);
+            HttpsURLConnection c = Net.request(store, "GET", "/m/file?dl=1&path=" + Uri.encode(path), null);
             long size = c.getContentLengthLong();
             String given = nameIn(c.getHeaderField("content-disposition"));
             if (given != null) name = given;
@@ -365,6 +365,7 @@ public class LinkService extends Service {
             if (!part.renameTo(file)) throw new IOException("Couldn't save it as " + file.getName());
             MediaScannerConnection.scanFile(this, new String[] {file.getPath()}, null, null);
             note(id, "Downloaded " + file.getName(), "In Download", -1, new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));
+            tell("downloaded", file.getPath());
         } catch (Exception e) {
             note(id, "Couldn't download " + name, e.getMessage(), -1, null);
         }
@@ -379,6 +380,14 @@ public class LinkService extends Service {
         } catch (Exception ignored) { /* the plain one */ }
         m = java.util.regex.Pattern.compile("filename\\s*=\\s*\"([^\"]*)\"").matcher(disposition);
         return m.find() && !m.group(1).isEmpty() ? m.group(1) : null;
+    }
+
+    private static void tell(String what, String value) {
+        java.util.function.Consumer<String> to = listener;
+        if (to == null) return;
+        try {
+            to.accept(new JSONObject().put(what, value).toString());
+        } catch (Exception ignored) { /* no window */ }
     }
 
     static File freeName(File dir, String name) {

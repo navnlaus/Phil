@@ -1,0 +1,103 @@
+/* The light phil. Its tiles are phil's (apps/phil/ui/style.css: .tile, .thumb,
+   .face, .label, .marks, the same rules), so phil's themes, loaded after this,
+   dress them as on the PC; the rest is sized for fingers. Colors are the
+   theme's variables (base.css has their defaults). */
+
+:root { --cols: 2; --bar-h: 52px; }
+html, body { background: var(--bg); color: var(--text); }
+body { margin: 0; padding-bottom: 96px; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+button { font: inherit; color: inherit; }
+#bar button.icon, #viewer button.icon { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: none; display: grid; place-items: center; flex: none; }
+#bar button.icon:active { background: var(--bg-hover); }
+#bar button.icon:disabled { opacity: 0.3; }
+
+/* The bar: up, where, tile size, the menu. */
+#bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 2px; height: var(--bar-h); padding: 0 4px; background: var(--bg-side); border-bottom: 1px solid var(--border); }
+#where { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; padding: 0 4px; }
+#title { font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#path { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Places: the phone's, then the PC's (a heading chip between). */
+#places { display: flex; gap: 6px; overflow-x: auto; padding: 8px 8px; background: var(--bg-side); scrollbar-width: none; }
+#places::-webkit-scrollbar { display: none; }
+#places button { flex: none; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid var(--border); background: var(--bg-raised); white-space: nowrap; font-size: 13px; }
+#places button svg { width: 15px; height: 15px; color: var(--text-dim); }
+#places button.here { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); }
+#places button.here svg { color: var(--accent); }
+#places .side { flex: none; align-self: center; margin: 0 2px 0 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
+#places .side:first-child { margin-left: 2px; }
+#places button.away { opacity: 0.55; }
+
+/* ---------------------------------------------------------------- phil's tiles (as on the PC) */
+
+#grid { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 2px; padding: 2px; }
+.tile { position: relative; aspect-ratio: 16 / 9; overflow: hidden; --label-h: 0px; }
+.tile:active::after { content: ""; position: absolute; inset: 0; background: rgba(255, 255, 255, 0.08); pointer-events: none; }
+.thumb { position: absolute; inset: 0 0 var(--label-h) 0; display: grid; place-items: center; background: var(--thumb-bg); }
+.thumb > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.15s; }
+.thumb > img.shown { opacity: 1; }
+.thumb > svg.kind { position: absolute; width: 46%; height: 46%; stroke-width: 1.2; color: var(--text-dim); }
+.thumb.has-img > svg.kind, .thumb.has-img .ext { display: none; }
+.thumb .ext { position: absolute; top: 52%; font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--text-dim); }
+.marks { position: absolute; z-index: 3; right: var(--marks-right, 8px); bottom: var(--marks-bottom, 5px); height: var(--marks-h, 13px); display: flex; align-items: center; gap: 5px; color: #fff; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.7)); pointer-events: none; }
+.marks .badge { display: grid; place-items: center; }
+.marks .badge svg { width: 12px; height: 12px; stroke: none; }
+.marks .badge.fill svg { fill: currentColor; }
+.marks .badge.folder { display: none; }
+.tile.has-marks .label :is(.meta, .tags) { padding-right: calc(var(--marks-n, 1) * 17px); }
+
+.tile.dir { --card: color-mix(in srgb, var(--folder) 34%, var(--thumb-bg)); --face: 13% 7% 7% 7%; }
+.tile.dir .thumb { display: block; background: linear-gradient(170deg, color-mix(in srgb, var(--folder) 14%, var(--thumb-bg)), color-mix(in srgb, var(--folder) 5%, var(--thumb-bg))); }
+.tile.dir .thumb::before { content: ""; position: absolute; left: 7%; top: calc(13% - 6px); width: 30%; height: 7px; border-radius: 5px 5px 0 0; background: var(--card); }
+.tile.dir .face { position: absolute; inset: var(--face); display: grid; place-items: center; border-radius: 0 6px 6px 6px; background: var(--card); overflow: hidden; }
+.tile.dir .face > svg.kind { width: 60%; height: 62%; stroke-width: 1.2; color: color-mix(in srgb, var(--folder) 70%, var(--text)); opacity: 0.7; }
+.tile.dir .face.previews { gap: 1px; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; place-items: stretch; background: var(--thumb-bg); }
+.tile.dir .face.previews > * { width: 100%; height: 100%; min-height: 0; object-fit: cover; }
+.tile.dir .face.previews > .cell { position: relative; overflow: hidden; background: var(--thumb-bg); }
+.tile.dir .face.n1 > * { grid-area: 1 / 1 / 3 / 3; }
+.tile.dir .face.n2 > * { grid-row: 1 / 3; }
+.tile.dir .face.n3 { grid-template-columns: 2fr 1fr; }
+.tile.dir .face.n3 > :first-child { grid-row: 1 / 3; }
+.tile.empty-dir .face { opacity: 0.45; }
+/* A text file's start, in a folder's face (the PC draws it on a canvas; plain text here). */
+.face .cell .text { position: absolute; inset: 0; padding: 4px 5px; font: 6px/1.35 var(--mono, ui-monospace, monospace); color: var(--text-dim); white-space: pre; overflow: hidden; }
+.face .cell .text b { color: var(--text); }
+
+.label { position: absolute; inset: auto 0 0 0; display: flex; flex-direction: column; min-width: 0; line-height: 1.3; pointer-events: none; }
+.label .name, .label .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.label .name { font-size: 11px; font-weight: 600; }
+.label .meta { font-size: 10px; }
+.label .meta:empty { display: none; }
+.tile.hidden-file { opacity: 0.6; }
+
+/* ---------------------------------------------------------------- the rest */
+
+#message { text-align: center; padding: 40px 20px; color: var(--text-dim); }
+#message button { margin-top: 12px; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent-bg); color: var(--accent); }
+
+.fab { position: fixed; right: 16px; bottom: 16px; z-index: 6; width: 56px; height: 56px; border-radius: 16px; border: 0; display: grid; place-items: center; background: var(--accent); color: #fff; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4); }
+.fab svg { width: 22px; height: 22px; stroke-width: 2.2; }
+
+#menu { position: fixed; top: calc(var(--bar-h) + 4px); right: 6px; z-index: 8; min-width: 210px; padding: 6px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-raised); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
+#menu button, .sheet-buttons button { text-align: left; padding: 12px 14px; border: 0; border-radius: 8px; background: none; font-size: 15px; }
+#menu button:active, .sheet-buttons button:active { background: var(--bg-hover); }
+
+#sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 10px 8px 16px; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0; background: var(--bg-raised); box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.4); }
+.sheet-title { padding: 6px 14px 8px; font-size: 13px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-buttons { display: flex; flex-direction: column; }
+
+#viewer { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--stage, #000); }
+#viewer-close { position: absolute; top: 6px; right: 6px; z-index: 2; color: #fff; background: rgba(0, 0, 0, 0.4) !important; }
+#viewer-body { flex: 1; min-height: 0; display: grid; place-items: center; touch-action: pan-y pinch-zoom; }
+#viewer-body img, #viewer-body video { max-width: 100%; max-height: 100%; object-fit: contain; }
+#viewer-body .song { display: flex; flex-direction: column; align-items: center; gap: 18px; width: 100%; }
+#viewer-body .song img { width: min(70vw, 320px); aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: var(--thumb-bg); }
+#viewer-body audio { width: calc(100% - 32px); }
+#viewer-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px 14px; color: #ddd; font-size: 13px; }
+#viewer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#viewer-action { flex: none; padding: 8px 12px; border: 0; border-radius: 8px; background: none; color: var(--accent); font-weight: 600; }
+#viewer-action:empty { display: none; }
+
+#toast { position: fixed; left: 50%; bottom: 88px; z-index: 11; transform: translateX(-50%); max-width: calc(100% - 32px); padding: 10px 14px; border-radius: 10px; background: var(--bg-raised); border: 1px solid var(--border); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4); font-size: 13px; }
+[hidden] { display: none !important; }

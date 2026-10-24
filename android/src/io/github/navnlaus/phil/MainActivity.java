@@ -2,11 +2,11 @@ package io.github.navnlaus.phil;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Insets;
 import android.net.Uri;
-import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -15,11 +15,10 @@ import android.provider.Settings;
 import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
-import android.webkit.SslErrorHandler;
-import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -30,22 +29,25 @@ import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-// The app's one window: a WebView. Paired, it shows the PC's light phil (its link
-// server's /m/: the PC's files, to look at, download and add to); not yet, or
-// the PC out of reach, the setup page (assets/setup.html: pairing, the
-// permissions sharing needs, Stop). The setup page talks to the app through
-// `Phil` (Bridge, below).
+// The app's one window: a WebView of the light phil (assets/www, at Serve's
+// https://phil.invalid/): the phone's own files, and the PC's when it's paired
+// and in reach, in phil's tiles and theme. The setup page (assets/setup.html:
+// pairing, the permissions sharing needs, Stop) is a menu away. Both talk to
+// the app through `Phil` (Bridge, below).
 public class MainActivity extends Activity {
     private static final String SETUP = "file:///android_asset/setup.html";
     private static final int CHOOSE_FILES = 1;
     private WebView web;
     private Store store;
     private ValueCallback<Uri[]> choosing;
+    private String sendingTo; // the PC's folder the files picked go into (Bridge.pickAndSend)
+    private Serve serve;
 
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
         store = new Store(this);
+        serve = new Serve(this);
         web = new WebView(this);
         web.setBackgroundColor(0xFF1C1D21);
         FrameLayout frame = new FrameLayout(this); // (a WebView keeps no padding of its own)
@@ -68,20 +70,15 @@ public class MainActivity extends Activity {
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         web.addJavascriptInterface(new Bridge(), "Phil");
         web.setWebViewClient(new WebViewClient() {
-            // The PC's certificate: trusted when it's the one paired with.
-            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                String fp = Net.fingerprint(error.getCertificate());
-                if (fp != null && fp.equals(store.fingerprint())) handler.proceed();
-                else {
-                    handler.cancel();
-                    view.loadUrl(SETUP + "#wrong-certificate");
-                }
+            // The light phil's requests: answered here (Serve), never sent out.
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                return serve.handle(request);
             }
 
             // Links elsewhere: the phone's browser.
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl();
-                if ("file".equals(u.getScheme()) || store.hosts().contains(u.getHost())) return false;
+                if ("file".equals(u.getScheme()) || Serve.HOST.equals(u.getHost())) return false;
                 startActivity(new Intent(Intent.ACTION_VIEW, u));
                 return true;
             }
@@ -96,59 +93,46 @@ public class MainActivity extends Activity {
                 return true;
             }
 
-            // The camera and microphone, for the PC's pages only (the phone as a camera).
+            // The camera and microphone, for the light phil only (the phone as a camera).
             @Override public void onPermissionRequest(PermissionRequest request) {
                 Uri origin = request.getOrigin();
-                if (origin != null && store.hosts().contains(origin.getHost())) request.grant(request.getResources());
+                if (origin != null && Serve.HOST.equals(origin.getHost())) request.grant(request.getResources());
                 else request.deny();
             }
         });
-        web.setDownloadListener((url, userAgent, disposition, mime, length) -> {
-            Intent get = new Intent(this, LinkService.class).setAction(LinkService.DOWNLOAD)
-                .putExtra("url", url).putExtra("name", URLUtil.guessFileName(url, disposition, mime));
-            LinkService.start(this, get);
-        });
+        // What the service did that the page shows (files sent into a folder it shows, a download done).
+        LinkService.listener = (event) -> runOnUiThread(() -> web.evaluateJavascript("window.philEvent && philEvent(" + event + ")", null));
         if (store.paired() && store.sharing()) LinkService.start(this);
         show();
     }
 
-    // The PC's light phil, when it's paired and in reach; the setup page otherwise.
     private void show() {
-        if (!store.paired()) {
-            web.loadUrl(SETUP);
-            return;
-        }
-        web.loadUrl(SETUP + "#connecting");
-        new Thread(() -> {
-            String host = Net.reachable(store);
-            if (host != null) {
-                try {
-                    Net.call(store, "GET", "/link/me", null); // (still paired there?)
-                } catch (Net.Answer e) {
-                    if (e.status == 401) { // forgotten there: pairing again
-                        String pc = store.pcName();
-                        store.unpair();
-                        stopService(new Intent(this, LinkService.class));
-                        runOnUiThread(() -> web.loadUrl(SETUP + "#forgotten:" + Uri.encode(pc)));
-                        return;
-                    }
-                } catch (Exception ignored) { /* gone again: the page says so */ }
-            }
-            runOnUiThread(() -> web.loadUrl(host == null ? SETUP + "#offline"
-                : "https://" + host + ":" + store.pcPort() + "/m/?token=" + Uri.encode(store.token())));
-        }).start();
+        web.loadUrl(Serve.ORIGIN);
     }
 
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
-        if (request != CHOOSE_FILES || choosing == null) return;
+        if (request != CHOOSE_FILES) return;
         List<Uri> uris = new ArrayList<>();
         if (result == RESULT_OK && data != null) {
             if (data.getClipData() != null) for (int i = 0; i < data.getClipData().getItemCount(); i++) uris.add(data.getClipData().getItemAt(i).getUri());
             else if (data.getData() != null) uris.add(data.getData());
         }
-        choosing.onReceiveValue(uris.isEmpty() ? null : uris.toArray(new Uri[0]));
-        choosing = null;
+        if (choosing != null) {
+            choosing.onReceiveValue(uris.isEmpty() ? null : uris.toArray(new Uri[0]));
+            choosing = null;
+        } else if (sendingTo != null && !uris.isEmpty()) send(uris, sendingTo);
+        sendingTo = null;
+    }
+
+    // Files to the PC (into `dir` there; null: its Downloads), by the service, in a notification.
+    private void send(List<Uri> uris, String dir) {
+        Intent send = new Intent(this, LinkService.class).setAction(LinkService.SHARE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        ClipData clip = ClipData.newRawUri("files", uris.get(0));
+        for (int i = 1; i < uris.size(); i++) clip.addItem(new ClipData.Item(uris.get(i)));
+        send.setClipData(clip);
+        if (dir != null) send.putExtra("dir", dir);
+        LinkService.start(this, send);
     }
 
     @Override
@@ -279,6 +263,43 @@ public class MainActivity extends Activity {
             }).start();
         }
 
+        // A PC file into the phone's Download folder.
+        @JavascriptInterface public void download(String path, String name) {
+            LinkService.start(MainActivity.this, new Intent(MainActivity.this, LinkService.class).setAction(LinkService.DOWNLOAD).putExtra("path", path).putExtra("name", name));
+        }
+
+        // Files picked on the phone, sent into the PC's folder `dir`.
+        @JavascriptInterface public void pickAndSend(String dir) {
+            runOnUiThread(() -> {
+                sendingTo = dir;
+                Intent pick = new Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                startActivityForResult(Intent.createChooser(pick, "Files to send"), CHOOSE_FILES);
+            });
+        }
+
+        // Phone files (their paths, JSON), sent to the PC's folder `dir` (null: its Downloads).
+        @JavascriptInterface public void sendToPc(String paths, String dir) {
+            try {
+                JSONArray a = new JSONArray(paths);
+                List<Uri> uris = new ArrayList<>();
+                for (int i = 0; i < a.length(); i++) uris.add(Uri.fromFile(new java.io.File(a.getString(i))));
+                if (!uris.isEmpty()) runOnUiThread(() -> send(uris, dir == null || dir.isEmpty() ? null : dir));
+            } catch (Exception ignored) { /* nothing sent */ }
+        }
+
+        // A phone file in the app that opens its kind (a PDF, a document), or one picked.
+        @JavascriptInterface public void openFile(String path) {
+            java.io.File f = new java.io.File(path);
+            Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(FilesProvider.uriFor(f), Local.mime(f)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            runOnUiThread(() -> {
+                try {
+                    startActivity(Intent.createChooser(view, f.getName()));
+                } catch (Exception e) {
+                    android.widget.Toast.makeText(MainActivity.this, "No app opens " + f.getName(), android.widget.Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
         @JavascriptInterface public void setup() {
             runOnUiThread(() -> web.loadUrl(SETUP));
         }
@@ -300,6 +321,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        LinkService.listener = null;
         web.destroy();
         super.onDestroy();
     }

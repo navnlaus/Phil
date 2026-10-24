@@ -27,13 +27,14 @@
 // reached at ({host: path}). Its host key goes in ssh's known_hosts for the
 // address it's mounted from, before it is: ssh takes that key, and no other.
 //
-// The light phil (/m/: mobile/) has the token as a cookie (?token= sets it): it
-// lists folders, shows thumbnails (phil's), plays and downloads files, and takes
-// uploads into the folder shown.
+// The app's light phil (its own page, in the app: the phone's files and these)
+// asks for this PC's at /m/: folders as phil lists them, with phil's thumbnails
+// and folder summaries (the app keeps the thumbnails), files (played,
+// downloaded), files sent into a folder; and /link/theme, phil's look.
 
 import { basename, dirname, join, normalize } from "@std/path";
-import { httpError, json, serveFile, staticFile, text } from "../../engine/http.js";
-import { mediaKind } from "../../engine/media.js";
+import { httpError, json, serveFile, text } from "../../engine/http.js";
+import { currentTheme, themeFile } from "../../engine/themes.js";
 import { downloadDir, reportsDir } from "./browserdownloads.js";
 import { gioInfo, mount } from "./locate.js";
 
@@ -41,17 +42,17 @@ export const LINK_PORT = Number(Deno.env.get("PHIL_LINK_PORT")) || 47210; // (PH
 const ONLINE_MS = 7 * 60_000; // a check-in within this: in reach (they come every five minutes)
 const PAIR_MS = 10 * 60_000; // "Add a phone…" open this long at most
 const MAX_TRIES = 5; // wrong codes before pairing ends
-const MOBILE_DIR = new URL("./mobile/", import.meta.url);
-const COOKIE = "phil-link";
 const enc = new TextEncoder();
 
 /**
  * The link, for phil's server: `configDir` (~/.config/phil), `broadcast` (to
- * every window), `thumbs` (thumbs.js's Thumbnailer), `touched(dir)` (a file
- * was added there), `apk` (phil's Android app, offered while pairing, if it's
+ * every window), `thumbs` (thumbs.js's Thumbnailer), `list(dir)` (a folder's
+ * entries as phil's page gets them: thumbnails made, folder summaries saved),
+ * `summary(dir)` (a folder's summary, made now), `touched(dir)` (a file was
+ * added there), `apk` (phil's Android app, offered while pairing, if it's
  * there). Call start(); stop() frees the port (an engine retiring).
  */
-export function createLink({ configDir, broadcast, thumbs, touched = () => {}, apk = null }) {
+export function createLink({ configDir, broadcast, thumbs, list, summary: summaryOf, touched = () => {}, apk = null }) {
   const stateFile = join(configDir, "phones.json");
   const certDir = join(configDir, "link");
   let phones = null; // [phone], loaded first
@@ -176,17 +177,9 @@ export function createLink({ configDir, broadcast, thumbs, touched = () => {}, a
         if (!pairingNow() || !apk) return text(404, "Not found");
         return serveFile(req, apk, { "content-type": "application/vnd.android.package-archive", "content-disposition": 'attachment; filename="phil.apk"' });
     }
-    // The rest: a paired phone's (its token: a header from the app, a cookie in its WebView).
-    const token = url.pathname === "/m/" && url.searchParams.get("token");
-    if (token) {
-      if (!await phoneFor(token)) return text(403, "Not paired");
-      return new Response(null, {
-        status: 303,
-        headers: { location: "/m/", "set-cookie": `${COOKIE}=${token}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000` },
-      });
-    }
+    // The rest: a paired phone's (its token, in a header).
     const phone = await phoneFor(tokenOf(req));
-    if (!phone) return url.pathname.startsWith("/m/") && req.method === "GET" ? text(403, "Open phil's app on the phone") : jsonError(httpError(401, "Not paired"));
+    if (!phone) return jsonError(httpError(401, "Not paired"));
     switch (route) {
       case "GET /link/me": // (the app, opening) still paired?
         return json({ name: phone.name, pc: await hostname() });
@@ -197,12 +190,14 @@ export function createLink({ configDir, broadcast, thumbs, touched = () => {}, a
         return json({ ok: true });
       case "POST /link/upload": // Share → phil: into the Downloads folder
         return json(await receive(req, downloadDir(), url.searchParams.get("name"), phone));
-      case "GET /m/":
-        return staticFile(MOBILE_DIR, "index.html");
+      case "GET /link/theme": // phil's look, for the app's: the shared styles and the theme in use
+        return json(await themeNow());
       case "GET /m/api/places":
         return json(await placesHere());
       case "GET /m/api/list":
         return json(await listing(pathParam(url), url.searchParams.get("hidden") === "1"));
+      case "GET /m/api/summary": // a folder's, for its tile (its previews: thumbnails by name, /m/thumbs/...)
+        return json(appSummary(await summaryOf(pathParam(url))));
       case "GET /m/file":
       case "HEAD /m/file": {
         const path = pathParam(url);
@@ -214,7 +209,12 @@ export function createLink({ configDir, broadcast, thumbs, touched = () => {}, a
       case "POST /m/api/upload": // the light phil's: into the folder shown
         return json(await receive(req, pathParam(url, "dir"), url.searchParams.get("name"), phone));
     }
-    if (req.method === "GET" && url.pathname.startsWith("/m/ui/")) return staticFile(MOBILE_DIR, url.pathname.slice(6));
+    // A thumbnail by its name (a listing's, a folder summary's): always the same picture (the app keeps it).
+    const named = /^\/m\/thumbs\/[^/]+\/([^/]+)$/.exec(url.pathname);
+    if (req.method === "GET" && named) {
+      const file = thumbs.fileFor(named[1]);
+      if (file) return serveFile(req, file, { "cache-control": "private, max-age=31536000, immutable" });
+    }
     return text(404, "Not found");
   }
 
@@ -354,9 +354,22 @@ export function createLink({ configDir, broadcast, thumbs, touched = () => {}, a
     return { ok: true };
   }
 
-  async function list() {
+  async function phonesList() {
     await load();
     return shown();
+  }
+
+  // A folder for the app: phil's own entries (their thumbnails, if made, by name:
+  // /m/thumbs/...; folders' summaries), folders first.
+  async function listing(dir, hidden) {
+    dir = normalize(dir);
+    const entries = (await list(dir)).filter((e) => hidden || !e.name.startsWith(".")).map((e) => ({
+      name: e.name, path: e.path, kind: e.kind === "file" ? audioKind(e.name) ?? "file" : e.kind, size: e.size, mtime: e.mtime,
+      thumb: typeof e.thumb === "string" && e.thumb.startsWith("/thumbs/") ? `/m${e.thumb}` : null,
+      summary: e.kind === "dir" ? appSummary(e.summary) : undefined,
+    }));
+    entries.sort((a, b) => (a.kind === "dir") === (b.kind === "dir") ? collator.compare(a.name, b.name) : a.kind === "dir" ? -1 : 1);
+    return { path: dir, parent: dir === "/" ? null : dirname(dir), entries };
   }
 
   // The gvfs mount points of phones (their paths here): {path: name}, for showing their names.
@@ -420,25 +433,27 @@ export function createLink({ configDir, broadcast, thumbs, touched = () => {}, a
     return text(404, "No thumbnail");
   }
 
-  return { start, stop, list, pairStart, pairStop, open, rename, forget, mountNames, status: () => ({ listening: !!server, problem }) };
+  return { start, stop, list: phonesList, pairStart, pairStop, open, rename, forget, mountNames, status: () => ({ listening: !!server, problem }) };
 }
 
-// ---------------------------------------------------------------- the light phil's files
+// ---------------------------------------------------------------- the app's light phil
 
-async function listing(dir, hidden) {
-  dir = normalize(dir);
-  const names = [];
-  for await (const d of Deno.readDir(dir)) if (hidden || !d.name.startsWith(".")) names.push(d);
-  const entries = [];
-  await Promise.all(names.map(async (d) => {
-    const path = join(dir, d.name);
-    const st = await Deno.stat(path).catch(() => null);
-    if (!st) return;
-    const kind = st.isDirectory ? "dir" : audioKind(d.name) ?? mediaKind(d.name);
-    entries.push({ name: d.name, path, kind, size: st.size, mtime: st.mtime?.getTime() ?? 0 });
-  }));
-  entries.sort((a, b) => (a.kind === "dir") === (b.kind === "dir") ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) : a.kind === "dir" ? -1 : 1);
-  return { path: dir, parent: dir === "/" ? null : dirname(dir), entries };
+// A folder summary as the app has it: its previews' thumbnails by name
+// (/m/thumbs/...; ones not made yet left out: it asks again), texts as they are.
+function appSummary(s) {
+  if (!s) return null;
+  const previews = (s.previews ?? []).map((p) => (typeof p === "string" ? { url: p } : p))
+    .map((p) => (p.url?.startsWith("/thumbs/") ? { url: `/m${p.url}` } : p.text ? { text: p.text } : null)).filter(Boolean);
+  return { files: s.files, dirs: s.dirs, size: s.size, previews, complete: s.complete !== false };
+}
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+// The theme in use: base.css (the shared styles) and its own file, from the themes folder.
+async function themeNow() {
+  const name = await currentTheme();
+  const read = async (file) => (await themeFile(file)).text();
+  return { name, base: await read("base.css"), css: await read(`${name}.css`) };
 }
 
 const AUDIO_EXT = /\.(mp3|m4a|aac|flac|ogg|oga|opus|wav|wma|alac|aiff?)$/i;
@@ -481,12 +496,7 @@ const attachment = (name) => `attachment; filename="${name.replace(/["\\\r\n]/g,
 const clean = (s) => String(s ?? "").replace(/[\0-\x1f]/g, "").trim().slice(0, 80);
 const jsonError = (err) => new Response(JSON.stringify({ error: err.message }), { status: err.status ?? 500, headers: { "content-type": "application/json" } });
 
-function tokenOf(req) {
-  const bearer = /^Bearer (\S+)$/.exec(req.headers.get("authorization") ?? "")?.[1];
-  if (bearer) return bearer;
-  for (const c of (req.headers.get("cookie") ?? "").split(/;\s*/)) if (c.startsWith(`${COOKIE}=`)) return c.slice(COOKIE.length + 1);
-  return null;
-}
+const tokenOf = (req) => /^Bearer (\S+)$/.exec(req.headers.get("authorization") ?? "")?.[1] ?? null;
 
 function randomToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));

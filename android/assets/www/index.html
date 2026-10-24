@@ -1,0 +1,40 @@
+<!doctype html>
+<!-- The light phil: the phone's files and the PC's, in phil's tiles and theme (Serve.java answers what it asks for). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>phil</title>
+<!-- phil's look as on the PC: its shared styles, these, then the theme in use (which wins). -->
+<link rel="stylesheet" href="/theme/base.css" id="theme-base">
+<link rel="stylesheet" href="/ui/style.css">
+<link rel="stylesheet" href="/theme/theme.css" id="theme">
+</head>
+<body>
+  <header id="bar">
+    <button id="up" class="icon" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    <div id="where"><span id="title">phil</span><span id="path"></span></div>
+    <button id="cols" class="icon" aria-label="Tile size"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></button>
+    <button id="menu-button" class="icon" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="12" cy="19" r="1.3"/></svg></button>
+  </header>
+  <nav id="places" aria-label="Places"></nav>
+  <main id="grid"></main>
+  <div id="message" hidden><p></p><button hidden></button></div>
+  <button id="send-here" class="fab" hidden aria-label="Send files here"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+  <div id="menu" hidden>
+    <button data-do="reload">Reload</button>
+    <button data-do="hidden">Show hidden files</button>
+    <button data-do="setup">PC and sharing…</button>
+  </div>
+  <!-- A long press's actions. -->
+  <div id="sheet" hidden><div class="sheet-title"></div><div class="sheet-buttons"></div></div>
+  <!-- A picture, a video or a song, over the folder; Back (or ×) closes it. -->
+  <div id="viewer" hidden>
+    <button id="viewer-close" class="icon" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div id="viewer-body"></div>
+    <div id="viewer-foot"><span id="viewer-name"></span><button id="viewer-action"></button></div>
+  </div>
+  <div id="toast" hidden></div>
+<script src="/ui/app.js" type="module"></script>
+</body>
+</html>

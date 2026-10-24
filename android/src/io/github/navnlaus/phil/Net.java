@@ -108,6 +108,30 @@ final class Net {
         throw last != null ? last : new IOException("No address for " + store.pcName());
     }
 
+    // A request to the paired PC whose answer is read as it comes (a file, a
+    // thumbnail): the connection, its status read; a refusal thrown (Answer).
+    static HttpsURLConnection request(Store store, String method, String path, java.util.Map<String, String> headers) throws IOException {
+        IOException last = null;
+        for (String host : store.hosts()) {
+            HttpsURLConnection c;
+            int status;
+            try {
+                c = open(host, store.pcPort(), path, store.fingerprint(), null, 3000);
+                c.setRequestMethod(method);
+                c.setRequestProperty("authorization", "Bearer " + store.token());
+                if (headers != null) for (java.util.Map.Entry<String, String> h : headers.entrySet()) c.setRequestProperty(h.getKey(), h.getValue());
+                status = c.getResponseCode();
+            } catch (IOException e) {
+                last = e;
+                continue;
+            }
+            store.answered(host);
+            if (status >= 400) answer(c, status);
+            return c;
+        }
+        throw last != null ? last : new IOException("No address for " + store.pcName());
+    }
+
     // The first of the PC's addresses that answers (a quick TLS handshake), or null.
     static String reachable(Store store) {
         for (String host : store.hosts()) {

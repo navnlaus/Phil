@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- phil's phone link: the phone's files shared with phil on a PC (SFTP), and a light phil of
-     the PC's on the phone (a WebView of the PC's link server, apps/phil/link.js). -->
+<!-- phil's phone link: the phone's files shared with phil on a PC (SFTP), and a light phil on
+     the phone: its own files and the PC's (assets/www, Serve; the PC's through apps/phil/link.js). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.navnlaus.phil">
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -66,6 +66,13 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Shares the phone's files with the user's own PC (an SFTP server) while it's on" />
         </service>
+
+        <!-- The phone's files opened in other apps (Open with…): read-only, by granted URI. -->
+        <provider
+            android:name=".FilesProvider"
+            android:authorities="io.github.navnlaus.phil.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>

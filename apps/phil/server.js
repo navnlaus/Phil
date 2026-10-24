@@ -1331,6 +1331,8 @@ export function createServer({ profile, controlSocket }) {
     configDir: dirname(config.settingsFile),
     broadcast,
     thumbs,
+    list: (dir) => readEntries(dir), // (thumbnails and folder summaries looked up, as for phil's page)
+    summary: (dir) => summarize(dir, "name", new AbortController().signal),
     touched: (dir) => totals.touched(dir),
     apk: join(Deno.env.get("XDG_DATA_HOME") || join(home(), ".local", "share"), "phil", "phil.apk"), // (scripts/install.sh puts it there)
   });

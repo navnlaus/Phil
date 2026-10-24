@@ -478,11 +478,17 @@ and over [Tailscale](https://tailscale.com) away from it.
   shows), mounted by gvfs over SFTP: they're a folder like any other, to copy
   to and from, with thumbnails, folder sizes and the Transfers list. The
   breadcrumbs start at its name. Right-click renames or forgets it.
-- On the phone, a light phil of this PC's files: folders (a list or a grid,
-  with phil's thumbnails), pictures (swipe for the next), videos and music
-  played there (the next song in the folder after one), anything else
-  downloaded into its Download folder (a long press downloads any file), and
-  + sends files from the phone into the folder shown.
+- On the phone, phil: the phone's own files (its storage, and an SD card), and
+  this PC's while it's in reach, as phil's tiles in phil's theme (the one in
+  use here, taken when the PC's in reach and kept for when it isn't). A
+  folder's face shows its first pictures. Thumbnails are made on the phone for
+  its own files (pictures, videos, a PDF's first page, a song's cover art);
+  the PC's are phil's own, fetched once. Both are kept in the app's cache (400
+  MB at most; the least used go first). Pictures show (swipe for the next),
+  and videos and music play (the next song in the folder after one). The
+  phone's other files open in their app; the PC's are saved to the phone first.
+  A long press: Open with…, Send to the PC, Save to phone. On a PC folder, +
+  sends files from the phone into it.
 - Share → "Send to PC" on the phone sends files (or text, as a note) into the
   PC's Downloads, in the Transfers list as they come.
 
@@ -494,6 +500,9 @@ dialog is open, and five wrong codes end it.
 
 How it works (`apps/phil/link.js`):
 
+- The app's phil is a page in the app (`android/assets/www`) shown at
+  `https://phil.invalid/`, a name the app answers itself (nothing goes out):
+  the phone's files from the app, the PC's through the link.
 - phil's main engine (not an incognito one) serves the phone on port 47210,
   on every address, over HTTPS with a certificate of its own
   (`~/.config/phil/link/`, made once), which the app trusts by its

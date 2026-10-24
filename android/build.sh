@@ -49,8 +49,16 @@ out=build
 rm -rf "$out/classes" "$out/dex" "$out/gen" "$out"/*.apk "$out/res.zip"
 mkdir -p "$out/classes" "$out/dex" "$out/gen"
 
+# The assets, with phil's look built in (the shared styles and the default theme,
+# from themes/: what the light phil wears until it has the PC's).
+rm -rf "$out/assets"
+mkdir -p "$out/assets"
+cp -r assets/. "$out/assets/"
+cp ../themes/base.css "$out/assets/www/theme-base.css"
+cp ../themes/overlay.css "$out/assets/www/theme-theme.css"
+
 "$bt/aapt2" compile --dir res -o "$out/res.zip"
-"$bt/aapt2" link -I "$jar" --manifest AndroidManifest.xml -A assets \
+"$bt/aapt2" link -I "$jar" --manifest AndroidManifest.xml -A "$out/assets" \
   --min-sdk-version $MIN_SDK --target-sdk-version "${PLATFORM#android-}" \
   --version-code "$code" --version-name "$name" \
   --java "$out/gen" -o "$out/unsigned.apk" "$out/res.zip"
