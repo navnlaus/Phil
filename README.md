@@ -1252,7 +1252,9 @@ closed (the engine keeps running), till it's stopped.
   phil's sidebar shows it: its cover, title and artist (a click opens Music &
   radio), with previous, play/pause and next by the gear.
 - **On the command line.** `musicview play`, `pause`, `toggle`, `next`,
-  `previous` (`prev`), `stop`, `status` (what's playing). `musicview --album
+  `previous` (`prev`), `stop`, `status` (what's playing), `next-station` and
+  `previous-station` (the radio's list in order, after the station playing or
+  played last, round again). `musicview --album
   NAME`, `--artist NAME`, `--genre NAME`, `--song NAME`, `--station NAME`
   (or its id: `groovesalad`) play that, with `--shuffle` or `--no-shuffle`, and
   `--volume N` (0 to 100). A name is matched as typed, then by its start, then

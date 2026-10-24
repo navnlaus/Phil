@@ -24,7 +24,8 @@
 //   POST   /api/show               {path}: a song in its folder, in a phil window
 //
 // The control socket (`musicview play`, `musicview --album NAME`...: launch.js) drives the player
-// too: {to: "musicview", player: {cmd, album, artist, genre, song, station, shuffle, volume}}.
+// too: {to: "musicview", player: {cmd, album, artist, genre, song, station, shuffle, volume}};
+// cmd also next-station and previous-station (the radio's list, round).
 //
 // Incognito (the engine's profile): the library's read, never written.
 import { dirname, join } from "@std/path";
@@ -58,11 +59,13 @@ export function createServer({ profile = {}, controlSocket = null }) {
     ...kept,
     onChange: (state) => {
       tell("player", state);
+      if (state.now?.station) lastStation = state.now.station.id;
       const keep = JSON.stringify({ volume: state.volume, shuffle: state.shuffle, repeat: state.repeat });
       if (keep !== keptNow) library.set("player", keptNow = keep);
     },
   });
   // (mpv goes with the engine: player.js's shell, its stdin closed.)
+  let lastStation = null; // the station played last (next-station goes on from it)
   const songsByPath = () => new Map(library.songs().map((s) => [s.path, s]));
   const songsAt = (paths) => {
     const all = songsByPath();
@@ -228,6 +231,17 @@ export function createServer({ profile = {}, controlSocket = null }) {
       if (p.shuffle !== undefined) player.setShuffle(p.shuffle);
       await player.playList(list, 0);
       return { ok: true, say: `Playing ${what} (${list.length} song${list.length === 1 ? "" : "s"})` };
+    }
+    // The next (or previous) station in the list, after the one playing (none playing: after the
+    // last one played; none yet: the first), round to the start again.
+    if (p.cmd === "next-station" || p.cmd === "previous-station") {
+      const all = library.stations();
+      if (!all.length) return { ok: false, error: "No radio stations" };
+      const at = all.findIndex((s) => s.id === (player.state().now?.station?.id ?? lastStation));
+      const step = p.cmd === "next-station" ? 1 : -1;
+      const s = all[at < 0 ? (step > 0 ? 0 : all.length - 1) : (at + step + all.length) % all.length];
+      await player.playStation(s);
+      return { ok: true, say: `Playing ${s.name}` };
     }
     if (p.cmd === "play" && player.at < 0) { // nothing yet: everything, by artist and album
       const all = library.songs().sort((a, b) => (a.albumArtist || a.artist || "").localeCompare(b.albumArtist || b.artist || "") || (a.album ?? "").localeCompare(b.album ?? "") || (a.track ?? 0) - (b.track ?? 0));

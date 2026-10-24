@@ -6,6 +6,8 @@ const HELP = `musicview — your music, and radio
 Usage: musicview [--incognito]          the window
        musicview COMMAND                the player: play, pause, toggle, next,
                                         previous (prev), stop, status
+       musicview next-station           the next radio station in the list (after the
+                                        one playing, or played last); previous-station
        musicview --album NAME           play an album (its songs in order)
        musicview --artist NAME          play an artist's songs
        musicview --genre NAME           play a genre's songs
@@ -29,7 +31,10 @@ phil-engine, like phil; see \`phil-engine --help\` for the engine options
 (--browser, --standalone, --quit, --retire).
 `;
 
-const COMMANDS = { play: "play", pause: "pause", toggle: "toggle", next: "next", previous: "previous", prev: "previous", stop: "stop", status: "status" };
+const COMMANDS = {
+  play: "play", pause: "pause", toggle: "toggle", next: "next", previous: "previous", prev: "previous", stop: "stop", status: "status",
+  "next-station": "next-station", "previous-station": "previous-station", "prev-station": "previous-station",
+};
 const NAMED = ["--album", "--artist", "--genre", "--song", "--station"];
 
 export function parse(args) {
