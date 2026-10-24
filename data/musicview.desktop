@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=musicview
+GenericName=Music and Radio
+Comment=Your music folders' songs, by their tags, and radio stations
+Exec=@BIN@
+Icon=audio-x-generic
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=music;songs;albums;artists;radio;somafm;player;
+StartupWMClass=musicview

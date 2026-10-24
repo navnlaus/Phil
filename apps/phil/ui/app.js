@@ -1096,7 +1096,7 @@ function makeTile(entry, index) {
 // hook; ▶ in the top right one for a video, and a folder icon for a folder
 // (shown by themes that drop the folder's tab). (The top left is left alone.)
 // A folder's icon of its own: picked in its Properties, or a media folder's (while mediaview's on).
-const folderIcon = (entry) => entry.icon ?? (entry.mediaFolder && mediaViewOn() ? "clapperboard" : null);
+const folderIcon = (entry) => entry.icon ?? (entry.mediaFolder && mediaViewOn() ? "clapperboard" : entry.musicFolder && musicViewOn() ? "audio-lines" : null);
 
 function showMarks(tile, entry) {
   const desc = tile.querySelector(".label .desc");
@@ -1466,11 +1466,11 @@ function markPlace(path) {
 
 function renderPlaces() {
   if (holdWhilePressed(renderPlaces)) return;
-  keyed($("#places"), state.init.places.filter((p) => !p.media || mediaViewOn()), {
-    key: (p) => (p.media ? "media" : p.unmounted ? `device:${p.device}` : p.path),
-    kind: (p) => (p.media ? "media" : p.unmounted ? "unmounted" : isMount(p) ? "mount" : "folder"),
-    make: (p) => (p.media ? makeMediaPlace() : p.unmounted ? makeUnmountedPlace() : makePlace(p)),
-    show: (a, p) => (p.media ? showMediaPlaceRow(a) : p.unmounted ? showUnmountedPlace(a, p) : showPlace(a, p)),
+  keyed($("#places"), state.init.places.filter((p) => (!p.media || mediaViewOn()) && (!p.music || musicViewOn())), {
+    key: (p) => (p.media ? "media" : p.music ? "music" : p.unmounted ? `device:${p.device}` : p.path),
+    kind: (p) => (p.media ? "media" : p.music ? "music" : p.unmounted ? "unmounted" : isMount(p) ? "mount" : "folder"),
+    make: (p) => (p.media ? makeMediaPlace() : p.music ? makeMusicPlace() : p.unmounted ? makeUnmountedPlace() : makePlace(p)),
+    show: (a, p) => (p.media ? showMediaPlaceRow(a) : p.music ? putIcon(a, "l:audio-lines") : p.unmounted ? showUnmountedPlace(a, p) : showPlace(a, p)),
   });
   showTransfers();
 }
@@ -1510,7 +1510,7 @@ function showPlace(a, p) {
   if (a.dataset.path !== p.path) a.dataset.path = p.path; // drop target
   a.classList.toggle("folder", !!p.folder); // the user's (see placeGapAt)
   // The icon picked in its Properties, if any; a media folder's (not a drive's).
-  putIcon(a, p.customIcon ? `l:${p.customIcon}` : p.mediaFolder && !isMount(p) && mediaViewOn() ? "l:clapperboard" : p.icon);
+  putIcon(a, p.customIcon ? `l:${p.customIcon}` : p.mediaFolder && !isMount(p) && mediaViewOn() ? "l:clapperboard" : p.musicFolder && !isMount(p) && musicViewOn() ? "l:audio-lines" : p.icon);
   const name = p.description || p.name; // its Properties' description, when it has one
   if (isMount(p)) put(a.querySelector(".place-name"), "textContent", name);
   else put(a.lastChild, "nodeValue", name);
@@ -1542,6 +1542,36 @@ function makeMediaPlace() {
 function showMediaPlaceRow(a) {
   putIcon(a, "l:clapperboard");
   a.classList.toggle("active", mediaOpen());
+}
+
+// Music & radio's row (after Media's): musicview, in a window of its own (music
+// plays on whatever phil shows, and with phil closed).
+function makeMusicPlace() {
+  const a = document.createElement("a");
+  a.className = "folder music-place";
+  a.dataset.place = "phil:music";
+  a.title = "Your music folders' songs, and radio (a window of its own)";
+  a.append(document.createTextNode("Music & radio"));
+  a.onclick = (e) => (e.preventDefault(), openMusicView());
+  a.oncontextmenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showMenu(e.clientX, e.clientY, [
+      ["Open", () => openMusicView()],
+      ["Hide it (Preferences shows it again)", () => setMusicViewOn(false)],
+    ]);
+  };
+  return a;
+}
+
+const musicViewOn = () => !choosing && state.settings.musicView !== false;
+const openMusicView = () => api("/api/open-app", { method: "POST", body: JSON.stringify({ app: "musicview" }) }).catch((err) => alert(`Couldn't open Music & radio\n${err.message}`));
+
+function setMusicViewOn(on) {
+  state.settings.musicView = on;
+  saveSettings(0);
+  renderPlaces();
+  render(); // (music folders' icons)
 }
 
 function setMediaViewOn(on) {
@@ -1864,6 +1894,7 @@ for (const input of prefsView.querySelectorAll("[data-pref]")) {
     if ("off" in input.dataset) input.checked ? (state.settings[key] = true) : delete state.settings[key]; // (off unless set)
     else state.settings[key] = input.checked;
     applySettings();
+    if (key === "musicView") return setMusicViewOn(input.checked);
     if (key === "mediaView") {
       for (const el of prefsView.querySelectorAll(".prefs-media-search")) el.hidden = !input.checked;
       return setMediaViewOn(input.checked);
@@ -2870,6 +2901,10 @@ async function showProperties(entry) {
   const mediaBox = $p("#props-media");
   $p(".media-folder").hidden = p.kind !== "folder" || !mediaViewOn();
   mediaBox.checked = !!p.meta?.media;
+  // A folder: a music folder (its songs, and its subfolders', in musicview).
+  const musicBox = $p("#props-music");
+  $p(".music-folder").hidden = p.kind !== "folder" || !musicViewOn();
+  musicBox.checked = !!p.meta?.music;
   // A folder: auto-tagging its pictures (tagging.js), if set up.
   const autoBox = $p("#props-autotag");
   $p(".autotag").hidden = p.kind !== "folder";
@@ -2942,6 +2977,7 @@ async function showProperties(entry) {
     if (p.kind === "file" && onChange !== (p.meta?.onChange ?? "")) changes.onChange = onChange;
     if (p.kind === "folder" && autoBox.checked !== !!p.meta?.autoTags) changes.autoTags = autoBox.checked;
     if (p.kind === "folder" && mediaBox.checked !== !!p.meta?.media) changes.media = mediaBox.checked;
+    if (p.kind === "folder" && musicBox.checked !== !!p.meta?.music) changes.music = musicBox.checked;
     if ((p.kind === "folder" || p.kind === "file") && iconPick !== (p.meta?.icon ?? "")) changes.icon = iconPick;
     if (p.kind === "file" && bgBox.checked !== !!p.meta?.background) changes.background = bgBox.checked;
     const drive = {};
@@ -2963,6 +2999,10 @@ async function showProperties(entry) {
       refresh();
       if ("description" in changes || "icon" in changes) refreshPlaces(); // a place's description is its label in the sidebar, its icon its icon
       if ((changes.tags?.length || "autoTags" in changes) && state.autoTagged) thumbs.tag(state.path); // the tag list may have grown
+      if ("music" in changes) { // musicview reads it now (or lets its songs go)
+        fetch("/engine/embed/musicview/api/scan", { method: "POST" }).catch(() => {});
+        if (changes.music) flashStatus(`${p.name}: its songs are in Music & radio (being read now)`);
+      }
       if ("media" in changes) {
         if (changes.media) prepareMediaFolder(p.path, p.name);
         refreshPlaces(); // (its icon, if it's there)

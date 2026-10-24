@@ -16,7 +16,7 @@ import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
 import { DriveOptions } from "./driveoptions.js";
 import { onWrote } from "../../engine/written.js";
-import { engineCommand } from "../../engine/instance.js";
+import { ask, engineCommand } from "../../engine/instance.js";
 import { buildInfo } from "../../engine/version.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 import { unfinished, watchDownloads } from "./downloads.js";
@@ -153,7 +153,7 @@ export function createServer({ profile, controlSocket }) {
     if (sidebarMemory !== undefined) return sidebarMemory;
     try {
       const { folders } = JSON.parse(await Deno.readTextFile(sidebarFile));
-      return Array.isArray(folders) ? folders.filter((p) => typeof p === "string" && (p.startsWith("/") || p === MEDIA_PLACE)) : null;
+      return Array.isArray(folders) ? folders.filter((p) => typeof p === "string" && (p.startsWith("/") || p === MEDIA_PLACE || p === MUSIC_PLACE)) : null;
     } catch {
       return null;
     }
@@ -165,6 +165,7 @@ export function createServer({ profile, controlSocket }) {
   const arrangeSidebar = async ({ add = [], before = null, remove = null }) => {
     let folders = (await sidebarFolders()) ?? await defaultFolders();
     if (!folders.includes(MEDIA_PLACE)) folders.push(MEDIA_PLACE); // (where it is by default: after the folders)
+    if (!folders.includes(MUSIC_PLACE)) folders.splice(folders.indexOf(MEDIA_PLACE) + 1, 0, MUSIC_PLACE); // (and Music & radio after it)
     const adding = [];
     for (const path of add) {
       if (typeof path !== "string" || !path.startsWith("/")) throw httpError(400, "paths, please");
@@ -191,7 +192,7 @@ export function createServer({ profile, controlSocket }) {
   const describedPlaces = async () =>
     Promise.all((await places(await sidebarFolders())).map(async (p) => {
       const meta = p.path ? await hooks.get(p.path).catch(() => null) : null;
-      return { ...p, ...(meta?.description ? { description: meta.description } : {}), ...(meta?.icon ? { customIcon: meta.icon } : {}), ...(meta?.media ? { mediaFolder: true } : {}) };
+      return { ...p, ...(meta?.description ? { description: meta.description } : {}), ...(meta?.icon ? { customIcon: meta.icon } : {}), ...(meta?.media ? { mediaFolder: true } : {}), ...(meta?.music ? { musicFolder: true } : {}) };
     }));
   // Files copied or cut (Ctrl+C / Ctrl+X), for every window: pasting goes by the
   // desktop's clipboard, which has their paths as text (`text`) while they're it.
@@ -359,6 +360,13 @@ export function createServer({ profile, controlSocket }) {
         } catch (err) {
           throw cameraError(err);
         }
+      case "POST /api/open-app": { // {app}: its own window (musicview: the sidebar's Music & radio, playing on whatever phil shows)
+        const { app } = await req.json();
+        if (app !== "musicview") throw httpError(400, "Not that app");
+        const answer = controlSocket ? await ask(controlSocket, { open: { app } }).catch(() => null) : null;
+        if (!answer?.ok) throw httpError(503, "Couldn't open its window");
+        return json({ ok: true });
+      }
       case "GET /api/phones": // the phones paired (link.js), for the sidebar
         return json(link ? await link.list() : []);
       case "POST /api/phones/pair": // "Add a phone…": pairing starts; its code and what the dialog shows
@@ -598,8 +606,9 @@ export function createServer({ profile, controlSocket }) {
         const tags = "tags" in changes ? cleanTags(changes.tags) : null;
         const auto = "autoTags" in changes ? { autoTags: changes.autoTags ? true : "" } : {}; // a folder's: tag its pictures
         const media = "media" in changes ? { media: changes.media ? true : "" } : {}; // a folder's: its videos in mediaview
+        const music = "music" in changes ? { music: changes.music ? true : "" } : {}; // a folder's: its songs in musicview
         const background = "background" in changes ? { background: changes.background ? true : "" } : {}; // a script's: run as a terminal in the background
-        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...clean("icon"), ...(tags ? { tags: tags.length ? tags : "" } : {}), ...auto, ...media, ...background });
+        await hooks.set(requirePath(path), { ...clean("description"), ...clean("onChange"), ...clean("icon"), ...(tags ? { tags: tags.length ? tags : "" } : {}), ...auto, ...media, ...music, ...background });
         if (tags?.length) await addTagsToLists([path], tags);
         return json({ ok: true });
       }
@@ -731,6 +740,7 @@ export function createServer({ profile, controlSocket }) {
       if (meta[e.path]?.description) e.description = meta[e.path].description;
       if (meta[e.path]?.icon) e.icon = meta[e.path].icon; // a folder's, picked in its Properties
       if (meta[e.path]?.media) e.mediaFolder = true; // a media folder (its Properties): mediaview's
+      if (meta[e.path]?.music) e.musicFolder = true; // a music folder (its Properties): musicview's
       if (meta[e.path]?.background) e.background = true; // a script run as a terminal in the background (its Properties)
       if (meta[e.path]?.copying) { // a copy into it: under way, or stopped (cut off: no job has it)
         e.copying = { ...meta[e.path].copying };
@@ -1441,6 +1451,7 @@ async function addToConfig(path) {
 
 // The Media view's place in the sidebar's list of folders (sidebar.json): where it's shown.
 const MEDIA_PLACE = "phil:media";
+const MUSIC_PLACE = "phil:music"; // the sidebar's Music & radio: musicview, in a window of its own
 
 // The sidebar's folders by default: home and its usual folders (the XDG ones), those there are.
 async function defaultFolders() {
@@ -1465,9 +1476,15 @@ async function places(folders = null) {
   const out = [];
   const seen = new Set();
   const list = folders ?? await defaultFolders();
-  for (const path of list.includes(MEDIA_PLACE) ? list : [...list, MEDIA_PLACE]) {
+  const withMedia = list.includes(MEDIA_PLACE) ? list : [...list, MEDIA_PLACE];
+  const withMusic = withMedia.includes(MUSIC_PLACE) ? withMedia : withMedia.toSpliced(withMedia.indexOf(MEDIA_PLACE) + 1, 0, MUSIC_PLACE);
+  for (const path of withMusic) {
     if (path === MEDIA_PLACE) {
       out.push({ name: "Media", path: null, media: true, folder: true });
+      continue;
+    }
+    if (path === MUSIC_PLACE) {
+      out.push({ name: "Music & radio", path: null, music: true, folder: true });
       continue;
     }
     if (seen.has(path) || !(await isDir(path))) continue;

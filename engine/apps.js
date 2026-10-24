@@ -58,6 +58,10 @@ export const APPS = {
     launch: () => import("../apps/mediaview/launch.js"),
     server: () => import("../apps/mediaview/server.js"),
   },
+  musicview: {
+    launch: () => import("../apps/musicview/launch.js"),
+    server: () => import("../apps/musicview/server.js"),
+  },
   camview: {
     launch: () => import("../apps/camview/launch.js"),
     server: () => import("../apps/camview/server.js"),

@@ -1,0 +1,515 @@
+{
+ "from": "https://api.somafm.com/channels.json",
+ "stations": [
+  {
+   "id": "somafm:beatblender",
+   "name": "Beat Blender",
+   "description": "A late night blend of deep-house and downtempo chill.",
+   "genre": "electronic",
+   "homepage": "https://somafm.com/beatblender/",
+   "image": "https://api.somafm.com/logos/256/beatblender256.png?v=1299122861",
+   "url": "https://api.somafm.com/beatblender.pls",
+   "nowPlaying": "https://somafm.com/songs/beatblender.json"
+  },
+  {
+   "id": "somafm:brfm",
+   "name": "Black Rock FM",
+   "description": "From the Black Rock Desert playa to the world, year round!",
+   "genre": "eclectic",
+   "homepage": "https://somafm.com/brfm/",
+   "image": "https://api.somafm.com/logos/256/brfm256.jpg?v=1342301643",
+   "url": "https://api.somafm.com/brfm.pls",
+   "nowPlaying": "https://somafm.com/songs/brfm.json"
+  },
+  {
+   "id": "somafm:bootliquor",
+   "name": "Boot Liquor",
+   "description": "Americana Roots music for Cowhands, Cowpokes and Cowtippers",
+   "genre": "americana",
+   "homepage": "https://somafm.com/bootliquor/",
+   "image": "https://api.somafm.com/logos/256/bootliquor256.png?v=1299122827",
+   "url": "https://api.somafm.com/bootliquor320.pls",
+   "nowPlaying": "https://somafm.com/songs/bootliquor.json"
+  },
+  {
+   "id": "somafm:bossa",
+   "name": "Bossa Beyond",
+   "description": "Silky-smooth, laid-back Brazilian-style rhythms of Bossa Nova, Samba and beyond",
+   "genre": "bossanova, world",
+   "homepage": "https://somafm.com/bossa/",
+   "image": "https://api.somafm.com/logos/256/bossa256.jpg?v=1781039370",
+   "url": "https://api.somafm.com/bossa256.pls",
+   "nowPlaying": "https://somafm.com/songs/bossa.json"
+  },
+  {
+   "id": "somafm:chillits",
+   "name": "Chillits Radio",
+   "description": "Celebrating 25 years of music, chilling and camping",
+   "genre": "chill, live",
+   "homepage": "https://somafm.com/chillits/",
+   "image": "https://api.somafm.com/logos/256/chillits256.png?v=1772560615",
+   "url": "https://api.somafm.com/chillits256.pls",
+   "nowPlaying": "https://somafm.com/songs/chillits.json"
+  },
+  {
+   "id": "somafm:christmas",
+   "name": "Christmas Lounge",
+   "description": "Chilled holiday grooves and classic winter lounge tracks. (Kid and Parent safe!) ",
+   "genre": "holiday",
+   "homepage": "https://somafm.com/christmas/",
+   "image": "https://api.somafm.com/logos/256/christmas256.png?v=1342304089",
+   "url": "https://api.somafm.com/christmas256.pls",
+   "nowPlaying": "https://somafm.com/songs/christmas.json"
+  },
+  {
+   "id": "somafm:xmasrocks",
+   "name": "Christmas Rocks!",
+   "description": "Have your self an indie/alternative holiday season!",
+   "genre": "holiday",
+   "homepage": "https://somafm.com/xmasrocks/",
+   "image": "https://api.somafm.com/logos/256/xmasrocks256.png?v=1351794707",
+   "url": "https://api.somafm.com/xmasrocks.pls",
+   "nowPlaying": "https://somafm.com/songs/xmasrocks.json"
+  },
+  {
+   "id": "somafm:cliqhop",
+   "name": "cliqhop idm",
+   "description": "Blips'n'beeps backed mostly w/beats. Intelligent Dance Music.",
+   "genre": "electronic",
+   "homepage": "https://somafm.com/cliqhop/",
+   "image": "https://api.somafm.com/logos/256/cliqhop256.png?v=1491429881",
+   "url": "https://api.somafm.com/cliqhop256.pls",
+   "nowPlaying": "https://somafm.com/songs/cliqhop.json"
+  },
+  {
+   "id": "somafm:covers",
+   "name": "Covers",
+   "description": "Just covers. Songs you know by artists you don't. We've got you covered. ",
+   "genre": "eclectic",
+   "homepage": "https://somafm.com/covers/",
+   "image": "https://api.somafm.com/logos/256/covers256.png?v=1299185814",
+   "url": "https://api.somafm.com/covers.pls",
+   "nowPlaying": "https://somafm.com/songs/covers.json"
+  },
+  {
+   "id": "somafm:deepspaceone",
+   "name": "Deep Space One",
+   "description": "Deep ambient electronic, experimental and space music. For inner and outer space exploration.",
+   "genre": "ambient",
+   "homepage": "https://somafm.com/deepspaceone/",
+   "image": "https://api.somafm.com/logos/256/deepspaceone256.png?v=1378071300",
+   "url": "https://api.somafm.com/deepspaceone.pls",
+   "nowPlaying": "https://somafm.com/songs/deepspaceone.json"
+  },
+  {
+   "id": "somafm:defcon",
+   "name": "DEF CON Radio",
+   "description": "Music for Hacking. The DEF CON Year-Round Channel.",
+   "genre": "electronic, specials",
+   "homepage": "https://somafm.com/defcon/",
+   "image": "https://api.somafm.com/logos/256/defcon256.png?v=1781243225",
+   "url": "https://api.somafm.com/defcon256.pls",
+   "nowPlaying": "https://somafm.com/songs/defcon.json"
+  },
+  {
+   "id": "somafm:deptstore",
+   "name": "Department Store Christmas",
+   "description": "Holiday Elevator Music from a more innocent time.",
+   "genre": "holiday",
+   "homepage": "https://somafm.com/deptstore/",
+   "image": "https://api.somafm.com/logos/256/deptstore256.png?v=1576736359",
+   "url": "https://api.somafm.com/deptstore256.pls",
+   "nowPlaying": "https://somafm.com/songs/deptstore.json"
+  },
+  {
+   "id": "somafm:digitalis",
+   "name": "Digitalis",
+   "description": "Digitally affected analog rock to calm the agitated heart.",
+   "genre": "electronic, alternative",
+   "homepage": "https://somafm.com/digitalis/",
+   "image": "https://api.somafm.com/logos/256/digitalis256.png?v=1299123280",
+   "url": "https://api.somafm.com/digitalis256.pls",
+   "nowPlaying": "https://somafm.com/songs/digitalis.json"
+  },
+  {
+   "id": "somafm:doomed",
+   "name": "Doomed",
+   "description": "Where every day is Halloween: Dark industrial/ambient music for tortured souls. ",
+   "genre": "ambient, industrial",
+   "homepage": "https://somafm.com/doomed/",
+   "image": "https://api.somafm.com/logos/256/doomed256.png?v=1299123314",
+   "url": "https://api.somafm.com/doomed256.pls",
+   "nowPlaying": "https://somafm.com/songs/doomed.json"
+  },
+  {
+   "id": "somafm:dronezone",
+   "name": "Drone Zone",
+   "description": "Served best chilled, safe with most medications. Atmospheric textures with minimal beats.",
+   "genre": "ambient",
+   "homepage": "https://somafm.com/dronezone/",
+   "image": "https://api.somafm.com/logos/256/dronezone256.png?v=1299123385",
+   "url": "https://api.somafm.com/dronezone256.pls",
+   "nowPlaying": "https://somafm.com/songs/dronezone.json"
+  },
+  {
+   "id": "somafm:dz2",
+   "name": "Drone Zone 2",
+   "description": "A more eclectic alternative mix of atmospheric textures with minimal beats.",
+   "genre": "ambient",
+   "homepage": "https://somafm.com/dz2/",
+   "image": "https://api.somafm.com/logos/256/dz2256.png?v=1776988036",
+   "url": "https://api.somafm.com/dz2.pls",
+   "nowPlaying": "https://somafm.com/songs/dz2.json"
+  },
+  {
+   "id": "somafm:dubstep",
+   "name": "Dub Step Beyond",
+   "description": "Dubstep, Dub and Deep Bass. May damage speakers at high volume.",
+   "genre": "electronic",
+   "homepage": "https://somafm.com/dubstep/",
+   "image": "https://api.somafm.com/logos/256/dubstep256.png?v=1338924204",
+   "url": "https://api.somafm.com/dubstep256.pls",
+   "nowPlaying": "https://somafm.com/songs/dubstep.json"
+  },
+  {
+   "id": "somafm:fluid",
+   "name": "Fluid",
+   "description": "Drown in the electronic sound of instrumental hiphop, future soul and liquid trap.",
+   "genre": "electronic, hiphop",
+   "homepage": "https://somafm.com/fluid/",
+   "image": "https://api.somafm.com/logos/256/fluid256.jpg?v=1436822911",
+   "url": "https://api.somafm.com/fluid.pls",
+   "nowPlaying": "https://somafm.com/songs/fluid.json"
+  },
+  {
+   "id": "somafm:folkfwd",
+   "name": "Folk Forward",
+   "description": "Indie Folk, Alt-folk and the occasional folk classics. ",
+   "genre": "folk, alternative",
+   "homepage": "https://somafm.com/folkfwd/",
+   "image": "https://api.somafm.com/logos/256/folkfwd256.png?v=1358300374",
+   "url": "https://api.somafm.com/folkfwd.pls",
+   "nowPlaying": "https://somafm.com/songs/folkfwd.json"
+  },
+  {
+   "id": "somafm:groovesalad",
+   "name": "Groove Salad",
+   "description": "A nicely chilled plate of ambient/downtempo beats and grooves.",
+   "genre": "ambient, electronic",
+   "homepage": "https://somafm.com/groovesalad/",
+   "image": "https://api.somafm.com/logos/256/groovesalad256.png?v=1780812670",
+   "url": "https://api.somafm.com/groovesalad256.pls",
+   "nowPlaying": "https://somafm.com/songs/groovesalad.json"
+  },
+  {
+   "id": "somafm:groovesalad2",
+   "name": "Groove Salad 2",
+   "description": "A different mix of  nicely chilled ambient/downtempo beats and grooves.",
+   "genre": "ambient, electronic",
+   "homepage": "https://somafm.com/groovesalad2/",
+   "image": "https://api.somafm.com/logos/256/groovesalad2256.png?v=1779933335",
+   "url": "https://api.somafm.com/groovesalad2256.pls",
+   "nowPlaying": "https://somafm.com/songs/groovesalad2.json"
+  },
+  {
+   "id": "somafm:gsclassic",
+   "name": "Groove Salad Classic",
+   "description": "The classic (early 2000s) version of a nicely chilled plate of ambient/downtempo beats and grooves.",
+   "genre": "ambient, electronic",
+   "homepage": "https://somafm.com/gsclassic/",
+   "image": "https://api.somafm.com/logos/256/gsclassic256.jpg?v=1747344773",
+   "url": "https://api.somafm.com/gsclassic.pls",
+   "nowPlaying": "https://somafm.com/songs/gsclassic.json"
+  },
+  {
+   "id": "somafm:reggae",
+   "name": "Heavyweight Reggae",
+   "description": "Reggae, Ska, Rocksteady classic and deep tracks.",
+   "genre": "reggae",
+   "homepage": "https://somafm.com/reggae/",
+   "image": "https://api.somafm.com/logos/256/reggae256.png?v=1579290261",
+   "url": "https://api.somafm.com/reggae256.pls",
+   "nowPlaying": "https://somafm.com/songs/reggae.json"
+  },
+  {
+   "id": "somafm:illstreet",
+   "name": "Illinois Street Lounge",
+   "description": "Classic bachelor pad, playful exotica and vintage music of tomorrow.",
+   "genre": "lounge",
+   "homepage": "https://somafm.com/illstreet/",
+   "image": "https://api.somafm.com/logos/256/illstreet256.jpg?v=1747344745",
+   "url": "https://api.somafm.com/illstreet.pls",
+   "nowPlaying": "https://somafm.com/songs/illstreet.json"
+  },
+  {
+   "id": "somafm:indiepop",
+   "name": "Indie Pop Rocks!",
+   "description": "New and classic favorite indie pop tracks.",
+   "genre": "alternative, rock",
+   "homepage": "https://somafm.com/indiepop/",
+   "image": "https://api.somafm.com/logos/256/indiepop256.png?v=1299188003",
+   "url": "https://api.somafm.com/indiepop.pls",
+   "nowPlaying": "https://somafm.com/songs/indiepop.json"
+  },
+  {
+   "id": "somafm:jollysoul",
+   "name": "Jolly Ol' Soul",
+   "description": "Where we cut right to the soul of the season.",
+   "genre": "holiday",
+   "homepage": "https://somafm.com/jollysoul/",
+   "image": "https://api.somafm.com/logos/256/jollysoul256.png?v=1417386956",
+   "url": "https://api.somafm.com/jollysoul.pls",
+   "nowPlaying": "https://somafm.com/songs/jollysoul.json"
+  },
+  {
+   "id": "somafm:seventies",
+   "name": "Left Coast 70s",
+   "description": "Mellow album rock from the Seventies. Yacht not required.",
+   "genre": "70s, rock",
+   "homepage": "https://somafm.com/seventies/",
+   "image": "https://api.somafm.com/logos/256/seventies256.jpg?v=1435992064",
+   "url": "https://api.somafm.com/seventies320.pls",
+   "nowPlaying": "https://somafm.com/songs/seventies.json"
+  },
+  {
+   "id": "somafm:lush",
+   "name": "Lush",
+   "description": "Sensuous and mellow female vocals, many with an electronic influence.",
+   "genre": "electronic",
+   "homepage": "https://somafm.com/lush/",
+   "image": "https://api.somafm.com/logos/256/lush256.png?v=1439940390",
+   "url": "https://api.somafm.com/lush.pls",
+   "nowPlaying": "https://somafm.com/songs/lush.json"
+  },
+  {
+   "id": "somafm:metal",
+   "name": "Metal Detector",
+   "description": "From black to doom, prog to sludge, thrash to post, stoner to crossover, punk to industrial.",
+   "genre": "metal",
+   "homepage": "https://somafm.com/metal/",
+   "image": "https://api.somafm.com/logos/256/metal256.png?v=1438371170",
+   "url": "https://api.somafm.com/metal.pls",
+   "nowPlaying": "https://somafm.com/songs/metal.json"
+  },
+  {
+   "id": "somafm:missioncontrol",
+   "name": "Mission Control",
+   "description": "Celebrating NASA and Space Explorers everywhere.",
+   "genre": "ambient, electronic",
+   "homepage": "https://somafm.com/missioncontrol/",
+   "image": "https://api.somafm.com/logos/256/missioncontrol256.png?v=1342304313",
+   "url": "https://api.somafm.com/missioncontrol.pls",
+   "nowPlaying": "https://somafm.com/songs/missioncontrol.json"
+  },
+  {
+   "id": "somafm:n5md",
+   "name": "n5MD Radio",
+   "description": "Emotional Experiments in Music: Ambient, modern composition, post-rock, & experimental electronic music",
+   "genre": "specials",
+   "homepage": "https://somafm.com/n5md/",
+   "image": "https://api.somafm.com/logos/256/n5md256.png?v=1605058454",
+   "url": "https://api.somafm.com/n5md.pls",
+   "nowPlaying": "https://somafm.com/songs/n5md.json"
+  },
+  {
+   "id": "somafm:poptron",
+   "name": "PopTron",
+   "description": "Electropop and indie dance rock with sparkle and pop.",
+   "genre": "alternative",
+   "homepage": "https://somafm.com/poptron/",
+   "image": "https://api.somafm.com/logos/256/poptron256.png?v=1299124081",
+   "url": "https://api.somafm.com/poptron.pls",
+   "nowPlaying": "https://somafm.com/songs/poptron.json"
+  },
+  {
+   "id": "somafm:secretagent",
+   "name": "Secret Agent",
+   "description": "The soundtrack for your stylish, mysterious, dangerous life. For Spies and PIs too!",
+   "genre": "lounge",
+   "homepage": "https://somafm.com/secretagent/",
+   "image": "https://api.somafm.com/logos/256/secretagent256.png?v=1299123636",
+   "url": "https://api.somafm.com/secretagent.pls",
+   "nowPlaying": "https://somafm.com/songs/secretagent.json"
+  },
+  {
+   "id": "somafm:7soul",
+   "name": "Seven Inch Soul",
+   "description": "Vintage soul tracks from the original 45 RPM vinyl.",
+   "genre": "oldies",
+   "homepage": "https://somafm.com/7soul/",
+   "image": "https://api.somafm.com/logos/256/7soul256.png?v=1396144572",
+   "url": "https://api.somafm.com/7soul.pls",
+   "nowPlaying": "https://somafm.com/songs/7soul.json"
+  },
+  {
+   "id": "somafm:sf1033",
+   "name": "SF 10-33",
+   "description": "Ambient music mixed with the sounds of San Francisco public safety radio traffic.",
+   "genre": "ambient, news",
+   "homepage": "https://somafm.com/sf1033/",
+   "image": "https://api.somafm.com/logos/256/sf1033256.png?v=1335919756",
+   "url": "https://api.somafm.com/sf1033.pls",
+   "nowPlaying": "https://somafm.com/songs/sf1033.json"
+  },
+  {
+   "id": "somafm:sfinsf",
+   "name": "SF in SF",
+   "description": "Author readings and discussions from the science fiction, fantasy, horror, and genre literary fields.",
+   "genre": "spoken",
+   "homepage": "https://somafm.com/sfinsf/",
+   "image": "https://api.somafm.com/logos/256/sfinsf256.jpg?v=1674967917",
+   "url": "https://api.somafm.com/sfinsf.pls",
+   "nowPlaying": "https://somafm.com/songs/sfinsf.json"
+  },
+  {
+   "id": "somafm:scanner",
+   "name": "SF Police Scanner",
+   "description": "San Francisco Public Safety Scanner Feed",
+   "genre": "live, news",
+   "homepage": "https://somafm.com/scanner/",
+   "image": "https://api.somafm.com/logos/256/scanner256.png?v=1674935912",
+   "url": "https://api.somafm.com/scanner.pls",
+   "nowPlaying": "https://somafm.com/songs/scanner.json"
+  },
+  {
+   "id": "somafm:live",
+   "name": "SomaFM Live",
+   "description": "Special Live Events and rebroadcasts of past live events",
+   "genre": "live, specials",
+   "homepage": "https://somafm.com/live/",
+   "image": "https://api.somafm.com/logos/256/live256.png?v=1782343535",
+   "url": "https://api.somafm.com/live.pls",
+   "nowPlaying": "https://somafm.com/songs/live.json"
+  },
+  {
+   "id": "somafm:specials",
+   "name": "SomaFM Specials",
+   "description": "Now featuring Afternoon Jazz, Wavepool, DubX, The Surf Report & More!",
+   "genre": "specials",
+   "homepage": "https://somafm.com/specials/",
+   "image": "https://api.somafm.com/logos/256/specials256.png?v=1674947103",
+   "url": "https://api.somafm.com/specials.pls",
+   "nowPlaying": "https://somafm.com/songs/specials.json"
+  },
+  {
+   "id": "somafm:sonicuniverse",
+   "name": "Sonic Universe",
+   "description": "Transcending the world of jazz with eclectic, avant-garde takes on tradition.",
+   "genre": "jazz",
+   "homepage": "https://somafm.com/sonicuniverse/",
+   "image": "https://api.somafm.com/logos/256/sonicuniverse256.png?v=1299123729",
+   "url": "https://api.somafm.com/sonicuniverse256.pls",
+   "nowPlaying": "https://somafm.com/songs/sonicuniverse.json"
+  },
+  {
+   "id": "somafm:spacestation",
+   "name": "Space Station Soma",
+   "description": "Tune in, turn on, space out. Spaced-out ambient and mid-tempo electronica.",
+   "genre": "electronic",
+   "homepage": "https://somafm.com/spacestation/",
+   "image": "https://api.somafm.com/logos/256/spacestation256.png?v=1299123676",
+   "url": "https://api.somafm.com/spacestation320.pls",
+   "nowPlaying": "https://somafm.com/songs/spacestation.json"
+  },
+  {
+   "id": "somafm:suburbsofgoa",
+   "name": "Suburbs of Goa",
+   "description": "Desi-influenced Asian world beats and beyond.",
+   "genre": "world",
+   "homepage": "https://somafm.com/suburbsofgoa/",
+   "image": "https://api.somafm.com/logos/256/suburbsofgoa256.png?v=1342303770",
+   "url": "https://api.somafm.com/suburbsofgoa.pls",
+   "nowPlaying": "https://somafm.com/songs/suburbsofgoa.json"
+  },
+  {
+   "id": "somafm:synphaera",
+   "name": "Synphaera Radio",
+   "description": "Featuring the music from an independent record label focused on modern electronic ambient and space music.",
+   "genre": "ambient, electronic",
+   "homepage": "https://somafm.com/synphaera/",
+   "image": "https://api.somafm.com/logos/256/synphaera256.jpg?v=1611903685",
+   "url": "https://api.somafm.com/synphaera256.pls",
+   "nowPlaying": "https://somafm.com/songs/synphaera.json"
+  },
+  {
+   "id": "somafm:darkzone",
+   "name": "The Dark Zone",
+   "description": "The darker side of deep ambient. Music for staring into the Abyss. ",
+   "genre": "ambient",
+   "homepage": "https://somafm.com/darkzone/",
+   "image": "https://api.somafm.com/logos/256/darkzone256.jpg?v=1674958814",
+   "url": "https://api.somafm.com/darkzone256.pls",
+   "nowPlaying": "https://somafm.com/songs/darkzone.json"
+  },
+  {
+   "id": "somafm:insound",
+   "name": "The In-Sound",
+   "description": "60s/70s Hipster Euro Pop where psychedelic melodies meets groovy vibes. ",
+   "genre": "oldies",
+   "homepage": "https://somafm.com/insound/",
+   "image": "https://api.somafm.com/logos/256/insound256.jpg?v=1781039370",
+   "url": "https://api.somafm.com/insound256.pls",
+   "nowPlaying": "https://somafm.com/songs/insound.json"
+  },
+  {
+   "id": "somafm:thetrip",
+   "name": "The Trip",
+   "description": "Progressive house / trance. Tip top tunes.",
+   "genre": "electronic",
+   "homepage": "https://somafm.com/thetrip/",
+   "image": "https://api.somafm.com/logos/256/thetrip256.jpg?v=1447535313",
+   "url": "https://api.somafm.com/thetrip.pls",
+   "nowPlaying": "https://somafm.com/songs/thetrip.json"
+  },
+  {
+   "id": "somafm:thistle",
+   "name": "ThistleRadio",
+   "description": "Exploring music from Celtic roots and branches",
+   "genre": "celtic, world",
+   "homepage": "https://somafm.com/thistle/",
+   "image": "https://api.somafm.com/logos/256/thistle256.jpg?v=1433008752",
+   "url": "https://api.somafm.com/thistle.pls",
+   "nowPlaying": "https://somafm.com/songs/thistle.json"
+  },
+  {
+   "id": "somafm:tikitime",
+   "name": "Tiki Time",
+   "description": "Classic Tiki music and Vintage island rhythms to sip cocktails by.",
+   "genre": "tiki, world",
+   "homepage": "https://somafm.com/tikitime/",
+   "image": "https://api.somafm.com/logos/256/tikitime256.jpg?v=1695348830",
+   "url": "https://api.somafm.com/tikitime256.pls",
+   "nowPlaying": "https://somafm.com/songs/tikitime.json"
+  },
+  {
+   "id": "somafm:u80s",
+   "name": "Underground 80s",
+   "description": "Early 80s UK Synthpop and a bit of New Wave.",
+   "genre": "alternative, electronic",
+   "homepage": "https://somafm.com/u80s/",
+   "image": "https://api.somafm.com/logos/256/u80s256.png?v=1418528434",
+   "url": "https://api.somafm.com/u80s256.pls",
+   "nowPlaying": "https://somafm.com/songs/u80s.json"
+  },
+  {
+   "id": "somafm:vaporwaves",
+   "name": "Vaporwaves",
+   "description": "All Vaporwave. All the time.",
+   "genre": "electronic",
+   "homepage": "https://somafm.com/vaporwaves/",
+   "image": "https://api.somafm.com/logos/256/vaporwaves256.png?v=1601767702",
+   "url": "https://api.somafm.com/vaporwaves.pls",
+   "nowPlaying": "https://somafm.com/songs/vaporwaves.json"
+  },
+  {
+   "id": "somafm:xmasinfrisko",
+   "name": "Xmas in Frisko",
+   "description": "SomaFM's wacky and eclectic holiday mix. Not for the easily offended. ",
+   "genre": "holiday",
+   "homepage": "https://somafm.com/xmasinfrisko/",
+   "image": "https://api.somafm.com/logos/256/xmasinfrisko256.jpg?v=1444422142",
+   "url": "https://api.somafm.com/xmasinfrisko.pls",
+   "nowPlaying": "https://somafm.com/songs/xmasinfrisko.json"
+  }
+ ]
+}

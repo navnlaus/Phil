@@ -49,6 +49,9 @@ quickly. The engine keeps running after its last window closes.
 - **mediaview**, your movies and TV shows: `mediaview`, the videos in the
   folders marked as media, matched with IMDb's titles and ratings on this
   computer (phil's sidebar: Media; see [mediaview](#mediaview)).
+- **musicview**, your music and radio: `musicview`, the songs in the folders
+  marked as music, by their tags, and radio stations, SomaFM's among them
+  (phil's sidebar: Music & radio; see [musicview](#musicview)).
 - **camview**, network cameras live: `camview`, every camera that's on, side
   by side; `camview camera`, one, with pan, tilt and zoom (phil's sidebar:
   Cameras; see [camview](#camview)).
@@ -675,6 +678,8 @@ apps/videoplayer/   launch.js, server.js (ffprobe, ffmpeg), ui/ (mpv.js: mpv sta
 apps/imageresize/   launch.js, server.js (vips), ui/
 apps/mediaview/     launch.js, server.js, ui/; media.js (names to titles), imdb.js and
                     imdb-build.js (IMDb's datasets as an SQLite database), store.js (its own)
+apps/musicview/     launch.js, server.js, ui/; library.js (the songs, by their tags, and the stations:
+                    SQLite), radio.js (streams, playlists, what's playing), somafm.json (SomaFM's stations)
 engine/media.js     media kinds by name, a folder's images or videos, vips previews of images a browser can't show
 engine/files.js     reading and saving files for the editors
 data/, scripts/install.sh  desktop entries, D-Bus service file, installer
@@ -1207,6 +1212,43 @@ its details (find the title, pick it; or "Not a movie or show"), and that's kept
 for every file named so. mediaview keeps that, what was in the media folders
 when last seen, the titles matched and the library as last shown in an SQLite
 database, `~/.local/state/phil/media.sqlite`.
+
+## musicview
+
+`musicview` (phil's sidebar's Music & radio, in a window of its own, so music
+plays on whatever phil shows and with phil closed) is your music and radio.
+
+- **The library.** Every song in the folders marked as music (a folder's
+  Properties in phil: "A music folder") and their subfolders, on any drive, by
+  their tags. Albums show with their covers (by album artist, or artist, and
+  name; sorted by name, artist, year or when they were added). Then come
+  artists, songs (a table) and genres, all found with the Find box. An album's,
+  artist's or genre's songs open over the list, with Play, Shuffle and Add to
+  Next up. A click on a song plays it and the rest of the list after it.
+  Right-click: Play next, Add to Next up, Show in folder (a phil window).
+- **Reading the folders.** The songs' tags are read with ffprobe (phil's
+  `apps/phil/audio.js`) and kept in an SQLite database
+  (`~/.local/state/phil/music.sqlite`). Opening musicview reads the folders
+  again if that was more than five minutes ago, and only new and changed songs
+  are read. A folder just marked as music is read at once, and so is everything
+  when ↻ is clicked. A music folder that isn't there (a drive unplugged) keeps
+  its songs till it's back. The covers are made once (album-sized, next to
+  phil's thumbnails).
+- **Playing.** The player along the bottom has shuffle, previous, play/pause,
+  next, repeat (all, then this one), the position, volume and Next up (the
+  queue, at the side: a click plays one, × takes one off). Space plays and
+  pauses. The media keys work through the page's media session.
+- **Radio.** Every SomaFM station comes with it, with its logo and what's
+  playing on it (from SomaFM's list of songs). "Add SomaFM's stations" adds
+  them again, new ones too. "Add a station" takes any stream by its address,
+  or a .pls or .m3u playlist (resolved when it's played, so the station's
+  current servers are used). What's playing on such a station comes from the
+  stream's own titles (ICY). Right-click a station to edit or remove it. The
+  stream comes through musicview's server, so plain-HTTP stations play in its
+  HTTPS page. Logos are kept once fetched.
+
+Preferences' "Music & radio" hides the sidebar's row and the music folders'
+icon. Incognito reads the library but never writes it.
 
 ## camview
 
