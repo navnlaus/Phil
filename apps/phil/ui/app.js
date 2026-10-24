@@ -3030,7 +3030,8 @@ function showPhone(a, p) {
   a.classList.toggle("away", !p.online || !p.sharing);
   const mount = Object.keys(state.phoneMounts).find((m) => state.phoneMounts[m] === p.name && (state.path === m || state.path?.startsWith(m + "/")));
   a.classList.toggle("current", !!mount);
-  put(a, "title", [p.model, p.addresses.length ? p.addresses.join(", ") : null, "Click: its files"].filter(Boolean).join("\n"));
+  const space = p.storage ? `${formatSize(p.storage.free)} free of ${formatSize(p.storage.total)}` : null; // (as of its last check-in)
+  put(a, "title", [p.model, space, p.addresses.length ? p.addresses.join(", ") : null, "Click: its files"].filter(Boolean).join("\n"));
 }
 
 // "5 min ago", "3 h ago", "2 days ago".

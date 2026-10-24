@@ -74,7 +74,7 @@ final class Sftp {
         s.setPasswordAuthenticator((user, given, session) ->
             Store.SFTP_USER.equals(user) && MessageDigest.isEqual(secret, given.getBytes(StandardCharsets.UTF_8)));
         s.setPublickeyAuthenticator((user, key, session) -> false);
-        SftpSubsystemFactory sftp = new SftpSubsystemFactory();
+        SftpSubsystemFactory sftp = StatvfsSftp.factory(); // (with its free space: StatvfsSftp)
         sftp.setUnsupportedAttributePolicy(UnsupportedAttributePolicy.Ignore); // (shared storage keeps no owners or modes)
         // What the PC writes, moves or deletes: told to Android's media index (MediaStore),
         // which doesn't see it by itself (Gallery, the Files app's lists, other apps' pickers).

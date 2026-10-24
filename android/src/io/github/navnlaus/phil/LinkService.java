@@ -181,6 +181,8 @@ public class LinkService extends Service {
                 .put("sftpPort", Store.SFTP_PORT)
                 .put("sharing", sftp.running())
                 .put("addresses", new JSONArray(Net.addresses()));
+            android.os.StatFs fs = new android.os.StatFs(Sftp.root().getPath()); // (its storage: free, and all of it)
+            body.put("storage", new JSONObject().put("free", fs.getAvailableBytes()).put("total", fs.getTotalBytes()));
             Intent battery = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
             if (battery != null) {
                 int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1), scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100);

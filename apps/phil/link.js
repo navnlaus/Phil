@@ -12,7 +12,7 @@
 // then on (kept as a hash). Only while that dialog is open, and five wrong codes
 // end it.
 //
-// Then the phone checks in (POST /link/hello: its addresses, battery) when it
+// Then the phone checks in (POST /link/hello: its addresses, battery, free space) when it
 // starts, when its network changes and every five minutes; phil lists it as in
 // reach if it has in the last few, and answers with the app's version here: a
 // phone with an older one offers to update itself (GET /link/app.apk). Opening it mounts sftp://phil@<address>:<port>/
@@ -84,7 +84,7 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
   function shown() {
     return (phones ?? []).map((p) => ({
       id: p.id, name: p.name, model: p.model, online: Date.now() - (p.seen ?? 0) < ONLINE_MS, seen: p.seen ?? null,
-      battery: p.battery ?? null, sharing: p.sharing !== false, addresses: p.addresses ?? [],
+      battery: p.battery ?? null, storage: p.storage ?? null, sharing: p.sharing !== false, addresses: p.addresses ?? [],
     }));
   }
 
@@ -265,6 +265,7 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
     if (body.name) phone.name = clean(body.name) || phone.name;
     if (body.model) phone.model = clean(body.model);
     phone.battery = body.battery && Number.isFinite(body.battery.percent) ? { percent: Math.round(body.battery.percent), charging: !!body.battery.charging } : null;
+    phone.storage = body.storage && Number.isFinite(body.storage.free) && Number.isFinite(body.storage.total) ? { free: body.storage.free, total: body.storage.total } : null;
     phone.sharing = body.sharing !== false;
     await save();
     changed();

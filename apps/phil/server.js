@@ -2214,11 +2214,13 @@ async function partialBytes(src, target) {
 // skipped (same size and time). A move removes each file once it's copied, and
 // the emptied folders at the end.
 // A folder's drive's free space in bytes (df), or null when it can't be told.
+// Bytes free where `dir` is (df's), or null: not known. A file system that says
+// it's 0 bytes big doesn't know (gvfs's FUSE mounts of servers that won't say).
 async function availableBytes(dir) {
   try {
-    const out = await new Deno.Command("df", { args: ["--output=avail", "-B1", "--", dir], stdin: "null", stdout: "piped", stderr: "null" }).output();
-    const n = Number(new TextDecoder().decode(out.stdout).trim().split("\n").at(-1));
-    return out.success && Number.isFinite(n) ? n : null;
+    const out = await new Deno.Command("df", { args: ["--output=size,avail", "-B1", "--", dir], stdin: "null", stdout: "piped", stderr: "null" }).output();
+    const [size, avail] = new TextDecoder().decode(out.stdout).trim().split("\n").at(-1).trim().split(/\s+/).map(Number);
+    return out.success && size > 0 && Number.isFinite(avail) ? avail : null;
   } catch {
     return null;
   }
