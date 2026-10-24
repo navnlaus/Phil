@@ -1,10 +1,10 @@
 // musicview: the songs in the folders marked as music (a folder's Properties in
 // phil), by their tags (../library.js): albums with their covers, artists,
 // songs, genres; an album's, an artist's or a genre's songs over the list.
-// Played here, with a queue (Next up), shuffle and repeat; the media keys
-// through the page's media session. And radio stations (../radio.js): SomaFM's,
+// Played by the engine (../player.js: on with the window closed), with a queue
+// (Next up), shuffle and repeat; this page is its remote. And radio stations (../radio.js): SomaFM's,
 // and any added by their address; what's playing on one, as it changes.
-import { closeWindow, embedded, onCloseRequest, ready, tooltips } from "../engine/ui/kit.js";
+import { closeWindow, embedded, onCloseRequest, ready, tellParent, tooltips } from "../engine/ui/kit.js";
 
 tooltips();
 
@@ -21,20 +21,6 @@ async function api(path, options) {
   const res = await fetch(path, options);
   if (!res.ok) throw Object.assign(new Error((await res.text().then((t) => { try { return JSON.parse(t).error ?? t; } catch { return t; } })) || res.statusText), { status: res.status });
   return res.json();
-}
-
-function read(key, fallback) {
-  try {
-    const v = localStorage.getItem(key);
-    return v === null ? fallback : JSON.parse(v);
-  } catch {
-    return fallback;
-  }
-}
-function keep(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch { /* not kept */ }
 }
 
 const clock = (s) => {
@@ -351,202 +337,107 @@ async function removeStation(s) {
 
 // ---------------------------------------------------------------- playing
 
-const audio = $(".mu-audio");
-const player = {
-  queue: [], // [{song} | {station}]
-  at: -1,
-  shuffle: read("shuffle", false),
-  repeat: read("repeat", "off"), // off, all, one
-  nowTimer: null,
-};
-audio.volume = read("volume", 0.8);
+// The player is the engine's (../player.js: it plays on with this window
+// closed): this is its remote. Its state comes as it changes (/api/events,
+// "player"); its position, between those, is moved on here.
+const player = { state: null, at: 0, since: 0 };
 
-function playList(songs, i) {
-  player.queue = songs.map((song) => ({ song }));
-  if (player.shuffle) {
-    const first = player.queue[i];
-    player.queue = [first, ...shuffled(player.queue.filter((q) => q !== first))];
-    i = 0;
-  }
-  playAt(i);
-}
+const send = (cmd, args = {}) => api("api/player", { method: "POST", body: JSON.stringify({ cmd, ...args }) })
+  .then(showPlayer, (err) => say(`Can't play it: ${err.message}`));
+const playList = (songs, i) => send("songs", { paths: songs.map((s) => s.path), at: i });
+const playStation = (station) => send("station", { id: station.id });
+const queueNext = (songs) => send("queueNext", { paths: songs.map((s) => s.path) });
+const queueAdd = (songs) => send("queueAdd", { paths: songs.map((s) => s.path) });
 
-function playStation(station) {
-  player.queue = [{ station }];
-  playAt(0);
-}
-
-function queueNext(songs) {
-  if (player.at < 0) return playList(songs, 0);
-  player.queue.splice(player.at + 1, 0, ...songs.map((song) => ({ song })));
-  renderQueue();
-}
-
-function queueAdd(songs) {
-  if (player.at < 0) return playList(songs, 0);
-  player.queue.push(...songs.map((song) => ({ song })));
-  renderQueue();
-}
-
-function playAt(i) {
-  const item = player.queue[i];
-  if (!item) return stop();
-  player.at = i;
-  clearInterval(player.nowTimer);
-  if (item.song) {
-    audio.src = `api/file?path=${encodeURIComponent(item.song.path)}`;
-    showNow({ title: songName(item.song), artist: [item.song.artist, item.song.album].filter(Boolean).join(" · "), cover: coverUrl(item.song) });
-  } else {
-    audio.src = `api/radio/stream?id=${encodeURIComponent(item.station.id)}`;
-    showNow({ title: item.station.name, artist: "Radio", cover: item.station.image ? `api/radio/logo?id=${encodeURIComponent(item.station.id)}` : null, live: true });
-    const ask = () => api(`api/radio/now?id=${encodeURIComponent(item.station.id)}`).then((now) => {
-      if (player.queue[player.at] !== item) return;
-      const text = now ? [now.artist, now.title].filter(Boolean).join(" — ") || now.text : "";
-      $(".mu-now-artist").textContent = text || "Radio";
-      mediaSession(item.station.name, text);
-    }, () => {});
-    ask();
-    player.nowTimer = setInterval(ask, 20_000);
-  }
-  audio.play().catch((err) => err.name !== "AbortError" && showError(err));
-  renderQueue();
-  markPlaying();
-}
-
-function stop() {
-  audio.pause();
-  audio.removeAttribute("src");
-  audio.load();
-  player.at = -1;
-  clearInterval(player.nowTimer);
-  showNow(null);
-  renderQueue();
-  markPlaying();
-}
-
-function next(step = 1, { ended = false } = {}) {
-  const item = player.queue[player.at];
-  if (!item) return;
-  if (item.station) return; // (a station plays on)
-  if (ended && player.repeat === "one") return playAt(player.at);
-  let i = player.at + step;
-  if (i >= player.queue.length) {
-    if (player.repeat !== "all" && ended) return stop();
-    i = 0;
-  }
-  if (i < 0) i = player.repeat === "all" ? player.queue.length - 1 : 0;
-  playAt(i);
-}
-
-function showNow(now) {
-  $(".mu-now-title").textContent = now?.title ?? "Nothing playing";
-  $(".mu-now-artist").textContent = now?.artist ?? "";
+function showPlayer(s) {
+  if (!s) return;
+  player.state = s;
+  player.at = s.position ?? 0;
+  player.since = performance.now();
+  const now = s.now;
+  const live = !!now?.station;
+  $(".mu-now-title").textContent = now ? (now.song ? songName(now.song) : now.station.name) : "Nothing playing";
+  $(".mu-now-artist").textContent = !now ? "" : now.song ? [now.song.artist, now.song.album].filter(Boolean).join(" · ")
+    : (now.playing && [now.playing.artist, now.playing.title].filter(Boolean).join(" — ")) || "Radio";
+  const art = now?.song ? coverUrl(now.song) : now?.station?.image ? `api/radio/logo?id=${encodeURIComponent(now.station.id)}` : null;
   const img = $(".mu-now-cover img");
-  img.hidden = !now?.cover;
-  if (now?.cover) img.src = now.cover;
-  else img.removeAttribute("src");
-  $(".mu-player").classList.toggle("live", !!now?.live);
-  $(".mu-pos").disabled = !!now?.live || !now;
-  $(".mu-length").textContent = now?.live ? "Live" : "0:00";
-  document.title = now ? `${now.title} — Music` : "Music";
-  mediaSession(now?.title, now?.artist, now?.cover);
+  img.hidden = !art;
+  if (art && img.getAttribute("src") !== art) img.src = art;
+  else if (!art) img.removeAttribute("src");
+  $(".mu-player").classList.toggle("live", live);
+  $(".mu-pos").disabled = live || !now;
+  $(".mu-play").innerHTML = icon(now && !s.paused ? "pause" : "play");
+  $(".mu-play").title = now && !s.paused ? "Pause (Space)" : "Play (Space)";
+  $(".mu-shuffle").setAttribute("aria-pressed", String(s.shuffle));
+  $(".mu-repeat").setAttribute("aria-pressed", String(s.repeat !== "off"));
+  $(".mu-repeat").innerHTML = icon(s.repeat === "one" ? "repeat-1" : "repeat");
+  $(".mu-repeat").title = { off: "Repeat", all: "Repeating all (again: this one)", one: "Repeating this one (again: off)" }[s.repeat];
+  if (!volumeHeld) $(".mu-volume").value = s.volume;
+  $(".mu-mute").innerHTML = icon(s.volume === 0 ? "volume-x" : "volume-2");
+  document.title = now ? `${$(".mu-now-title").textContent} — Music` : "Music";
+  showPosition();
+  renderQueue();
+  markPlaying();
 }
 
-function mediaSession(title, artist, art) {
-  if (!("mediaSession" in navigator)) return;
-  navigator.mediaSession.metadata = title ? new MediaMetadata({ title, artist: artist ?? "", artwork: art ? [{ src: new URL(art, location.href).href }] : [] }) : null;
+// Where it is: the last told, and the time since (while it plays).
+function showPosition() {
+  const s = player.state;
+  const live = !!s?.now?.station;
+  const pos = s?.now && !s.paused ? player.at + (performance.now() - player.since) / 1000 : player.at;
+  const length = s?.duration ?? s?.now?.song?.duration ?? 0;
+  $(".mu-time").textContent = clock(s?.now ? Math.min(pos, length || pos) : 0);
+  $(".mu-length").textContent = live ? "Live" : clock(length);
+  if (!seeking) $(".mu-pos").value = length && !live ? Math.round((Math.min(pos, length) / length) * 1000) : 0;
 }
-if ("mediaSession" in navigator) {
-  const on = (action, fn) => {
-    try {
-      navigator.mediaSession.setActionHandler(action, fn);
-    } catch { /* not this one */ }
-  };
-  on("play", () => audio.play());
-  on("pause", () => audio.pause());
-  on("nexttrack", () => next(1));
-  on("previoustrack", () => previous());
-}
+setInterval(showPosition, 500);
 
-function previous() {
-  if (audio.currentTime > 4 && !$(".mu-player").classList.contains("live")) audio.currentTime = 0;
-  else next(-1);
-}
-
-function showError(err) {
-  $(".mu-now-artist").textContent = `Can't play it: ${err.message ?? err}`;
-}
-
-audio.onplay = audio.onpause = () => {
-  $(".mu-play").innerHTML = icon(audio.paused ? "play" : "pause");
-  $(".mu-play").title = audio.paused ? "Play (Space)" : "Pause (Space)";
-};
-audio.onended = () => next(1, { ended: true });
-audio.onerror = () => player.at >= 0 && showError(new Error(player.queue[player.at]?.station ? "the station doesn't answer" : "the file can't be read"));
-audio.ontimeupdate = () => {
-  if ($(".mu-player").classList.contains("live")) return void ($(".mu-time").textContent = clock(audio.currentTime));
-  $(".mu-time").textContent = clock(audio.currentTime);
-  $(".mu-length").textContent = clock(audio.duration);
-  if (!seeking) $(".mu-pos").value = audio.duration ? Math.round((audio.currentTime / audio.duration) * 1000) : 0;
-};
-let seeking = false;
+let seeking = false, volumeHeld = false;
 $(".mu-pos").oninput = () => (seeking = true);
 $(".mu-pos").onchange = () => {
-  if (audio.duration) audio.currentTime = ($(".mu-pos").value / 1000) * audio.duration;
+  const length = player.state?.duration ?? player.state?.now?.song?.duration;
+  if (length) send("seek", { at: ($(".mu-pos").value / 1000) * length });
   seeking = false;
 };
-$(".mu-play").onclick = () => (player.at < 0 ? (state.songs.length && playList(sortSongs([...state.songs]), 0)) : audio.paused ? audio.play() : audio.pause());
-$(".mu-next").onclick = () => next(1);
-$(".mu-prev").onclick = () => previous();
-$(".mu-volume").value = Math.round(audio.volume * 100);
+$(".mu-play").onclick = () => {
+  if (player.state?.now) return send("toggle");
+  if (state.songs.length) playList(sortSongs([...state.songs]), 0); // (nothing yet: every song)
+};
+$(".mu-next").onclick = () => send("next");
+$(".mu-prev").onclick = () => send("previous");
 $(".mu-volume").oninput = () => {
-  audio.volume = $(".mu-volume").value / 100;
-  audio.muted = false;
-  keep("volume", audio.volume);
-  showVolume();
+  volumeHeld = true;
+  send("volume", { value: Number($(".mu-volume").value) }).finally(() => (volumeHeld = false));
 };
-$(".mu-mute").onclick = () => (audio.muted = !audio.muted, showVolume());
-const showVolume = () => ($(".mu-mute").innerHTML = icon(audio.muted || audio.volume === 0 ? "volume-x" : "volume-2"));
-const showModes = () => {
-  $(".mu-shuffle").setAttribute("aria-pressed", String(player.shuffle));
-  $(".mu-repeat").setAttribute("aria-pressed", String(player.repeat !== "off"));
-  $(".mu-repeat").innerHTML = icon(player.repeat === "one" ? "repeat-1" : "repeat");
-  $(".mu-repeat").title = { off: "Repeat", all: "Repeating all (again: this one)", one: "Repeating this one (again: off)" }[player.repeat];
+let unmuted = 80;
+$(".mu-mute").onclick = () => {
+  const v = player.state?.volume ?? 0;
+  if (v > 0) unmuted = v;
+  send("volume", { value: v > 0 ? 0 : unmuted });
 };
-$(".mu-shuffle").onclick = () => {
-  player.shuffle = !player.shuffle;
-  keep("shuffle", player.shuffle);
-  // On: what's after this one, shuffled.
-  if (player.shuffle && player.at >= 0) player.queue = [...player.queue.slice(0, player.at + 1), ...shuffled(player.queue.slice(player.at + 1))], renderQueue();
-  showModes();
-};
-$(".mu-repeat").onclick = () => {
-  player.repeat = { off: "all", all: "one", one: "off" }[player.repeat];
-  keep("repeat", player.repeat);
-  showModes();
-};
+$(".mu-shuffle").onclick = () => send("shuffle", { on: !player.state?.shuffle });
+$(".mu-repeat").onclick = () => send("repeat", { mode: { off: "all", all: "one", one: "off" }[player.state?.repeat ?? "off"] });
 
 // The song (or station) playing, lit where it's listed.
 function markPlaying() {
-  const item = player.queue[player.at];
-  for (const row of document.querySelectorAll(".mu-song")) row.classList.toggle("playing", !!item?.song && row.dataset.path === item.song.path);
-  for (const card of document.querySelectorAll(".mu-station-card")) card.classList.toggle("playing", !!item?.station && card.dataset.station === item.station.id);
+  const now = player.state?.now;
+  for (const row of document.querySelectorAll(".mu-song")) row.classList.toggle("playing", !!now?.song && row.dataset.path === now.song.path);
+  for (const card of document.querySelectorAll(".mu-station-card")) card.classList.toggle("playing", !!now?.station && card.dataset.station === now.station.id);
 }
 
 // Next up: what's after the one playing; a click plays it, × takes it off.
 function renderQueue() {
-  const list = $(".mu-queue-list");
-  const after = player.queue.map((q, i) => [q, i]).slice(player.at + 1);
+  const s = player.state, list = $(".mu-queue-list");
+  const after = (s?.queue ?? []).map((q, i) => [q, i]).slice((s?.at ?? -1) + 1);
   list.replaceChildren(...after.map(([q, i]) => {
     const remove = el("button", { type: "button", className: "icon", title: "Take it off", innerHTML: icon("x") });
     remove.onclick = (e) => {
       e.stopPropagation();
-      player.queue.splice(i, 1);
-      renderQueue();
+      send("remove", { i });
     };
     const li = el("li", {}, el("span", { className: "mu-q-text" }, el("span", { className: "mu-q-title", textContent: q.song ? songName(q.song) : q.station.name }),
       el("span", { className: "mu-q-sub", textContent: q.song?.artist ?? "" })), remove);
-    li.onclick = () => playAt(i);
+    li.onclick = () => send("playAt", { i });
     return li;
   }));
   if (!after.length) list.append(el("li", { className: "hint mu-q-empty", textContent: "Nothing after this one." }));
@@ -557,14 +448,12 @@ $(".mu-queue-button").onclick = () => {
   $(".mu-queue-button").setAttribute("aria-pressed", String(open));
   document.body.classList.toggle("queue-open", open);
 };
-$(".mu-queue-clear").onclick = () => {
-  player.queue.splice(player.at + 1);
-  renderQueue();
-};
+$(".mu-queue-clear").onclick = () => send("clearNext");
 
 // ---------------------------------------------------------------- the rest
 
 async function showInFolder(path) {
+  if (embedded) return tellParent({ app: "musicview", show: path }); // (in phil: there, this closed)
   await api("api/show", { method: "POST", body: JSON.stringify({ path }) }).catch((err) => say(err.message));
 }
 
@@ -633,11 +522,11 @@ addEventListener("keydown", (e) => {
   }
 });
 onCloseRequest(() => closeWindow());
-$(".close").hidden = !embedded;
-$(".close").onclick = () => closeWindow();
+$(".close").onclick = () => closeWindow(); // (the music plays on: the engine's)
 
-// The scan's progress, and the library once it's done.
+// The scan's progress, the library once it's done, and the player as it changes.
 const events = new EventSource("api/events");
+events.addEventListener("player", (e) => showPlayer(JSON.parse(e.data)));
 events.addEventListener("scan", (e) => showScan(JSON.parse(e.data)));
 events.addEventListener("library", () => loadLibrary().catch(() => {}));
 
@@ -646,8 +535,6 @@ events.addEventListener("library", () => loadLibrary().catch(() => {}));
   if (view.tab) state.tab = view.tab;
   if (view.sort) state.sort = view.sort;
   $(".mu-sort").value = state.sort;
-  showModes();
-  showVolume();
   renderQueue();
   await Promise.all([loadLibrary().catch((err) => ($(".mu-scan").textContent = err.message)), loadStations()]);
   render();

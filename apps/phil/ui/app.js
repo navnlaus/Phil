@@ -1544,13 +1544,13 @@ function showMediaPlaceRow(a) {
   a.classList.toggle("active", mediaOpen());
 }
 
-// Music & radio's row (after Media's): musicview, in a window of its own (music
-// plays on whatever phil shows, and with phil closed).
+// Music & radio's row (after Media's): musicview, over the whole window as
+// mediaview is. Its music is the engine's: it plays on with it closed.
 function makeMusicPlace() {
   const a = document.createElement("a");
   a.className = "folder music-place";
   a.dataset.place = "phil:music";
-  a.title = "Your music folders' songs, and radio (a window of its own)";
+  a.title = "Your music folders' songs, and radio (Esc comes back; the music plays on)";
   a.append(document.createTextNode("Music & radio"));
   a.onclick = (e) => (e.preventDefault(), openMusicView());
   a.oncontextmenu = (e) => {
@@ -1565,11 +1565,61 @@ function makeMusicPlace() {
 }
 
 const musicViewOn = () => !choosing && state.settings.musicView !== false;
-const openMusicView = () => api("/api/open-app", { method: "POST", body: JSON.stringify({ app: "musicview" }) }).catch((err) => alert(`Couldn't open Music & radio\n${err.message}`));
+// Over the whole window, as mediaview is (Esc or × closes it; the music plays on: the engine's).
+const openMusicView = () => (musicOpen() ? null : openInApp("musicview", {}));
+const musicOpen = () => !appView.hidden && appView.querySelector("iframe")?.title === "musicview";
+
+// ---------------------------------------------------------------- musicview's player, in the sidebar
+
+// What musicview's player (the engine's: apps/musicview/player.js) is playing, at
+// the bottom of the sidebar while there's something in it: its cover, title and
+// artist (a click opens Music & radio), and previous, play/pause, next by the
+// gear. Its state comes as it changes (musicview's events, through this page's server).
+const MUSIC = "/engine/embed/musicview";
+let musicState = null;
+
+function followMusic() {
+  if (choosing || followMusic.events) return;
+  const events = followMusic.events = new EventSource(`${MUSIC}/api/events`);
+  events.addEventListener("player", (e) => showMusic(JSON.parse(e.data)));
+}
+
+function showMusic(s) {
+  musicState = s;
+  const now = musicViewOn() ? s?.now : null;
+  const box = $("#music-mini");
+  box.hidden = !now;
+  $(".mm-buttons").hidden = !now;
+  if (!now) return;
+  const live = !!now.station;
+  box.classList.toggle("live", live);
+  put($(".mm-title", box), "textContent", now.song ? now.song.title || now.song.path.split("/").pop().replace(/\.[^.]+$/, "") : now.station.name);
+  put($(".mm-artist", box), "textContent", now.song ? now.song.artist ?? "" : (now.playing && [now.playing.artist, now.playing.title].filter(Boolean).join(" — ")) || "Radio");
+  const art = now.song ? (now.song.cover ? `${MUSIC}/api/cover?path=${encodeURIComponent(now.song.path)}` : null) : now.station.image ? `${MUSIC}/api/radio/logo?id=${encodeURIComponent(now.station.id)}` : null;
+  const img = $(".mm-cover img", box);
+  if (art) img.getAttribute("src") !== art && (img.src = art);
+  else img.removeAttribute("src");
+  const playing = !s.paused;
+  const play = $(".mm-play");
+  if (play.dataset.playing !== String(playing)) {
+    play.dataset.playing = String(playing);
+    play.innerHTML = `<svg><use href="#i-mm-${playing ? "pause" : "play"}"/></svg>`;
+    play.title = playing ? "Pause" : "Play";
+  }
+  $(".mm-prev").disabled = $(".mm-next").disabled = live;
+}
+
+const musicCommand = (cmd) => fetch(`${MUSIC}/api/player`, { method: "POST", body: JSON.stringify({ cmd }) }).catch(() => {});
+$(".mm-play").onclick = () => musicCommand("toggle");
+$(".mm-prev").onclick = () => musicCommand("previous");
+$(".mm-next").onclick = () => musicCommand("next");
+$("#music-mini .mm-now").onclick = () => openMusicView();
 
 function setMusicViewOn(on) {
   state.settings.musicView = on;
   saveSettings(0);
+  if (!on && musicOpen()) closeApp();
+  showMusic(musicState);
   renderPlaces();
   render(); // (music folders' icons)
 }
@@ -1788,7 +1838,10 @@ const mediaViewOn = () => !choosing && state.settings.mediaView !== false;
 // (Set aside behind the Transfers view: that one, as it was.)
 const openMediaView = () => (appAside && appView.querySelector("iframe")?.title === "mediaview" ? closeTransfersView() : openInApp("mediaview", {}));
 const mediaOpen = () => !appView.hidden && appView.querySelector("iframe")?.title === "mediaview";
-const showMediaPlace = () => $("#places .media-place")?.classList.toggle("active", mediaOpen());
+const showMediaPlace = () => {
+  $("#places .media-place")?.classList.toggle("active", mediaOpen());
+  $("#places .music-place")?.classList.toggle("active", musicOpen()); // (Music & radio's too)
+};
 
 // A folder just marked as media: mediaview makes it ready (its videos found,
 // matched with IMDb's titles, their pictures made: apps/mediaview/media.js
@@ -2340,7 +2393,7 @@ addEventListener("message", (e) => {
   } else if (e.data?.app === "mediaview" && e.data.transfer) { // a download's %: it in the Transfers view, mediaview behind it
     setAppAside();
     openTransfersView(e.data.transfer);
-  } else if (e.data?.app === "mediaview" && e.data.show) { // "Show it in its folder": here, the media view closed
+  } else if ((e.data?.app === "mediaview" || e.data?.app === "musicview") && e.data.show) { // "Show it in its folder": here, the media view closed
     closeApp();
     initialSelect = [e.data.show];
     navigate(parentOf(e.data.show));
@@ -5581,6 +5634,7 @@ renderPlaces(); // once: after this, only when the places change (their space an
 refreshSpeeds(); // the drives' last speed tests, for their tooltips
 loadCameras(); // the network cameras found so far (looked for again with the sidebar's refresh button)
 loadPhones(); // the phones paired (link.js)
+followMusic(); // musicview's player, at the bottom of the sidebar
 thumbs.connect();
 
 // (--terminal: the terminal covering the window, the keyboard in it.)

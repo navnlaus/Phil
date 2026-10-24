@@ -16,7 +16,7 @@ import { isTextFile, runCommand, textHead, textPreview } from "./texthead.js";
 import { FolderTotals } from "./foldertotals.js";
 import { DriveOptions } from "./driveoptions.js";
 import { onWrote } from "../../engine/written.js";
-import { ask, engineCommand } from "../../engine/instance.js";
+import { engineCommand } from "../../engine/instance.js";
 import { buildInfo } from "../../engine/version.js";
 import { mediaKind, Thumbnailer } from "./thumbs.js";
 import { unfinished, watchDownloads } from "./downloads.js";
@@ -360,13 +360,6 @@ export function createServer({ profile, controlSocket }) {
         } catch (err) {
           throw cameraError(err);
         }
-      case "POST /api/open-app": { // {app}: its own window (musicview: the sidebar's Music & radio, playing on whatever phil shows)
-        const { app } = await req.json();
-        if (app !== "musicview") throw httpError(400, "Not that app");
-        const answer = controlSocket ? await ask(controlSocket, { open: { app } }).catch(() => null) : null;
-        if (!answer?.ok) throw httpError(503, "Couldn't open its window");
-        return json({ ok: true });
-      }
       case "GET /api/phones": // the phones paired (link.js), for the sidebar
         return json(link ? await link.list() : []);
       case "POST /api/phones/pair": // "Add a phone…": pairing starts; its code and what the dialog shows
@@ -1451,7 +1444,7 @@ async function addToConfig(path) {
 
 // The Media view's place in the sidebar's list of folders (sidebar.json): where it's shown.
 const MEDIA_PLACE = "phil:media";
-const MUSIC_PLACE = "phil:music"; // the sidebar's Music & radio: musicview, in a window of its own
+const MUSIC_PLACE = "phil:music"; // the sidebar's Music & radio: musicview, over the window
 
 // The sidebar's folders by default: home and its usual folders (the XDG ones), those there are.
 async function defaultFolders() {

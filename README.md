@@ -1215,8 +1215,10 @@ database, `~/.local/state/phil/media.sqlite`.
 
 ## musicview
 
-`musicview` (phil's sidebar's Music & radio, in a window of its own, so music
-plays on whatever phil shows and with phil closed) is your music and radio.
+`musicview` (phil's sidebar's Music & radio, over phil's window as mediaview
+is: Esc or × closes it) is your music and radio. Its player is the engine's,
+not the page's: music plays on with musicview closed, and with every window
+closed (the engine keeps running), till it's stopped.
 
 - **The library.** Every song in the folders marked as music (a folder's
   Properties in phil: "A music folder") and their subfolders, on any drive, by
@@ -1234,10 +1236,23 @@ plays on whatever phil shows and with phil closed) is your music and radio.
   when ↻ is clicked. A music folder that isn't there (a drive unplugged) keeps
   its songs till it's back. The covers are made once (album-sized, next to
   phil's thumbnails).
-- **Playing.** The player along the bottom has shuffle, previous, play/pause,
-  next, repeat (all, then this one), the position, volume and Next up (the
-  queue, at the side: a click plays one, × takes one off). Space plays and
-  pauses. The media keys work through the page's media session.
+- **Playing.** mpv plays, with no video, driven by the engine over its IPC
+  socket (`apps/musicview/player.js`). With mpv's MPRIS script (Arch's mpv has
+  it), the media keys and the desktop's "now playing" work too. musicview's
+  player along the bottom has shuffle, previous, play/pause, next, repeat (all,
+  then this one), the position, volume and Next up (the queue, at the side: a
+  click plays one, × takes one off). Space plays and pauses. Volume, shuffle
+  and repeat are kept.
+- **In phil's sidebar.** While something's playing (or paused), the bottom of
+  phil's sidebar shows it: its cover, title and artist (a click opens Music &
+  radio), with previous, play/pause and next by the gear.
+- **On the command line.** `musicview play`, `pause`, `toggle`, `next`,
+  `previous` (`prev`), `stop`, `status` (what's playing). `musicview --album
+  NAME`, `--artist NAME`, `--genre NAME`, `--song NAME`, `--station NAME`
+  (or its id: `groovesalad`) play that, with `--shuffle` or `--no-shuffle`, and
+  `--volume N` (0 to 100). A name is matched as typed, then by its start, then
+  anywhere in it, in any case. With no engine running, the command starts one
+  (with no window), for the music. For a key binding, `musicview toggle`.
 - **Radio.** Every SomaFM station comes with it, with its logo and what's
   playing on it (from SomaFM's list of songs). "Add SomaFM's stations" adds
   them again, new ones too. "Add a station" takes any stream by its address,

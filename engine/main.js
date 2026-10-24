@@ -112,12 +112,15 @@ async function launch(argv) {
 
   // A request for an app's server, no window (phil --background): to the engine, started (with
   // no window) if it's not running.
+  // (Its answer's `say`, if any, printed: musicview's player, what it's playing.)
   if (parsed.control) {
-    let answer = await ask(socket, parsed.control).catch(() => null);
+    const CONTROL_MS = 20_000; // (musicview's player: mpv started for the first song)
+    let answer = await ask(socket, parsed.control, CONTROL_MS).catch(() => null);
     if (!answer) {
       await startEngine({ profile, request: null }, socket);
-      answer = await ask(socket, parsed.control).catch(() => null);
+      answer = await ask(socket, parsed.control, CONTROL_MS).catch(() => null);
     }
+    if (answer?.say) console.log(answer.say);
     if (!answer?.ok) console.error(`${name}: ${answer?.error ?? "the engine didn't take it"}`);
     Deno.exit(answer?.ok ? 0 : 1);
   }

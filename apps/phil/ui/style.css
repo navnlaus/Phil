@@ -1058,6 +1058,25 @@ body.choosing #files { --chooser-h: 48px; }
 /* The sidebar's foot: the gear (Preferences), at the bottom (pinned while it scrolls). */
 #sidebar > * { flex-shrink: 0; }
 .sidebar-foot { position: sticky; bottom: -6px; margin-top: auto; padding: 8px 2px 6px; background: var(--bg-side); }
+.sidebar-foot .foot-row { display: flex; align-items: center; justify-content: space-between; }
+/* musicview's player: what's playing (a click: Music & radio), and its buttons by the gear. */
+#music-mini { margin: 0 0 4px; padding-top: 8px; border-top: 1px solid var(--border); }
+#music-mini .mm-now { display: flex; align-items: center; gap: 8px; width: 100%; height: auto; padding: 4px; border: 0; border-radius: 6px; background: none; color: inherit; text-align: left; }
+#music-mini .mm-now:hover { background: var(--bg-hover); }
+#music-mini .mm-cover { flex: none; width: 34px; height: 34px; border-radius: 4px; overflow: hidden; background: var(--thumb-bg); }
+#music-mini .mm-cover img { width: 100%; height: 100%; object-fit: cover; }
+#music-mini .mm-cover img:not([src]) { visibility: hidden; }
+#music-mini.live .mm-cover { background: #fff; }
+#music-mini.live .mm-cover img { object-fit: contain; }
+#music-mini .mm-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+#music-mini .mm-title { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#music-mini .mm-artist { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-buttons { display: flex; gap: 2px; }
+.mm-buttons[hidden] { display: none; }
+.mm-buttons button { width: 28px; height: 28px; padding: 0; border: 0; background: none; color: var(--text-dim); }
+.mm-buttons button:hover { background: var(--bg-hover); color: var(--text); }
+.mm-buttons svg { width: 14px; height: 14px; margin: 0; }
+.mm-buttons .mm-play { color: var(--text); }
 #btn-settings { width: 28px; height: 28px; padding: 0; border: 0; background: none; color: var(--text-dim); }
 #btn-settings:hover, #btn-settings[aria-pressed="true"] { background: var(--bg-hover); color: var(--text); }
 #btn-settings svg { width: 16px; height: 16px; margin: 0; }
