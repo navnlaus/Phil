@@ -66,7 +66,8 @@ final class CameraFeed {
     private SurfaceTexture texture;
     private Surface cameraOut;
     private int program, textureId, outWidth, outHeight, turn;
-    private final float[] stMatrix = new float[16], texMatrix = new float[16], turnMatrix = new float[16];
+    private final float[] texMatrix = new float[16], turnMatrix = new float[16];
+    private static final float[] FLIP = {1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1}; // t → 1 - t
 
     CameraFeed(Context context, Listener listener) {
         this.context = context.getApplicationContext();
@@ -288,8 +289,10 @@ final class CameraFeed {
     private void draw() {
         if (!running || texture == null) return;
         texture.updateTexImage();
-        texture.getTransformMatrix(stMatrix);
-        Matrix.multiplyMM(texMatrix, 0, stMatrix, 0, turnMatrix, 0);
+        // (Not the texture's own transform: it turns the picture upright for the phone held
+        // upright, as a preview would want it, on some phones and not others; the frame is
+        // read as the sensor gives it, just flipped for GL, and turned here.)
+        Matrix.multiplyMM(texMatrix, 0, FLIP, 0, turnMatrix, 0);
         GLES20.glViewport(0, 0, outWidth, outHeight);
         GLES20.glUseProgram(program);
         int pos = GLES20.glGetAttribLocation(program, "aPos"), tex = GLES20.glGetAttribLocation(program, "aTex");

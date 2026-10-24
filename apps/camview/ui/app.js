@@ -188,10 +188,12 @@ async function playMpv(t, player) {
   // hiccups it rides out (mpv plays it at its own pace, a second behind, waiting for that
   // much again after a stall). Over TCP; no sound at all (not muted: a muted track is still
   // played, and the picture waits for it, ~1.2 s behind), and the decoder not holding frames
-  // back (low_delay: ~0.1 s on the GPU).
+  // back (low_delay: ~0.1 s on the GPU). A stream that ends (a phone's camera turned,
+  // or switched: it lets its viewers go) ends here too, and it's connected again (not
+  // kept open on its last picture, as phil's mpv does with a file).
   const buffer = bufferOf(t.camera, source.local);
   player.buffer = buffer;
-  const common = { kind: "mpv", aid: "no", "vd-lavc-o": "flags=+low_delay", "rtsp-transport": "tcp", "network-timeout": "10" };
+  const common = { kind: "mpv", aid: "no", "vd-lavc-o": "flags=+low_delay", "rtsp-transport": "tcp", "network-timeout": "10", "keep-open": "no" };
   const options = buffer
     ? { ...common, cache: "yes", "cache-secs": String(buffer), "demuxer-readahead-secs": String(buffer), "cache-pause": "yes", "cache-pause-initial": "yes", "cache-pause-wait": String(buffer) }
     : { ...common, profile: "low-latency", untimed: "yes", cache: "no" };
