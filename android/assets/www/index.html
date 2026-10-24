@@ -15,6 +15,7 @@
     <button id="up" class="icon" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
     <div id="where"><span id="title">phil</span><span id="path"></span></div>
     <button id="to-music" class="text" aria-label="Music">Music</button>
+    <button id="to-cams" class="text" aria-label="Cams">Cams</button>
     <button id="cols" class="icon" aria-label="Tile size"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></button>
     <button id="menu-button" class="icon" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="12" cy="19" r="1.3"/></svg></button>
   </header>
@@ -25,6 +26,30 @@
   <nav id="music-sources" aria-label="Music" hidden></nav>
   <div id="music-modes" hidden><button data-mode="albums" class="here">Albums</button><button data-mode="songs">Songs</button></div>
   <main id="music" hidden></main>
+  <!-- The cameras (cams.js): a tile each; one over everything, with its pan and tilt. -->
+  <main id="cams" hidden></main>
+  <div id="cam-view" hidden>
+    <video id="cam-video" muted playsinline autoplay></video>
+    <div class="cam-top">
+      <button id="cam-close" class="icon" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <span class="cam-title"><span id="cam-view-name"></span><span id="cam-via"></span></span>
+      <button id="cam-quality" class="text" aria-label="Quality">HD</button>
+    </div>
+    <span id="cam-say"></span>
+    <div class="cam-controls">
+      <div id="cam-presets"></div>
+      <div class="cam-pad">
+        <button class="icon dir up" data-y="1" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+        <button class="icon dir left" data-x="-1" aria-label="Left"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <button class="icon dir right" data-x="1" aria-label="Right"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+        <button class="icon dir down" data-y="-1" aria-label="Down"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      </div>
+      <div id="cam-zoom">
+        <button class="icon dir" data-zoom="1" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="icon dir" data-zoom="-1" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      </div>
+    </div>
+  </div>
   <!-- What's playing (MusicService), along the bottom: a tap opens the player. -->
   <div id="mini" hidden>
     <button class="mini-now"><span class="mini-cover"><img alt=""></span><span class="mini-text"><span class="mini-title"></span><span class="mini-artist"></span></span></button>
@@ -65,5 +90,6 @@
   <div id="toast" hidden></div>
 <script src="/ui/app.js" type="module"></script>
 <script src="/ui/music.js" type="module"></script>
+<script src="/ui/cams.js" type="module"></script>
 </body>
 </html>

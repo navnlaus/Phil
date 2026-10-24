@@ -31,11 +31,17 @@
 // The app's light phil (its own page, in the app: the phone's files and these)
 // asks for this PC's at /m/: folders as phil lists them, with phil's thumbnails
 // and folder summaries (the app keeps the thumbnails), files (played,
-// downloaded), files sent into a folder; and /link/theme, phil's look.
+// downloaded), files sent into a folder; and /link/theme, phil's look. And the
+// cameras (camview's): their list, with the RTSP addresses of the ones on this
+// network (the app plays those itself when the phone is on it too: its Rtsp.java),
+// and any of them through here (live.js: ffmpeg's copy, as camview's page gets
+// it), their pan, tilt and zoom too.
 
 import { basename, dirname, join, normalize } from "@std/path";
 import { httpError, json, serveFile, text } from "../../engine/http.js";
 import { currentTheme, themeFile } from "../../engine/themes.js";
+import * as cameras from "../camview/cameras.js";
+import * as live from "../camview/live.js";
 import { Library } from "../musicview/library.js";
 import { coverFile } from "../musicview/covers.js";
 import { downloadDir, reportsDir } from "./browserdownloads.js";
@@ -215,6 +221,14 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
         const file = music ? await coverFile(pathParam(url), music.covers).catch(() => null) : null;
         return file ? serveFile(req, file, { "cache-control": "private, max-age=31536000, immutable" }) : text(404, "No cover");
       }
+      case "GET /m/api/cameras": // the cameras, for the app's: camview's list, each with its streams
+        return json({ cameras: await camerasForApp() });
+      case "GET /m/cam/stream": // ?id=&profile=&mode=: one's live video, as camview's page has it (live.js)
+        return await live.stream(req, url.searchParams.get("id"), url.searchParams.get("profile"), url.searchParams.get("mode") ?? "copy");
+      case "POST /m/api/ptz": // its pan, tilt and zoom; saved positions (live.ptz)
+        return json(await live.ptz(await req.json()));
+      case "GET /m/api/presets":
+        return json({ presets: await live.presets(url.searchParams.get("id") ?? "") });
       case "GET /m/api/summary": // a folder's, for its tile (its previews: thumbnails by name, /m/thumbs/...)
         return json(appSummary(await summaryOf(pathParam(url))));
       case "GET /m/file":
@@ -473,6 +487,36 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
 
 // A folder summary as the app has it: its previews' thumbnails by name
 // (/m/thumbs/...; ones not made yet left out: it asks again), texts as they are.
+/**
+ * The cameras, for the app: camview's wall list (not web pages, not turned off),
+ * each with its streams ({token, name, width, height}: the first the biggest)
+ * and, on this network, `direct`: {token: its RTSP address, with its login}, for
+ * the app to play itself when it can reach the camera (the phone's paired: it's
+ * trusted as this PC's own page is). One that doesn't answer is `offline`.
+ */
+async function camerasForApp() {
+  const shown = (await cameras.all()).filter((c) => c.state !== "off" && c.kind !== "page");
+  const timeout = (ms) => new Promise((_, no) => setTimeout(() => no(new Error("No answer")), ms));
+  return await Promise.all(shown.map(async (c) => {
+    const base = { id: c.id, name: c.name, model: c.model, kind: c.kind, invert: c.invert, profile: c.profile, offline: c.state === "offline" };
+    if (base.offline) return { ...base, profiles: [], ptz: null, direct: null };
+    try {
+      const info = await Promise.race([cameras.info(c.id), timeout(8000)]);
+      const profiles = info.profiles.map((p) => ({ token: p.token, name: p.name, width: p.width, height: p.height }));
+      let direct = null;
+      if (c.kind === "network") {
+        for (const p of profiles) {
+          const rtsp = await Promise.race([cameras.rtspUrl(c.id, p.token), timeout(5000)]).catch(() => null);
+          if (rtsp && /^rtsp:/i.test(rtsp) && live.isLocalHost(rtsp)) (direct ??= {})[p.token] = rtsp;
+        }
+      }
+      return { ...base, profiles, ptz: info.ptz, direct };
+    } catch (err) {
+      return { ...base, profiles: [], ptz: null, direct: null, offline: true, error: err.message };
+    }
+  }));
+}
+
 function appSummary(s) {
   if (!s) return null;
   const previews = (s.previews ?? []).map((p) => (typeof p === "string" ? { url: p } : p))

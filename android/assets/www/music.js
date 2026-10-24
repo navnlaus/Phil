@@ -321,5 +321,7 @@ globalThis.philEvent = (event) => {
 };
 // The music's notification tapped: its view.
 globalThis.philShowMusic = () => show(true);
+// (The cameras' view coming: this one goes.)
+globalThis.philMusic = { off: () => show(false, { push: false }) };
 
 api("/music/state").then(showState, () => {});

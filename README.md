@@ -530,6 +530,16 @@ and over [Tailscale](https://tailscale.com) away from it.
   while there's something in it; a tap opens the big one (position, shuffle,
   repeat, Next up). The PC's songs stream through the pinned link (a proxy on
   127.0.0.1, for the player); their covers are musicview's, kept on the phone.
+- Cameras on the phone: "Cams" in the app's bar. camview's cameras, a live
+  tile each (its small stream; only the tiles on the screen play); a tap shows
+  one over everything, its big stream (the small one on mobile data, or as
+  asked: SD/HD, remembered for each), with its pan, tilt, zoom and saved
+  positions. A camera on the phone's network is played straight from it: the
+  app speaks RTSP to it itself (its address and login from phil's list, kept on
+  the phone) and hands the page its H.264 as fragmented MP4, no PC needed;
+  anything else (on mobile data, a web stream, a cloud camera) comes through
+  the PC, as camview's page has it. Each tile says which. Pan and tilt go
+  through the PC.
 - Share → "Send to PC" on the phone sends files (or text, as a note) into the
   PC's Downloads, in the Transfers list as they come.
 - Updates: when phil here has a newer build of the app (`deno task install`

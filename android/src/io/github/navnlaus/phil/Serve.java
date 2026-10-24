@@ -27,6 +27,9 @@ import org.json.JSONObject;
 //   /phone/...            the phone's own files (Local), their thumbnails (Thumbs)
 //   /pc/...               the PC's (link.js's /m/...), through the pinned link
 //                         (Net); their thumbnails kept here (Thumbs)
+//   /music/...            the music's (MusicService, music.js)
+//   /cams/...             the cameras' (Cams, cams.js): their list, their video
+//                         (straight from them, or through the PC), pan and tilt
 final class Serve {
     static final String HOST = "phil.invalid";
     static final String ORIGIN = "https://" + HOST + "/";
@@ -56,6 +59,7 @@ final class Serve {
             if (p.startsWith("/phone/")) return phone(p.substring(7), u, req.getRequestHeaders());
             if (p.startsWith("/pc/")) return pc(p.substring(4), u, req.getRequestHeaders());
             if (p.startsWith("/music/")) return music(p.substring(7), u);
+            if (p.startsWith("/cams/")) return cams(p.substring(6), u);
             return error(404, "Not found");
         } catch (Net.Answer e) {
             if (e.status == 401) forget();
@@ -97,7 +101,7 @@ final class Serve {
         }
     }
 
-    private static void write(File f, String text) throws IOException {
+    static void write(File f, String text) throws IOException {
         File part = new File(f.getPath() + ".part");
         try (java.io.FileOutputStream out = new java.io.FileOutputStream(part)) {
             out.write(text.getBytes(StandardCharsets.UTF_8));
@@ -228,6 +232,38 @@ final class Serve {
                 File f = logo(thumbs, u.getQueryParameter("url"));
                 return f == null ? error(404, "No logo") : response(200, "image/png", new FileInputStream(f), Map.of("cache-control", "max-age=86400"));
             }
+            default:
+                return error(404, "Not found");
+        }
+    }
+
+    // ---------------------------------------------------------------- cameras (Cams)
+
+    private WebResourceResponse cams(String what, Uri u) throws Exception {
+        String id = u.getQueryParameter("id");
+        switch (what) {
+            case "list":
+                return json(Cams.list(context, store));
+            case "stream": { // ?id=&profile=&mode=: its live video, as it comes (x-via: direct or pc)
+                if (id == null) return error(400, "id, please");
+                String mode = u.getQueryParameter("mode") == null ? "copy" : u.getQueryParameter("mode");
+                Object[] s = Cams.stream(context, store, id, u.getQueryParameter("profile"), mode);
+                String type = "mjpeg".equals(mode) ? "multipart/x-mixed-replace;boundary=ffmpeg" : "video/mp4";
+                return response(200, type, (InputStream) s[0], Map.of("cache-control", "no-store", "x-via", (String) s[1]));
+            }
+            case "ptz": { // ?id=&op=&x=&y=&zoom=&preset=&name=: as camview's /api/ptz (through the PC)
+                if (!store.paired()) return error(409, "Not paired with a PC");
+                JSONObject body = new JSONObject();
+                for (String k : u.getQueryParameterNames()) {
+                    String v = u.getQueryParameter(k);
+                    if (k.equals("x") || k.equals("y") || k.equals("zoom")) body.put(k, Double.parseDouble(v));
+                    else body.put(k, v);
+                }
+                return json(Net.call(store, "POST", "/m/api/ptz", body));
+            }
+            case "presets":
+                if (!store.paired()) return error(409, "Not paired with a PC");
+                return json(Net.call(store, "GET", "/m/api/presets?id=" + Uri.encode(id == null ? "" : id), null));
             default:
                 return error(404, "Not found");
         }
