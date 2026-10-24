@@ -59,9 +59,8 @@ function show(on, { push = true } = {}) {
   if (m.on === on) return;
   m.on = on;
   document.body.classList.toggle("music-view", on);
-  $("#to-music").classList.toggle("on", on);
-  $("#to-music").textContent = on ? "Files" : "Music";
   for (const id of ["#music-sources", "#music-modes", "#music"]) $(id).hidden = !on;
+  globalThis.philViews?.update();
   if (on) {
     if (push) history.pushState({ music: true }, "");
     m.album = null;
@@ -292,7 +291,6 @@ function toast(text) {
 
 // ---------------------------------------------------------------- with the files
 
-$("#to-music").onclick = () => (m.on ? history.back() : show(true));
 for (const b of $("#music-modes").children) {
   b.onclick = () => {
     m.mode = b.dataset.mode;
@@ -325,7 +323,7 @@ globalThis.philEvent = (event) => {
 };
 // The music's notification tapped: its view.
 globalThis.philShowMusic = () => show(true);
-// (The cameras' view coming: this one goes.)
-globalThis.philMusic = { off: () => show(false, { push: false }) };
+// (The view switch in the bar, app.js: it comes, or goes for another.)
+globalThis.philMusic = { on: () => show(true), off: () => show(false, { push: false }) };
 
 api("/music/state").then(showState, () => {});

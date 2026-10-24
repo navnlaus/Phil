@@ -163,6 +163,9 @@ function codecOf(bytes) {
 }
 
 const VIA = { direct: "Direct", pc: "Through the PC" };
+// (A video with nothing to show yet: nothing, not the WebView's grey play button.)
+const NO_POSTER = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+$("#cam-video").poster = NO_POSTER;
 
 // ---------------------------------------------------------------- the wall
 
@@ -171,11 +174,10 @@ function show(on, { push = true } = {}) {
   c.on = on;
   if (on) globalThis.philMusic?.off();
   document.body.classList.toggle("cams-view", on);
-  $("#to-cams").classList.toggle("on", on);
-  $("#to-cams").textContent = on ? "Files" : "Cams";
   $("#cams").hidden = !on;
-  $("#cam-self").hidden = !on;
-  if (on) showSelf(JSON.parse(globalThis.Phil?.camera('{"cmd":"state"}') ?? "{}"));
+  globalThis.philViews?.update();
+  // The whole screen (the system's bars too: a swipe shows them; Back goes to the files).
+  globalThis.Phil?.fullScreen?.(on);
   if (on) {
     if (push) history.pushState({ cams: true }, "");
     $("#title").textContent = "Cams";
@@ -244,11 +246,28 @@ function render() {
       if (!t.player && t.seen && !c.focused) startTile(t);
     }
   }
+  fitGrid();
 }
+
+// The tiles filling the screen: as many across as makes the pictures (16:9) biggest.
+function fitGrid() {
+  const grid = $("#cams .cam-grid");
+  const n = grid?.children.length ?? 0;
+  if (!n) return;
+  const W = innerWidth, H = innerHeight;
+  let best = 1, area = 0;
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols), w = Math.min(W / cols, (H / rows) * 16 / 9);
+    if (w * w > area) (area = w * w), (best = cols);
+  }
+  grid.style.gridTemplateColumns = `repeat(${best}, minmax(0, 1fr))`;
+  grid.style.gridTemplateRows = `repeat(${Math.ceil(n / best)}, minmax(0, 1fr))`;
+}
+addEventListener("resize", () => c.on && fitGrid());
 
 function tile(cam) {
   const t = { camera: cam, player: null, seen: false };
-  t.video = el("video", { muted: true, playsInline: true, autoplay: true });
+  t.video = el("video", { muted: true, playsInline: true, autoplay: true, poster: NO_POSTER });
   t.video.muted = true;
   t.name = el("span", { className: "cam-name" });
   t.via = el("span", { className: "cam-via" });
@@ -293,6 +312,7 @@ function focus(cam) {
   history.pushState({ cams: true, cam: cam.id }, "");
   const view = $("#cam-view");
   view.hidden = false;
+  showControls(3000); // (its name and controls a moment, then just the picture)
   $("#cam-view-name").textContent = cam.name;
   const q = $("#cam-quality");
   q.hidden = small(cam) === big(cam);
@@ -334,6 +354,22 @@ function unfocus({ back = true } = {}) {
 }
 
 $("#cam-close").onclick = () => history.back();
+
+// Its controls (name, quality, pan and tilt) over the picture: shown by a tap, for a few
+// seconds (while a move's held, till it's let go); the picture alone otherwise.
+let controlsTimer = 0;
+function showControls(ms = 4000) {
+  $("#cam-view").classList.add("controls");
+  clearTimeout(controlsTimer);
+  controlsTimer = setTimeout(() => !c.move && $("#cam-view").classList.remove("controls"), ms);
+}
+$("#cam-view").addEventListener("click", (e) => {
+  if (e.target.closest("button, #cam-presets")) return showControls();
+  if ($("#cam-view").classList.contains("controls")) {
+    clearTimeout(controlsTimer);
+    $("#cam-view").classList.remove("controls");
+  } else showControls();
+});
 $("#cam-quality").onclick = () => {
   const f = c.focused;
   f.quality = f.quality === "hd" ? "sd" : "hd";
@@ -359,6 +395,7 @@ function startMove(dir) {
 
 function stopMove() {
   clearInterval(c.moveTimer);
+  if (c.focused) showControls();
   for (const b of document.querySelectorAll("#cam-view .held")) b.classList.remove("held");
   if (!c.move) return;
   c.move = null;
@@ -387,17 +424,39 @@ function toast(text) {
 
 // ---------------------------------------------------------------- this phone as a camera
 
-// Its card: on or off, which camera and size, and how it is (watched; what went wrong).
-function showSelf(st) {
+// Its settings (the gear's dialog): on or off, which camera, its resolution (every
+// size the camera and the phone's encoder can do it at), how it is (watched; what
+// went wrong), and its address.
+let selfState = {};
+const sizeName = (z) => {
+  const [w, h] = z.split("x").map(Number);
+  const wide = w * 9 === h * 16;
+  const name = !wide ? "" : h >= 2160 ? "4K" : h >= 1440 ? "1440p" : h >= 1080 ? "1080p" : h >= 720 ? "720p" : h >= 480 ? "480p" : "";
+  const ratio = wide ? "" : w * 3 === h * 4 ? " 4:3" : w === h ? " 1:1" : ` ${(w / h).toFixed(2)}:1`;
+  return `${w} × ${h}${name || ratio ? ` (${[name, ratio.trim()].filter(Boolean).join(", ")})` : ""}`;
+};
+function showSelf(st = selfState) {
+  selfState = st;
   const card = $("#cam-self");
   const sw = card.querySelector(".cs-switch");
   sw.setAttribute("aria-checked", String(!!st.on));
   sw.classList.toggle("on", !!st.on);
   for (const b of card.querySelectorAll("[data-front]")) b.classList.toggle("here", String(!!st.front) === b.dataset.front);
-  for (const b of card.querySelectorAll("[data-height]")) b.classList.toggle("here", Number(b.dataset.height) === (st.height ?? 720));
+  // Its sizes: the camera's (back or front), asked for once each.
+  const select = card.querySelector(".cs-size");
+  const key = st.front ? "front" : "back";
+  if (select.dataset.for !== key) {
+    const sizes = JSON.parse(globalThis.Phil?.cameraSizes?.(!!st.front) ?? "[]");
+    select.replaceChildren(...sizes.map((z) => el("option", { value: z, textContent: sizeName(z) })));
+    select.dataset.for = key;
+  }
+  if (st.size) {
+    if (![...select.options].some((o) => o.value === st.size)) select.append(el("option", { value: st.size, textContent: sizeName(st.size) }));
+    select.value = st.size;
+  }
   card.querySelector(".cs-status").textContent = st.error ? st.error
     : !st.on ? "Off: the PC's camview can show it when it's on"
-    : st.watching ? `Watched (${st.watching})` : "On: the camera opens when the PC watches";
+    : st.watching ? `On: watched (${st.watching})` : "On: the camera opens when the PC watches";
   card.classList.toggle("error", !!st.error);
   // Its address (for VLC or another player; camview has it already): shown without its login, copied with it.
   const addr = card.querySelector(".cs-address");
@@ -411,13 +470,16 @@ function showSelf(st) {
 const camera = (cmd) => globalThis.Phil && showSelf(JSON.parse(globalThis.Phil.camera(JSON.stringify(cmd))));
 $("#cam-self .cs-switch").onclick = (e) => camera({ cmd: e.currentTarget.classList.contains("on") ? "off" : "on" });
 for (const b of document.querySelectorAll("#cam-self [data-front]")) b.onclick = () => camera({ front: b.dataset.front === "true" });
-for (const b of document.querySelectorAll("#cam-self [data-height]")) b.onclick = () => camera({ height: Number(b.dataset.height) });
+$("#cam-self .cs-size").onchange = (e) => camera({ size: e.target.value });
 
 // ---------------------------------------------------------------- with the rest
 
-$("#to-cams").onclick = () => (c.on ? history.back() : show(true));
-// (Music from here: this view goes first.)
-$("#to-music").addEventListener("click", () => c.on && show(false, { push: false }), true);
+// (The view switch in the bar, app.js; the gear's dialog: this phone as a camera.)
+globalThis.philCams = {
+  on: () => show(true),
+  off: () => show(false, { push: false }),
+  showSelf: () => showSelf(JSON.parse(globalThis.Phil?.camera('{"cmd":"state"}') ?? "{}")),
+};
 // (Up does nothing here.)
 $("#up").addEventListener("click", (e) => c.on && e.stopImmediatePropagation(), true);
 addEventListener("popstate", (e) => {

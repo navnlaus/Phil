@@ -409,6 +409,7 @@ async function checkPc(said = false, { fresh = false } = {}) {
     return null;
   }
   Object.assign(state.pc, { paired: s.paired, reachable: s.reachable, name: s.name });
+  state.version = s.version ?? state.version;
   // A newer phil on the PC: offered.
   $("#update").hidden = !s.update;
   if (s.update) $("#update span").textContent = `phil ${s.update} is ready on ${s.name}`;
@@ -448,23 +449,70 @@ $("#cols").onclick = () => {
   keep("cols", cols);
   showCols();
 };
-$("#menu-button").onclick = (e) => {
-  e.stopPropagation();
-  $("#menu").hidden = !$("#menu").hidden;
-  $("#menu [data-do=hidden]").textContent = state.hidden ? "Hide hidden files" : "Show hidden files";
-};
 document.addEventListener("click", (e) => {
-  if (!e.target.closest("#menu")) $("#menu").hidden = true;
   if (!e.target.closest("#sheet, .tile")) closeSheet();
 });
-$("#menu").onclick = (e) => {
-  const what = e.target.closest("button")?.dataset.do;
-  $("#menu").hidden = true;
-  if (what === "reload") summaries.clear(), open(state.side, state.path, { push: false }), checkPc();
-  if (what === "hidden") (state.hidden = !state.hidden), open(state.side, state.path, { push: false });
-  if (what === "setup") globalThis.Phil?.setup();
-  if (what === "updates") checkUpdates();
+
+// ---------------------------------------------------------------- settings (the gear)
+
+function openSettings() {
+  $("#settings").hidden = false;
+  showSettings();
+  globalThis.philCams?.showSelf(); // (this phone as a camera: cams.js)
+  history.pushState({ ...history.state, settings: true }, "");
+}
+function closeSettings({ back = true } = {}) {
+  if ($("#settings").hidden) return;
+  $("#settings").hidden = true;
+  if (back) history.back();
+}
+function showSettings() {
+  const hidden = $("#settings [data-set=hidden]");
+  hidden.classList.toggle("on", state.hidden);
+  hidden.setAttribute("aria-checked", String(state.hidden));
+  $("#settings .set-version").textContent = state.version ? `phil ${state.version}` : "phil";
+}
+$("#settings-button").onclick = openSettings;
+$("#settings-close").onclick = () => closeSettings();
+$("#settings").onclick = (e) => {
+  if (e.target === $("#settings")) return closeSettings(); // (outside the box)
+  const what = e.target.closest("button")?.dataset;
+  if (!what) return;
+  if (what.set === "hidden") {
+    state.hidden = !state.hidden;
+    showSettings();
+    if (state.path) open(state.side, state.path, { push: false, scroll: false });
+  }
+  if (what.do === "reload") closeSettings(), summaries.clear(), open(state.side, state.path, { push: false }), checkPc();
+  if (what.do === "setup") globalThis.Phil?.setup();
+  if (what.do === "updates") checkUpdates();
 };
+
+// ---------------------------------------------------------------- the view: files, music, cameras
+
+const viewNow = () => (document.body.classList.contains("music-view") ? "music" : document.body.classList.contains("cams-view") ? "cams" : "files");
+// The one shown, highlighted (music.js and cams.js call it as they come and go).
+globalThis.philViews = {
+  update() {
+    for (const b of $("#views").children) b.classList.toggle("here", b.dataset.view === viewNow());
+  },
+};
+for (const b of $("#views").children) {
+  b.onclick = () => {
+    const to = b.dataset.view, from = viewNow();
+    if (to === from) return;
+    if (from === "music") globalThis.philMusic?.off();
+    if (from === "cams") globalThis.philCams?.off();
+    if (to === "music") globalThis.philMusic?.on();
+    else if (to === "cams") globalThis.philCams?.on();
+    else {
+      history.pushState({ side: state.side, path: state.path }, "");
+      render();
+    }
+    globalThis.philViews.update();
+  };
+}
+
 $("#send-here").onclick = () => globalThis.Phil?.pickAndSend(state.path);
 $("#update button").onclick = () => {
   globalThis.Phil?.update();
@@ -473,6 +521,7 @@ $("#update button").onclick = () => {
 
 addEventListener("popstate", (e) => {
   if (!$("#sheet").hidden) closeSheet();
+  if (!e.state?.settings) closeSettings({ back: false });
   if (state.viewing) return closeViewer({ back: false });
   if (e.state?.path) open(e.state.side, e.state.path, { push: false });
 });

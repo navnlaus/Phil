@@ -63,8 +63,13 @@ public class CameraService extends Service {
         return prefs(c).getBoolean("front", false);
     }
 
-    static int height(Context c) {
-        return prefs(c).getInt("height", 720);
+    /** The size it's streamed at (as the camera has it, wide): the one chosen, else 1280×720. */
+    static android.util.Size size(Context c) {
+        try {
+            return android.util.Size.parseSize(prefs(c).getString("size", prefs(c).getInt("height", 720) >= 1080 ? "1920x1080" : "1280x720"));
+        } catch (Exception e) {
+            return new android.util.Size(1280, 720);
+        }
     }
 
     // The RTSP login's password: made once (the PC's given it).
@@ -81,11 +86,11 @@ public class CameraService extends Service {
         return pw;
     }
 
-    /** {cmd: "on"|"off", front?, height?}: the page's (MainActivity). */
+    /** {cmd: "on"|"off", front?, size? ("1920x1080")}: the page's (MainActivity). */
     static void command(Context c, JSONObject cmd) {
         SharedPreferences.Editor e = prefs(c).edit();
         if (cmd.has("front")) e.putBoolean("front", cmd.optBoolean("front"));
-        if (cmd.has("height")) e.putInt("height", cmd.optInt("height") >= 1080 ? 1080 : 720);
+        if (cmd.has("size") && cmd.optString("size").matches("\\d{3,5}x\\d{3,5}")) e.putString("size", cmd.optString("size"));
         String what = cmd.optString("cmd");
         if (what.equals("on")) e.putBoolean("on", true);
         if (what.equals("off")) e.putBoolean("on", false);
@@ -98,7 +103,7 @@ public class CameraService extends Service {
             return;
         }
         if (wanted(app)) {
-            Intent i = new Intent(app, CameraService.class).putExtra("restart", cmd.has("front") || cmd.has("height"));
+            Intent i = new Intent(app, CameraService.class).putExtra("restart", cmd.has("front") || cmd.has("size"));
             if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(i);
             else app.startService(i);
         } else {
@@ -106,8 +111,15 @@ public class CameraService extends Service {
         }
     }
 
+    /** The sizes the camera facing `front` can be streamed at: ["3840x2160", ...], the biggest first. */
+    static org.json.JSONArray sizes(Context c, boolean front) {
+        org.json.JSONArray out = new org.json.JSONArray();
+        for (android.util.Size z : CameraFeed.sizes(c, front)) out.put(z.toString());
+        return out;
+    }
+
     /**
-     * What the page shows: {on, front, height, watching, error, address} (address:
+     * What the page shows: {on, front, size, watching, error, address} (address:
      * its stream on the Wi-Fi, rtsp://phil:<password>@<its address>:47223/camera, for
      * another player).
      */
@@ -120,7 +132,7 @@ public class CameraService extends Service {
                 for (String a : Net.addresses()) if (here == null || (here.startsWith("100.") && !a.startsWith("100."))) here = a; // (the Wi-Fi's before Tailscale's)
                 if (here != null) address = "rtsp://" + Store.SFTP_USER + ":" + password(c) + "@" + here + ":" + RtspServer.PORT + RtspServer.PATH;
             }
-            return new JSONObject().put("on", s != null).put("front", front(c)).put("height", height(c))
+            return new JSONObject().put("on", s != null).put("front", front(c)).put("size", size(c).toString())
                 .put("watching", s != null && s.rtsp != null ? s.rtsp.viewers() : 0).putOpt("error", s != null ? s.error : null).putOpt("address", address);
         } catch (Exception e) {
             return new JSONObject();
@@ -265,7 +277,7 @@ public class CameraService extends Service {
                 });
             }
         });
-        feed.start(front(this), height(this), phoneTurn);
+        feed.start(front(this), size(this), phoneTurn);
     }
 
     private void closeCamera() {

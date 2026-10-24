@@ -105,6 +105,14 @@ public class MainActivity extends Activity {
         LinkService.listener = (event) -> runOnUiThread(() -> web.evaluateJavascript("window.philEvent && philEvent(" + event + ")", null));
         MusicService.listener = LinkService.listener;
         CameraService.listener = LinkService.listener;
+        // Back: the page's own back (a dialog closed, the view before, the folder before), else out
+        // (Android 13 on: its own callback; before it, onBackPressed).
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> {
+                if (web.canGoBack()) web.goBack();
+                else finish();
+            });
+        }
         if (store.paired() && store.sharing()) LinkService.start(this);
         // The camera for the PC, on when the app last was (after a restart: Android lets
         // its service start only with the app open).
@@ -337,11 +345,11 @@ public class MainActivity extends Activity {
             Updater.install(MainActivity.this);
         }
 
-        // The phone as a camera for the PC ({cmd: on|off|state, front, height}: CameraService): its state.
+        // The phone as a camera for the PC ({cmd: on|off|state, front, size}: CameraService): its state.
         @JavascriptInterface public String camera(String json) {
             try {
                 JSONObject cmd = new JSONObject(json);
-                boolean on = "on".equals(cmd.optString("cmd")) || (CameraService.running != null && (cmd.has("front") || cmd.has("height")));
+                boolean on = "on".equals(cmd.optString("cmd")) || (CameraService.running != null && (cmd.has("front") || cmd.has("size")));
                 if (on && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                     if (!cmd.has("cmd")) cmd.put("cmd", "on");
                     cameraWaiting = cmd;
@@ -351,6 +359,27 @@ public class MainActivity extends Activity {
                 }
             } catch (Exception ignored) { /* a bad command */ }
             return CameraService.state(MainActivity.this).toString();
+        }
+
+        // The sizes the camera (back, or front) can be streamed at: ["3840x2160", ...].
+        @JavascriptInterface public String cameraSizes(boolean front) {
+            return CameraService.sizes(MainActivity.this, front).toString();
+        }
+
+        // Full screen (the cameras' view): the status bar hidden (a swipe shows it a moment), or
+        // back. Not the navigation bar: Back, from it or the gesture, has to reach the page.
+        @JavascriptInterface public void fullScreen(boolean on) {
+            runOnUiThread(() -> {
+                android.view.WindowInsetsController w = Build.VERSION.SDK_INT >= 30 ? getWindow().getInsetsController() : null;
+                if (w != null) {
+                    if (on) {
+                        w.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                        w.hide(android.view.WindowInsets.Type.statusBars());
+                    } else w.show(android.view.WindowInsets.Type.statusBars());
+                } else {
+                    getWindow().getDecorView().setSystemUiVisibility(on ? android.view.View.SYSTEM_UI_FLAG_FULLSCREEN : 0);
+                }
+            });
         }
 
         // The music player's commands ({cmd, ...}: MusicService).

@@ -88,14 +88,59 @@ final class CameraFeed {
         return front ? (s - phone + 360) % 360 : (s + phone) % 360;
     }
 
-    /** The camera facing `front` or not, at about `height` lines (720, 1080), with the phone turned `phone`°. */
-    synchronized void start(boolean front, int height, int phone) {
+    /** The camera facing `front` or not, at `size` (as the camera has it, wide; or the nearest it has), the phone turned `phone`°. */
+    synchronized void start(boolean front, Size size, int phone) {
         if (running) return;
         running = true;
         thread = new HandlerThread("camera");
         thread.start();
         handler = new Handler(thread.getLooper());
-        handler.post(() -> open(front, height, phone));
+        handler.post(() -> open(front, size, phone));
+    }
+
+    /** The camera facing `front`'s id (or the first), or null: none. */
+    static String cameraId(CameraManager cm, boolean front) throws CameraAccessException {
+        for (String c : cm.getCameraIdList()) {
+            Integer facing = cm.getCameraCharacteristics(c).get(CameraCharacteristics.LENS_FACING);
+            if (facing != null && facing == (front ? CameraCharacteristics.LENS_FACING_FRONT : CameraCharacteristics.LENS_FACING_BACK)) return c;
+        }
+        return cm.getCameraIdList().length > 0 ? cm.getCameraIdList()[0] : null;
+    }
+
+    /**
+     * The sizes the camera facing `front` can be streamed at: what it gives (wide, as
+     * the camera has them) and the phone's H.264 encoder takes at 30 a second both
+     * ways round (held upright, it's encoded tall); the biggest first.
+     */
+    static List<Size> sizes(Context context, boolean front) {
+        List<Size> out = new ArrayList<>();
+        try {
+            CameraManager cm = context.getSystemService(CameraManager.class);
+            String id = cameraId(cm, front);
+            if (id == null) return out;
+            StreamConfigurationMap map = cm.getCameraCharacteristics(id).get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            Size[] all = map == null ? null : map.getOutputSizes(SurfaceTexture.class);
+            if (all == null) return out;
+            MediaCodecInfo.VideoCapabilities video = encoderCapabilities();
+            for (Size z : all) {
+                if (z.getWidth() < 320 || z.getHeight() < 240) continue; // (thumbnail sizes: not worth it)
+                if (video != null && !(video.areSizeAndRateSupported(z.getWidth(), z.getHeight(), FPS) && video.areSizeAndRateSupported(z.getHeight(), z.getWidth(), FPS))) continue;
+                out.add(z);
+            }
+        } catch (Exception ignored) { /* none */ }
+        out.sort((a, b) -> b.getWidth() * b.getHeight() - a.getWidth() * a.getHeight());
+        return out;
+    }
+
+    private static MediaCodecInfo.VideoCapabilities encoderCapabilities() {
+        try {
+            MediaCodec e = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+            MediaCodecInfo.VideoCapabilities v = e.getCodecInfo().getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).getVideoCapabilities();
+            e.release();
+            return v;
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     synchronized void stop() {
@@ -200,22 +245,14 @@ final class CameraFeed {
         Matrix.translateM(turnMatrix, 0, -0.5f, -0.5f, 0);
     }
 
-    private void open(boolean front, int height, int phone) {
+    private void open(boolean front, Size wanted, int phone) {
         CameraManager cm = context.getSystemService(CameraManager.class);
         try {
-            String id = null;
-            for (String c : cm.getCameraIdList()) {
-                Integer facing = cm.getCameraCharacteristics(c).get(CameraCharacteristics.LENS_FACING);
-                if (facing != null && facing == (front ? CameraCharacteristics.LENS_FACING_FRONT : CameraCharacteristics.LENS_FACING_BACK)) {
-                    id = c;
-                    break;
-                }
-            }
-            if (id == null && cm.getCameraIdList().length > 0) id = cm.getCameraIdList()[0];
+            String id = cameraId(cm, front);
             if (id == null) throw new IllegalStateException("This phone has no camera");
             info = cm.getCameraCharacteristics(id);
             this.front = front;
-            Size size = sizeFor(info, height);
+            Size size = sizeFor(context, front, wanted);
             turn = turnFor(info, front, phone);
             boolean upright = turn % 180 != 0;
             outWidth = upright ? size.getHeight() : size.getWidth();
@@ -253,16 +290,16 @@ final class CameraFeed {
         listener.failed(why);
     }
 
-    // 16:9 at `height` lines, else the biggest 16:9 below it, else what's closest.
-    private static Size sizeFor(CameraCharacteristics info, int height) {
-        StreamConfigurationMap map = info.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-        Size[] sizes = map == null ? null : map.getOutputSizes(SurfaceTexture.class);
-        if (sizes == null || sizes.length == 0) return new Size(height * 16 / 9, height);
-        List<Size> wide = new ArrayList<>();
-        for (Size s : sizes) if (s.getWidth() * 9 == s.getHeight() * 16 && s.getHeight() <= height) wide.add(s);
-        if (!wide.isEmpty()) return Collections.max(wide, (a, b) -> a.getHeight() - b.getHeight());
-        Size best = sizes[0];
-        for (Size s : sizes) if (Math.abs(s.getHeight() - height) < Math.abs(best.getHeight() - height)) best = s;
+    // The size asked for, if it can be streamed; else the one nearest it (in pixels); else 1280×720.
+    private static Size sizeFor(Context context, boolean front, Size wanted) {
+        List<Size> all = sizes(context, front);
+        if (all.isEmpty()) return new Size(1280, 720);
+        Size best = all.get(0);
+        long want = (long) wanted.getWidth() * wanted.getHeight();
+        for (Size z : all) {
+            if (z.equals(wanted)) return z;
+            if (Math.abs((long) z.getWidth() * z.getHeight() - want) < Math.abs((long) best.getWidth() * best.getHeight() - want)) best = z;
+        }
         return best;
     }
 
@@ -275,10 +312,17 @@ final class CameraFeed {
         return best;
     }
 
+    // About 0.09 bits a pixel a frame: 720p 2.5 Mbit/s, 1080p 5.6, 4K 22 (as much as the encoder takes).
+    private static int bitrate(int w, int h) {
+        int want = (int) Math.min(40_000_000L, (long) w * h * FPS * 9 / 100);
+        MediaCodecInfo.VideoCapabilities v = encoderCapabilities();
+        return v == null ? want : v.getBitrateRange().clamp(want);
+    }
+
     private void startEncoder() throws Exception {
         MediaFormat f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, outWidth, outHeight);
         f.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-        f.setInteger(MediaFormat.KEY_BIT_RATE, Math.min(outWidth, outHeight) >= 1080 ? 5_000_000 : 2_500_000);
+        f.setInteger(MediaFormat.KEY_BIT_RATE, bitrate(outWidth, outHeight));
         f.setInteger(MediaFormat.KEY_FRAME_RATE, FPS);
         f.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEY_EVERY_S);
         encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);

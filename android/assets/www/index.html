@@ -12,12 +12,12 @@
 </head>
 <body>
   <header id="bar">
-    <button id="up" class="icon" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    <button id="settings-button" class="icon" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     <div id="where"><span id="title">phil</span><span id="path"></span></div>
-    <button id="to-music" class="text" aria-label="Music">Music</button>
-    <button id="to-cams" class="text" aria-label="Cams">Cams</button>
+    <!-- Which view: the files, the music (music.js), the cameras (cams.js); the one shown, highlighted. -->
+    <div id="views" role="tablist"><button data-view="files" class="here" role="tab">Files</button><button data-view="music" role="tab">Music</button><button data-view="cams" role="tab">Cams</button></div>
     <button id="cols" class="icon" aria-label="Tile size"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></button>
-    <button id="menu-button" class="icon" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="12" cy="19" r="1.3"/></svg></button>
+    <button id="up" class="icon" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
   </header>
   <nav id="places" aria-label="Places"></nav>
   <div id="update" hidden><span></span><button>Update</button></div>
@@ -27,13 +27,6 @@
   <div id="music-modes" hidden><button data-mode="albums" class="here">Albums</button><button data-mode="songs">Songs</button></div>
   <main id="music" hidden></main>
   <!-- The cameras (cams.js): a tile each; one over everything, with its pan and tilt. -->
-  <!-- This phone as a camera for the PC (CameraService): on or off, which camera, what size. -->
-  <section id="cam-self" hidden>
-    <div class="cs-text"><span class="cs-title">This phone as a camera</span><span class="cs-status"></span></div>
-    <div class="cs-options"><button data-front="false">Back</button><button data-front="true">Front</button><button data-height="720">720p</button><button data-height="1080">1080p</button></div>
-    <button class="cs-switch" role="switch" aria-checked="false" aria-label="This phone as a camera"><span></span></button>
-    <div class="cs-address" hidden><code></code><button>Copy with its login</button></div>
-  </section>
   <main id="cams" hidden></main>
   <div id="cam-view" hidden>
     <video id="cam-video" muted playsinline autoplay></video>
@@ -83,11 +76,27 @@
   </div>
   <div id="message" hidden><p></p><button hidden></button></div>
   <button id="send-here" class="fab" hidden aria-label="Send files here"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
-  <div id="menu" hidden>
-    <button data-do="reload">Reload</button>
-    <button data-do="hidden">Show hidden files</button>
-    <button data-do="updates">Check for updates</button>
-    <button data-do="setup">PC and sharing…</button>
+  <!-- Settings (the gear): the files', this phone as a camera for the PC (cams.js), phil's. -->
+  <div id="settings" hidden>
+    <div class="settings-box" role="dialog" aria-label="Settings">
+      <div class="settings-head"><span>Settings</span><button id="settings-close" class="icon" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <section>
+        <h4>Files</h4>
+        <div class="set-row"><span>Show hidden files</span><button class="switch" data-set="hidden" role="switch" aria-label="Show hidden files"><span></span></button></div>
+      </section>
+      <section id="cam-self">
+        <h4>This phone as a camera</h4>
+        <div class="set-row"><span class="cs-status"></span><button class="switch cs-switch" role="switch" aria-label="This phone as a camera"><span></span></button></div>
+        <div class="set-row"><span>Camera</span><span class="chips"><button data-front="false">Back</button><button data-front="true">Front</button></span></div>
+        <div class="set-row"><span>Resolution</span><select class="cs-size" aria-label="Resolution"></select></div>
+        <div class="cs-address" hidden><code></code><button>Copy with its login</button></div>
+      </section>
+      <section>
+        <h4>phil</h4>
+        <div class="set-row"><span class="set-version"></span><button data-do="updates">Check for updates</button></div>
+        <div class="set-buttons"><button data-do="setup">PC and sharing…</button><button data-do="reload">Reload</button></div>
+      </section>
+    </div>
   </div>
   <!-- A long press's actions. -->
   <div id="sheet" hidden><div class="sheet-title"></div><div class="sheet-buttons"></div></div>

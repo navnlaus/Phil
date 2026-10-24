@@ -528,6 +528,9 @@ and over [Tailscale](https://tailscale.com) away from it.
   phone's other files open in their app; the PC's are saved to the phone first.
   A long press: Open with…, Send to the PC, Save to phone. On a PC folder, +
   sends files from the phone into it.
+- The app's bar: the settings (the gear) at its left (hidden files, the phone as
+  a camera, updates, the PC and sharing), then where it is, then which view:
+  Files, Music or Cams (the one shown highlighted), and Up at its right.
 - Music on the phone: "Music" in the app's bar. The phone's own songs (by
   their tags, as Android's media index has them), this PC's (musicview's
   library, while it's in reach) and the radio (musicview's stations, kept on
@@ -541,8 +544,10 @@ and over [Tailscale](https://tailscale.com) away from it.
   repeat, Next up). The PC's songs stream through the pinned link (a proxy on
   127.0.0.1, for the player); their covers are musicview's, kept on the phone.
 - Cameras on the phone: "Cams" in the app's bar. camview's cameras, a live
-  tile each (its small stream; only the tiles on the screen play); a tap shows
-  one over everything, its big stream (the small one on mobile data, or as
+  tile each (its small stream; only the tiles on the screen play), filling the
+  screen (no bar, the status bar hidden: Back goes to the files); a tap shows
+  one over everything (its name, quality and pan and tilt shown by a tap, for a
+  few seconds; Back: the cameras), its big stream (the small one on mobile data, or as
   asked: SD/HD, remembered for each), with its pan, tilt, zoom and saved
   positions. A camera on the phone's network is played straight from it: the
   app speaks RTSP to it itself (its address and login from phil's list, kept on
@@ -550,8 +555,9 @@ and over [Tailscale](https://tailscale.com) away from it.
   anything else (on mobile data, a web stream, a cloud camera) comes through
   the PC, as camview's page has it. Each tile says which. Pan and tilt go
   through the PC.
-- The phone as a camera: "This phone as a camera" at the top of the app's Cams
-  (which camera, back or front; 720p or 1080p). The app serves it over RTSP,
+- The phone as a camera: "This phone as a camera" in the app's settings (the
+  gear, top left): which camera, back or front, and its resolution, any the
+  camera and the phone's encoder can stream at (4K where they can). The app serves it over RTSP,
   `rtsp://phil:<password>@<phone>:47223/camera` (H.264 from the phone's own
   encoder, sent over the RTSP connection; a Digest login, made on the phone), and
   tells phil, which lists it in camview as "<phone> camera" at the address it
