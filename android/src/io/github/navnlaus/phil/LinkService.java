@@ -180,7 +180,8 @@ public class LinkService extends Service {
                 .put("model", Build.MANUFACTURER + " " + Build.MODEL)
                 .put("sftpPort", Store.SFTP_PORT)
                 .put("sharing", sftp.running())
-                .put("addresses", new JSONArray(Net.addresses()));
+                .put("addresses", new JSONArray(Net.addresses()))
+                .put("camera", CameraService.announce(this) == null ? JSONObject.NULL : CameraService.announce(this)); // (camview's, on the PC: where it is now)
             android.os.StatFs fs = new android.os.StatFs(Sftp.root().getPath()); // (its storage: free, and all of it)
             body.put("storage", new JSONObject().put("free", fs.getAvailableBytes()).put("total", fs.getTotalBytes()));
             Intent battery = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));

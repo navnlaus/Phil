@@ -27,6 +27,13 @@
   <div id="music-modes" hidden><button data-mode="albums" class="here">Albums</button><button data-mode="songs">Songs</button></div>
   <main id="music" hidden></main>
   <!-- The cameras (cams.js): a tile each; one over everything, with its pan and tilt. -->
+  <!-- This phone as a camera for the PC (CameraService): on or off, which camera, what size. -->
+  <section id="cam-self" hidden>
+    <div class="cs-text"><span class="cs-title">This phone as a camera</span><span class="cs-status"></span></div>
+    <div class="cs-options"><button data-front="false">Back</button><button data-front="true">Front</button><button data-height="720">720p</button><button data-height="1080">1080p</button></div>
+    <button class="cs-switch" role="switch" aria-checked="false" aria-label="This phone as a camera"><span></span></button>
+    <div class="cs-address" hidden><code></code><button>Copy with its login</button></div>
+  </section>
   <main id="cams" hidden></main>
   <div id="cam-view" hidden>
     <video id="cam-video" muted playsinline autoplay></video>

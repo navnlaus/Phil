@@ -174,6 +174,8 @@ function show(on, { push = true } = {}) {
   $("#to-cams").classList.toggle("on", on);
   $("#to-cams").textContent = on ? "Files" : "Cams";
   $("#cams").hidden = !on;
+  $("#cam-self").hidden = !on;
+  if (on) showSelf(JSON.parse(globalThis.Phil?.camera('{"cmd":"state"}') ?? "{}"));
   if (on) {
     if (push) history.pushState({ cams: true }, "");
     $("#title").textContent = "Cams";
@@ -383,6 +385,34 @@ function toast(text) {
   toastTimer = setTimeout(() => (t.hidden = true), 2500);
 }
 
+// ---------------------------------------------------------------- this phone as a camera
+
+// Its card: on or off, which camera and size, and how it is (watched; what went wrong).
+function showSelf(st) {
+  const card = $("#cam-self");
+  const sw = card.querySelector(".cs-switch");
+  sw.setAttribute("aria-checked", String(!!st.on));
+  sw.classList.toggle("on", !!st.on);
+  for (const b of card.querySelectorAll("[data-front]")) b.classList.toggle("here", String(!!st.front) === b.dataset.front);
+  for (const b of card.querySelectorAll("[data-height]")) b.classList.toggle("here", Number(b.dataset.height) === (st.height ?? 720));
+  card.querySelector(".cs-status").textContent = st.error ? st.error
+    : !st.on ? "Off: the PC's camview can show it when it's on"
+    : st.watching ? `Watched (${st.watching})` : "On: the camera opens when the PC watches";
+  card.classList.toggle("error", !!st.error);
+  // Its address (for VLC or another player; camview has it already): shown without its login, copied with it.
+  const addr = card.querySelector(".cs-address");
+  addr.hidden = !st.address;
+  if (st.address) {
+    addr.querySelector("code").textContent = st.address.replace(/\/\/[^@]*@/, "//");
+    addr.querySelector("button").onclick = () => navigator.clipboard.writeText(st.address).then(() => toast("Copied (with its login)"), () => toast("Couldn't copy it"));
+  }
+}
+
+const camera = (cmd) => globalThis.Phil && showSelf(JSON.parse(globalThis.Phil.camera(JSON.stringify(cmd))));
+$("#cam-self .cs-switch").onclick = (e) => camera({ cmd: e.currentTarget.classList.contains("on") ? "off" : "on" });
+for (const b of document.querySelectorAll("#cam-self [data-front]")) b.onclick = () => camera({ front: b.dataset.front === "true" });
+for (const b of document.querySelectorAll("#cam-self [data-height]")) b.onclick = () => camera({ height: Number(b.dataset.height) });
+
 // ---------------------------------------------------------------- with the rest
 
 $("#to-cams").onclick = () => (c.on ? history.back() : show(true));
@@ -396,6 +426,14 @@ addEventListener("popstate", (e) => {
     if (!c.on) show(true, { push: false });
   } else if (c.on) show(false, { push: false });
 });
+// The app's news: the camera's state (CameraService), as it changes. Its notification tapped: this view.
+const before = globalThis.philEvent;
+globalThis.philEvent = (event) => {
+  if (event.camera) return showSelf(event.camera);
+  before?.(event);
+};
+globalThis.philShowCams = () => show(true);
+
 // The app put away (or the screen off): nothing plays; back: the same again.
 document.addEventListener("visibilitychange", () => {
   if (!c.on) return;

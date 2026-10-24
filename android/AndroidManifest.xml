@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- The phone as a camera for the PC (CameraService): only while that's on. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -77,6 +81,13 @@
             android:name=".MusicService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- The phone as a camera for the PC (CameraService, RtspServer): its camera, while it's watched. -->
+        <service
+            android:name=".CameraService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
+        <receiver android:name=".CameraService$Off" android:exported="false" />
 
         <!-- The phone's files opened in other apps (Open with…): read-only, by granted URI. -->
         <provider

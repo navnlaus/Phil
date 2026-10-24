@@ -37,6 +37,7 @@ import org.json.JSONObject;
 public class MainActivity extends Activity {
     private static final String SETUP = "file:///android_asset/setup.html";
     private static final int CHOOSE_FILES = 1;
+    private static final int ASK_CAMERA = 5;
     private WebView web;
     private Store store;
     private ValueCallback<Uri[]> choosing;
@@ -103,7 +104,15 @@ public class MainActivity extends Activity {
         // What the services did that the page shows (files sent into a folder it shows, a download done; the music player).
         LinkService.listener = (event) -> runOnUiThread(() -> web.evaluateJavascript("window.philEvent && philEvent(" + event + ")", null));
         MusicService.listener = LinkService.listener;
+        CameraService.listener = LinkService.listener;
         if (store.paired() && store.sharing()) LinkService.start(this);
+        // The camera for the PC, on when the app last was (after a restart: Android lets
+        // its service start only with the app open).
+        if (CameraService.wanted(this) && CameraService.running == null && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            try {
+                CameraService.command(this, new JSONObject().put("cmd", "on"));
+            } catch (Exception ignored) { /* never */ }
+        }
         show();
         if (Updater.UPDATE.equals(getIntent().getAction())) Updater.install(this);
     }
@@ -114,6 +123,19 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         if (Updater.UPDATE.equals(intent.getAction())) Updater.install(this);
         if ("music".equals(intent.getAction())) web.evaluateJavascript("window.philShowMusic && philShowMusic()", null);
+        if ("cams".equals(intent.getAction())) web.evaluateJavascript("window.philShowCams && philShowCams()", null);
+    }
+
+    // The camera's permission, asked for as it's turned on (camera()): then it's turned on.
+    private JSONObject cameraWaiting;
+    @Override
+    public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(request, permissions, results);
+        if (request != ASK_CAMERA || cameraWaiting == null) return;
+        JSONObject cmd = cameraWaiting;
+        cameraWaiting = null;
+        if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) CameraService.command(this, cmd);
+        else web.evaluateJavascript("window.philEvent && philEvent({camera: Object.assign(" + CameraService.state(this) + ", {error: \"phil isn't allowed to use the camera\"})})", null);
     }
 
     private void show() {
@@ -315,6 +337,22 @@ public class MainActivity extends Activity {
             Updater.install(MainActivity.this);
         }
 
+        // The phone as a camera for the PC ({cmd: on|off|state, front, height}: CameraService): its state.
+        @JavascriptInterface public String camera(String json) {
+            try {
+                JSONObject cmd = new JSONObject(json);
+                boolean on = "on".equals(cmd.optString("cmd")) || (CameraService.running != null && (cmd.has("front") || cmd.has("height")));
+                if (on && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                    if (!cmd.has("cmd")) cmd.put("cmd", "on");
+                    cameraWaiting = cmd;
+                    runOnUiThread(() -> requestPermissions(new String[] {Manifest.permission.CAMERA}, ASK_CAMERA));
+                } else if (!"state".equals(cmd.optString("cmd"))) {
+                    CameraService.command(MainActivity.this, cmd);
+                }
+            } catch (Exception ignored) { /* a bad command */ }
+            return CameraService.state(MainActivity.this).toString();
+        }
+
         // The music player's commands ({cmd, ...}: MusicService).
         @JavascriptInterface public void music(String command) {
             MusicService.command(MainActivity.this, command);
@@ -343,6 +381,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         LinkService.listener = null;
         MusicService.listener = null;
+        CameraService.listener = null;
         web.destroy();
         super.onDestroy();
     }

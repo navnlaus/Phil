@@ -204,6 +204,37 @@ async function pageType(url) {
   }
 }
 
+/**
+ * A paired phone's camera (phil's app as a camera: link.js), kept as a stream
+ * with the id phone:<its id>: `cam` {name, url} (its RTSP address now, with its
+ * login): added, or its address brought up to date (a name it was given here
+ * kept); null: it's off, not listed (kept, for when it's on again); false: the
+ * phone's forgotten, so is it.
+ */
+export async function phoneCamera(phoneId, cam) {
+  const known = await load();
+  const id = `phone:${phoneId}`;
+  const c = known.find((x) => x.id === id);
+  if (cam === false) {
+    if (c) await save(known.filter((x) => x !== c));
+    return;
+  }
+  if (!cam) {
+    if (c && !c.absent) (c.absent = true), await save(known);
+    return;
+  }
+  const u = new URL(cam.url);
+  const stream = { token: "main", name: "Main", url: cam.url };
+  if (c) {
+    if (c.streams?.[0]?.url === cam.url && !c.absent && !c.hidden) return;
+    Object.assign(c, { host: u.hostname, port: u.port, streams: [stream], absent: false, hidden: false, seen: Date.now() });
+  } else {
+    known.push({ id, type: "rtsp", phone: phoneId, host: u.hostname, port: u.port, name: cam.name, added: true, streams: [stream], seen: Date.now() });
+  }
+  details.delete(id);
+  await save(known);
+}
+
 /** Removes a camera: a stream added by URL goes; one found or added by address is forgotten (finding it again doesn't bring it back). */
 export async function remove(id) {
   const known = await load();

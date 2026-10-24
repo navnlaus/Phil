@@ -204,6 +204,14 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
         return serveFile(req, apk, { "content-type": "application/vnd.android.package-archive" });
       case "POST /link/hello":
         return json(await hello(phone, await req.json(), remote));
+      case "POST /link/camera": { // {camera: {port, path, user, password} or null, addresses}: the phone as a camera, on or off
+        const body = await req.json();
+        if (Array.isArray(body.addresses)) phone.addresses = body.addresses.filter((a) => typeof a === "string" && /^[\d.]+$/.test(a)).slice(0, 8);
+        phone.remote = remote;
+        await save();
+        await cameraFrom(phone, body.camera ?? null);
+        return json({ ok: true });
+      }
       case "POST /link/unpair":
         await forget(phone.id, { unmount: true });
         return json({ ok: true });
@@ -225,8 +233,8 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
         const file = music ? await coverFile(pathParam(url), music.covers).catch(() => null) : null;
         return file ? serveFile(req, file, { "cache-control": "private, max-age=31536000, immutable" }) : text(404, "No cover");
       }
-      case "GET /m/api/cameras": // the cameras, for the app's: camview's list, each with its streams
-        return json({ cameras: await camerasForApp() });
+      case "GET /m/api/cameras": // the cameras, for the app's: camview's list, each with its streams (not its own camera)
+        return json({ cameras: (await camerasForApp()).filter((c) => c.id !== `phone:${phone.id}`) });
       case "GET /m/cam/stream": // ?id=&profile=&mode=: one's live video, as camview's page has it (live.js)
         return await live.stream(req, url.searchParams.get("id"), url.searchParams.get("profile"), url.searchParams.get("mode") ?? "copy");
       case "POST /m/api/ptz": // its pan, tilt and zoom; saved positions (live.ptz)
@@ -304,7 +312,22 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
     phone.sharing = body.sharing !== false;
     await save();
     changed();
+    cameraFrom(phone, body.camera).catch(() => {});
     return { hosts: await addressesHere(), app: await appVersion() };
+  }
+
+  // The phone as a camera (its app's: an RTSP server, RtspServer.java), in camview's
+  // list as "<phone> camera": at the address it answers at (its Wi-Fi's on this
+  // network first, else Tailscale's), with its login; off (null): not listed.
+  // (An app from before it: says nothing, and nothing changes.)
+  async function cameraFrom(phone, cam) {
+    if (cam === undefined) return;
+    if (!cam || !Number.isInteger(cam.port) || typeof cam.password !== "string" || typeof cam.user !== "string") return await cameras.phoneCamera(phone.id, null);
+    const host = await reachableHost(phone, cam.port);
+    if (!host) return;
+    const path = typeof cam.path === "string" && /^\/[\w/-]*$/.test(cam.path) ? cam.path : "/camera";
+    const url = `rtsp://${encodeURIComponent(cam.user)}:${encodeURIComponent(cam.password)}@${host}:${cam.port}${path}`;
+    await cameras.phoneCamera(phone.id, { name: `${phone.name} camera`, url });
   }
 
   // The app's version here (scripts/install.sh puts it next to it): {code, name, sha256},
@@ -450,6 +473,7 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
     phones = phones.filter((p) => p !== phone);
     await save();
     changed();
+    await cameras.phoneCamera(phone.id, false).catch(() => {}); // (its camera too)
     if (unmount) {
       for (const [host, path] of Object.entries(phone.mounts ?? {})) {
         if (path.includes("/gvfs/")) await new Deno.Command("gio", { args: ["mount", "-u", `sftp://${phone.sftp.user}@${host}:${phone.sftp.port}/`], stdin: "null", stdout: "null", stderr: "null" }).output().catch(() => {});
@@ -745,12 +769,12 @@ const isTailscale = (ip) => sameNet(ip, "100.64.0.0", 10);
 // The phone's address to reach it at: one on a network this PC is on (its
 // Wi-Fi) first, then its Tailscale one, then where its last check-in came from;
 // the first of those whose SFTP port answers.
-async function reachableHost(phone) {
+async function reachableHost(phone, port = phone.sftp.port) {
   const here = await interfaces();
   const candidates = [...new Set([...(phone.addresses ?? []), phone.remote].filter(Boolean))];
   const rank = (ip) => here.some((h) => !isTailscale(h.address) && sameNet(ip, h.address, h.prefix)) ? 0 : isTailscale(ip) ? 1 : ip === phone.remote ? 2 : 3;
   candidates.sort((a, b) => rank(a) - rank(b));
-  const answers = candidates.map((host) => answersAt(host, phone.sftp.port));
+  const answers = candidates.map((host) => answersAt(host, port));
   for (let i = 0; i < candidates.length; i++) if (await answers[i]) return candidates[i];
   return null;
 }

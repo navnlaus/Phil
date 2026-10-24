@@ -550,6 +550,19 @@ and over [Tailscale](https://tailscale.com) away from it.
   anything else (on mobile data, a web stream, a cloud camera) comes through
   the PC, as camview's page has it. Each tile says which. Pan and tilt go
   through the PC.
+- The phone as a camera: "This phone as a camera" at the top of the app's Cams
+  (which camera, back or front; 720p or 1080p). The app serves it over RTSP,
+  `rtsp://phil:<password>@<phone>:47223/camera` (H.264 from the phone's own
+  encoder, sent over the RTSP connection; a Digest login, made on the phone), and
+  tells phil, which lists it in camview as "<phone> camera" at the address it
+  answers at (its Wi-Fi's here, else its Tailscale one); off, it's not listed.
+  The camera opens only while something watches, and closes a few seconds after
+  the last; the phone keeps its Wi-Fi and CPU awake meanwhile, the screen may be
+  off. Its notification turns it off. The card shows its address, and copies it
+  with its login for another player (VLC). The picture is the sensor's way up:
+  landscape, so stand the phone on its side. Android lets an app use the camera
+  in the background only if it started it while open: after a restart it's on
+  again once the app is opened.
 - Share → "Send to PC" on the phone sends files (or text, as a note) into the
   PC's Downloads, in the Transfers list as they come.
 - Updates: when phil here has a newer build of the app (`deno task install`
