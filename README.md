@@ -559,8 +559,12 @@ and over [Tailscale](https://tailscale.com) away from it.
   The camera opens only while something watches, and closes a few seconds after
   the last; the phone keeps its Wi-Fi and CPU awake meanwhile, the screen may be
   off. Its notification turns it off. The card shows its address, and copies it
-  with its login for another player (VLC). The picture is the sensor's way up:
-  landscape, so stand the phone on its side. Android lets an app use the camera
+  with its login for another player (VLC). The picture's upright the way the
+  phone's held (its tilt, from the accelerometer, so with the screen off too):
+  upright, a 9:16 picture; on its side, 16:9. Turned (and held so for a
+  second), or another camera or size chosen on the phone, the camera starts
+  again that way and its viewers are let go: camview's connect again and show
+  it in a few seconds. Android lets an app use the camera
   in the background only if it started it while open: after a restart it's on
   again once the app is opened.
 - Share → "Send to PC" on the phone sends files (or text, as a note) into the

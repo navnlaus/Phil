@@ -24,7 +24,10 @@ import org.json.JSONObject;
 // The phone as a camera for the PC (camview): while it's on (the Cams view's
 // "This phone as a camera"), an RTSP server (RtspServer) with the camera behind
 // it, opened only while something watches (CameraFeed), Wi-Fi and the CPU kept
-// awake then. The PC is told it's there (POST /link/camera: its port and login),
+// awake then. Its picture is upright the way the phone's held (its tilt, from the
+// accelerometer: the screen may be off); turned for a second, or another camera
+// or size chosen, the camera starts again that way and the viewers are let go,
+// so their players connect again and get it (camview's do, in a few seconds). The PC is told it's there (POST /link/camera: its port and login),
 // and camview lists it. A foreground service of the camera's kind: started with
 // the app open (Android lets the camera be used in the background only so).
 public class CameraService extends Service {
@@ -41,6 +44,10 @@ public class CameraService extends Service {
     private String error;
     private PowerManager.WakeLock wake;
     private WifiManager.WifiLock wifi;
+    private android.view.OrientationEventListener tilt;
+    private int phoneTurn = 0; // how the phone's held: 0, 90, 180, 270° clockwise from upright
+    private int turnSeen = -1;
+    private static final long TURN_SETTLE_MS = 1000;
 
     // ---------------------------------------------------------------- settings
 
@@ -163,8 +170,36 @@ public class CameraService extends Service {
         } catch (IOException e) {
             error = "Its port (" + RtspServer.PORT + ") is taken";
         }
+        tilt = new android.view.OrientationEventListener(this) {
+            @Override public void onOrientationChanged(int degrees) {
+                if (degrees == ORIENTATION_UNKNOWN) return; // (flat: as it was)
+                int nearest = ((degrees + 45) / 90 * 90) % 360;
+                int off = Math.abs(degrees - nearest);
+                if (Math.min(off, 360 - off) > 30) return; // (between two: as it was)
+                if (nearest == turnSeen) return;
+                turnSeen = nearest;
+                main.removeCallbacks(turned);
+                // (not watched: taken at once, for the next viewer; watched: once it's held so a second)
+                main.postDelayed(turned, feed == null ? 0 : TURN_SETTLE_MS);
+            }
+        };
+        if (tilt.canDetectOrientation()) tilt.enable();
         announceToPc(true);
         tell(this);
+    }
+
+    // The phone held another way (for a second): the picture turned with it.
+    private final Runnable turned = () -> {
+        if (turnSeen < 0 || turnSeen == phoneTurn) return;
+        phoneTurn = turnSeen;
+        restartPicture();
+    };
+
+    // The camera started again as it's set now (its turn, which, its size), the viewers let go to get it.
+    private void restartPicture() {
+        if (feed == null) return; // (not watched: the next viewer gets it)
+        closeCamera();
+        if (rtsp != null) rtsp.dropViewers();
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -172,16 +207,7 @@ public class CameraService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
-        if (intent != null && intent.getBooleanExtra("restart", false) && rtsp != null) {
-            // Another camera or size: the viewers start again with it (their players reconnect).
-            closeCamera();
-            rtsp.stop();
-            try {
-                rtsp.start();
-            } catch (IOException e) {
-                error = "Its port (" + RtspServer.PORT + ") is taken";
-            }
-        }
+        if (intent != null && intent.getBooleanExtra("restart", false)) restartPicture(); // (another camera or size)
         notifyNow();
         tell(this);
         return START_STICKY;
@@ -189,6 +215,8 @@ public class CameraService extends Service {
 
     @Override public void onDestroy() {
         running = null;
+        if (tilt != null) tilt.disable();
+        main.removeCallbacks(turned);
         closeCamera();
         if (rtsp != null) rtsp.stop();
         announceToPc(false);
@@ -227,7 +255,7 @@ public class CameraService extends Service {
                 });
             }
         });
-        feed.start(front(this), height(this));
+        feed.start(front(this), height(this), phoneTurn);
         hold(true);
         watched = true;
         notifyNow();

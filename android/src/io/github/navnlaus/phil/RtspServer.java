@@ -41,6 +41,7 @@ final class RtspServer {
     private final String user, password;
     private final Feed feed;
     private final Set<Client> playing = new CopyOnWriteArraySet<>();
+    private final Set<Client> clients = new CopyOnWriteArraySet<>(); // (connected, playing or not)
     private final SecureRandom random = new SecureRandom();
     private final int ssrc = new SecureRandom().nextInt();
     private ServerSocket server;
@@ -77,8 +78,16 @@ final class RtspServer {
             if (server != null) server.close();
         } catch (IOException ignored) { /* closed */ }
         server = null;
-        for (Client c : playing) c.close();
+        for (Client c : clients) c.close();
         playing.clear();
+    }
+
+    /**
+     * Every viewer let go (the picture changed: another camera, size or turn); their
+     * players connect again (camview's do, in a few seconds) and get the new one.
+     */
+    void dropViewers() {
+        for (Client c : clients) c.close();
     }
 
     // ---------------------------------------------------------------- from the camera
@@ -155,6 +164,7 @@ final class RtspServer {
             try {
                 Socket socket = s.accept();
                 Client c = new Client(socket);
+                clients.add(c);
                 Thread t = new Thread(c::serve, "rtsp client");
                 t.setDaemon(true);
                 t.start();
@@ -342,6 +352,7 @@ final class RtspServer {
         void close() {
             if (closed) return;
             closed = true;
+            clients.remove(this);
             queue.offer(new byte[0]);
             if (playing.remove(this)) onViewers.run();
             if (counted) asked(false);
