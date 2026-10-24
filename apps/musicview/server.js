@@ -243,6 +243,7 @@ export function createServer({ profile = {}, controlSocket = null }) {
       await player.playStation(s);
       return { ok: true, say: `Playing ${s.name}` };
     }
+    if (p.cmd === "play" && player.at < 0 && p["else-station"]) return fromCommandLine({ station: p["else-station"] }); // nothing to resume: that station
     if (p.cmd === "play" && player.at < 0) { // nothing yet: everything, by artist and album
       const all = library.songs().sort((a, b) => (a.albumArtist || a.artist || "").localeCompare(b.albumArtist || b.artist || "") || (a.album ?? "").localeCompare(b.album ?? "") || (a.track ?? 0) - (b.track ?? 0));
       if (!all.length) return { ok: false, error: "No songs: mark a music folder first (its Properties in phil)" };

@@ -14,6 +14,8 @@ Usage: musicview [--incognito]          the window
        musicview --song NAME            play a song
        musicview --station NAME         play a radio station (its name, or its
                                         id: groovesalad, somafm:dronezone...)
+       musicview play --else-station NAME   play, or (nothing in the player to resume)
+                                        that station
        musicview --volume N             the volume, 0 to 100 (with any of these)
        musicview --shuffle | --no-shuffle  shuffle on or off (with any of these)
 
@@ -35,7 +37,7 @@ const COMMANDS = {
   play: "play", pause: "pause", toggle: "toggle", next: "next", previous: "previous", prev: "previous", stop: "stop", status: "status",
   "next-station": "next-station", "previous-station": "previous-station", "prev-station": "previous-station",
 };
-const NAMED = ["--album", "--artist", "--genre", "--song", "--station"];
+const NAMED = ["--album", "--artist", "--genre", "--song", "--station", "--else-station"];
 
 export function parse(args) {
   if (args.some((a) => a === "-h" || a === "--help")) return { help: HELP };
