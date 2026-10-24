@@ -743,9 +743,10 @@ main { padding-top: var(--bar-h); }
 #phone-pair .steps b, #phone-pair .fp, #phone-pair .addresses { color: var(--text); }
 #phone-pair .fp { font-family: ui-monospace, monospace; font-weight: 600; letter-spacing: 0.04em; }
 #phone-pair .code { margin: 8px 0 0; font: 600 34px/1.2 ui-monospace, monospace; letter-spacing: 0.3em; color: var(--accent); user-select: all; }
-#phone-pair .qr { display: block; width: 132px; height: 132px; margin: 8px 0 0; padding: 6px; background: #fff; border-radius: 6px; image-rendering: pixelated; }
-#phone-pair .qr[hidden], #phone-pair [hidden] { display: none; }
-#phone-pair a { color: var(--accent); word-break: break-all; }
+#phone-pair .qr { display: block; width: 112px; height: 112px; margin: 6px 0 0; padding: 6px; background: #fff; border-radius: 6px; image-rendering: pixelated; }
+#phone-pair [hidden] { display: none; }
+#phone-pair .apk-link { display: block; margin: 6px 0; font: 600 18px/1.3 ui-monospace, monospace; color: var(--accent); word-break: break-all; user-select: all; }
+#phone-pair .hint { display: block; font-size: 12px; }
 #phone-pair .problem, #phone-pair .firewall { margin: 0 0 12px; color: #e5675f; user-select: text; }
 #phone-pair code { user-select: all; color: var(--text); }
 #phone-pair .firewall code { display: block; margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--bg); font-size: 12px; white-space: pre-wrap; word-break: break-all; }

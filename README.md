@@ -519,8 +519,9 @@ Setting it up:
   from Maven Central and checks them against `android/libs.txt`. Its signing
   key is made the first time, in `~/.local/share/phil/android`: keep it, since
   an update has to be signed with the same key. `deno task install` then puts
-  the app where "Add a phone…" offers it, as a link and a QR code to scan with
-  the phone's camera.
+  the app where "Add a phone…" offers it: an address to type in the phone's
+  browser (`https://<this PC>:47210/app`), and a QR code of it for a camera
+  that reads them.
 - **The firewall.** With ufw on, let the port in from your own networks and
   Tailscale. The dialog shows the commands for this PC, like `sudo ufw allow
   from 192.168.1.0/24 to any port 47210 proto tcp` and `sudo ufw allow in on

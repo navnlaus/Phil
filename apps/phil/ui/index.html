@@ -332,8 +332,12 @@
     <form method="dialog">
       <p class="title">Add a phone</p>
       <ol class="steps">
-        <li><span class="get">Install phil's app on it<span class="apk" hidden>: scan this with its camera, or open <a class="apk-link" target="_blank"></a> in its browser (it warns of the certificate: go on)</span><span class="no-apk" hidden> (it isn't built here yet: <code>android/build.sh</code> in phil's source folder, then <code>deno task install</code>)</span>.</span>
-          <img class="qr" alt="" hidden></li>
+        <li><span class="get">Install phil's app on it<span class="apk" hidden>: in its browser, go to</span><span class="no-apk" hidden> (it isn't built here yet: <code>android/build.sh</code> in phil's source folder, then <code>deno task install</code>).</span></span>
+          <div class="apk" hidden>
+            <a class="apk-link" target="_blank"></a>
+            <span class="hint">It warns of the certificate (phil's own): go on. Or scan this, if its camera reads QR codes:</span>
+            <img class="qr" alt="">
+          </div></li>
         <li>Open it there, and pick <b class="host"></b> (or type <span class="addresses"></span>).</li>
         <li>Check that it shows <span class="fp"></span> and type this code:
           <div class="code"></div></li>
@@ -341,7 +345,7 @@
       <p class="problem" hidden></p>
       <p class="firewall" hidden>The firewall keeps the phone out. Let it in once (from your own networks and Tailscale only):<code></code></p>
       <p class="paired" hidden></p>
-      <div class="buttons"><button value="cancel">Close</button></div>
+      <div class="buttons"><button value="cancel" autofocus>Close</button></div>
     </form>
   </dialog>
   <dialog id="confirm">

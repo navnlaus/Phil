@@ -3082,9 +3082,8 @@ async function addPhone() {
   d.querySelector(".fp").textContent = info.fingerprint ?? "?";
   d.querySelector(".host").textContent = `phil on ${state.init.hostname}`;
   d.querySelector(".addresses").textContent = info.addresses.length ? info.addresses.join(" or ") : "this PC's address";
-  d.querySelector(".apk").hidden = !info.apk;
+  for (const el of d.querySelectorAll(".apk")) el.hidden = !info.apk;
   d.querySelector(".no-apk").hidden = !!info.apk;
-  d.querySelector(".qr").hidden = !info.apk;
   if (info.apk) {
     Object.assign(d.querySelector(".apk-link"), { href: info.apk, textContent: info.apk });
     d.querySelector(".qr").src = `/api/qr?text=${encodeURIComponent(info.apk)}`;

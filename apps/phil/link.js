@@ -162,7 +162,8 @@ export function createLink({ configDir, broadcast, thumbs, touched = () => {}, a
         return json({ name: await hostname(), pairing: !!pairingNow(), v: 1 });
       case "POST /link/pair":
         return json(await pair(await req.json(), remote));
-      case "GET /phil.apk": // (anyone, while pairing) the app
+      case "GET /app": // (anyone, while pairing) the app: typed in the phone's browser
+      case "GET /phil.apk":
         if (!pairingNow() || !apk) return text(404, "Not found");
         return serveFile(req, apk, { "content-type": "application/vnd.android.package-archive", "content-disposition": 'attachment; filename="phil.apk"' });
     }
@@ -278,7 +279,7 @@ export function createLink({ configDir, broadcast, thumbs, touched = () => {}, a
       addresses,
       problem,
       firewall: await firewallBlocks(),
-      apk: apk && wifi && await Deno.stat(apk).then(() => true, () => false) ? `https://${wifi}:${LINK_PORT}/phil.apk` : null,
+      apk: apk && wifi && await Deno.stat(apk).then(() => true, () => false) ? `https://${wifi}:${LINK_PORT}/app` : null,
       expires: pairing.expires,
     };
   }
