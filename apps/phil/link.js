@@ -130,24 +130,33 @@ export function createLink({ configDir, broadcast, thumbs, touched = () => {}, a
     stopped = true;
     clearTimeout(retry);
     clearInterval(watch);
-    try {
-      avahi?.kill();
-    } catch { /* gone */ }
+    const publisher = avahi;
     avahi = null;
+    try {
+      publisher?.kill();
+    } catch { /* gone */ }
     await server?.shutdown().catch(() => {});
     server = null;
   }
 
-  // On the Wi-Fi, by mDNS (avahi): the app finds phil there, and its address when it changes.
+  // On the Wi-Fi, by mDNS (avahi): the app finds phil there, and its address when it
+  // changes. An announcement left by an engine that's gone (killed: its avahi-publish
+  // outlives it) would take the name, pointing at nothing: it goes first, this engine
+  // having the port. One that stops (avahi restarted) is made again in a while.
   async function publish() {
     const name = await hostname();
-    if (stopped) return;
+    if (stopped || !server) return;
+    await new Deno.Command("pkill", { args: ["-f", "^(/usr/bin/)?avahi-publish-service -s phil on "], stdin: "null", stdout: "null", stderr: "null" }).output().catch(() => {});
     try {
-      avahi = new Deno.Command("avahi-publish-service", {
+      const mine = avahi = new Deno.Command("avahi-publish-service", {
         args: ["-s", `phil on ${name}`, "_phil._tcp", String(LINK_PORT), `fp=${fingerprint.slice(0, 16)}`, "v=1"],
         stdin: "null", stdout: "null", stderr: "null",
       }).spawn();
-      avahi.status.then(() => (avahi = null));
+      mine.status.then(() => {
+        if (avahi !== mine) return;
+        avahi = null;
+        if (!stopped) retry = setTimeout(publish, 60_000);
+      });
     } catch { /* no avahi: the address is typed */ }
   }
 
