@@ -41,8 +41,25 @@ else
 fi
 # The themes, where they can be edited (~/.config/phil/themes).
 "$engine" --install-themes
-# phil's Android app (the phone link), if it's been built (android/build.sh: it needs
-# the Android SDK): "Add a phone…" offers it to the phone.
+# phil's Android app (the phone link): "Add a phone…" offers it to the phone, and a
+# paired phone with an older one is offered the update. Built again first
+# (android/build.sh) when there's the Android SDK and the one built is out of date:
+# its version isn't this commit's, or its files changed since.
+apk_stale() {
+  [[ -f android/build/phil.apk && -f android/build/phil.apk.json ]] || return 0
+  local built want
+  built=$(grep -o '"code":[0-9]*' android/build/phil.apk.json | cut -d: -f2)
+  want=$(git rev-list --count HEAD 2>/dev/null || echo "$built")
+  [[ $built -lt $want ]] && return 0
+  [[ -n $(find android/src android/assets android/res android/AndroidManifest.xml android/libs.txt android/build.sh \
+    themes/base.css themes/overlay.css apps/musicview/somafm.json -newer android/build/phil.apk -print -quit 2>/dev/null) ]]
+}
+if [[ -d ${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools ]]; then
+  if apk_stale; then
+    echo "Building phil's Android app…"
+    android/build.sh || echo "The Android app didn't build: the one built before (if any) is installed" >&2
+  fi
+fi
 if [[ -f android/build/phil.apk ]]; then
   install -Dm644 android/build/phil.apk "$data/phil/phil.apk"
   # (its version: phones with an older one are offered it)

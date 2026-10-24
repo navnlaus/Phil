@@ -162,7 +162,7 @@ final class Serve {
     // ---------------------------------------------------------------- the PC's
 
     private WebResourceResponse pc(String what, Uri u, Map<String, String> headers) throws Exception {
-        if (what.equals("status")) return json(status(true));
+        if (what.equals("status")) return json(status(!"1".equals(u.getQueryParameter("fresh")))); // (fresh: asked now, "Check for updates")
         if (!store.paired()) return error(409, "Not paired with a PC");
         switch (what) {
             case "places":
@@ -315,6 +315,7 @@ final class Serve {
         }
         String update = Updater.waiting(context);
         if (update != null) s.put("update", update); // (a newer app on the PC: its version's name)
+        s.put("version", Updater.myVersionName(context));
         status = s;
         statusAt = System.currentTimeMillis();
         return s;

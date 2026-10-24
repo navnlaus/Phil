@@ -42,8 +42,12 @@ while read -r path sum; do
 done < libs.txt
 
 # Its version: phil's commit count (the code goes up with each; PHIL_ANDROID_VERSION:
-# another, for testing updates).
+# another, for testing updates). With the app's files changed and not committed yet:
+# the count they'll have (one more), so a phone with the last commit's is offered it.
 code=${PHIL_ANDROID_VERSION:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}
+if [[ -z ${PHIL_ANDROID_VERSION:-} ]] && [[ -n $(git status --porcelain -- . ../themes/base.css ../themes/overlay.css ../apps/musicview/somafm.json 2>/dev/null | grep -v ' build/') ]]; then
+  code=$((code + 1))
+fi
 name="1.0.$code"
 
 out=build

@@ -41,6 +41,15 @@ final class Updater {
         return c.getSharedPreferences("update", Context.MODE_PRIVATE);
     }
 
+    // This app's version's name (1.0.<code>).
+    static String myVersionName(Context c) {
+        try {
+            return c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     static long myVersion(Context c) {
         try {
             PackageInfo p = c.getPackageManager().getPackageInfo(c.getPackageName(), 0);

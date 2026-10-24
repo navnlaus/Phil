@@ -400,12 +400,12 @@ function renderPlaces() {
 }
 
 // Is the PC there? Its places, and its look (the theme), when it is.
-async function checkPc(said = false) {
+async function checkPc(said = false, { fresh = false } = {}) {
   let s;
   try {
-    s = await api("/pc/status");
+    s = await api(`/pc/status${fresh ? "?fresh=1" : ""}`);
   } catch {
-    return;
+    return null;
   }
   Object.assign(state.pc, { paired: s.paired, reachable: s.reachable, name: s.name });
   // A newer phil on the PC: offered.
@@ -422,6 +422,18 @@ async function checkPc(said = false) {
   renderPlaces();
   if (state.side === "pc" && !s.reachable && state.path) showMessage(`${state.pc.name} isn't in reach.`, ["Try again", () => checkPc(true).then(() => state.pc.reachable && open("pc", state.path, { push: false }))]);
   else render();
+  return s;
+}
+
+// "Check for updates": the PC asked now for the app it has.
+async function checkUpdates() {
+  toast("Checking for updates…");
+  const s = await checkPc(false, { fresh: true });
+  if (!s) toast("Couldn't check");
+  else if (s.update) toast(`phil ${s.update} is ready: tap Update`);
+  else if (!s.paired) toast("Not paired with a PC");
+  else if (!s.reachable) toast(`${s.name} isn't in reach: on its Wi-Fi, or with Tailscale on?`);
+  else toast(`phil ${s.version} is the newest ${s.name} has`);
 }
 
 // ---------------------------------------------------------------- the rest
@@ -450,6 +462,7 @@ $("#menu").onclick = (e) => {
   if (what === "reload") summaries.clear(), open(state.side, state.path, { push: false }), checkPc();
   if (what === "hidden") (state.hidden = !state.hidden), open(state.side, state.path, { push: false });
   if (what === "setup") globalThis.Phil?.setup();
+  if (what === "updates") checkUpdates();
 };
 $("#send-here").onclick = () => globalThis.Phil?.pickAndSend(state.path);
 $("#update button").onclick = () => {
