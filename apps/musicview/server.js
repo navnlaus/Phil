@@ -33,14 +33,13 @@ import { httpError, json, serveFile, text } from "../../engine/http.js";
 import { ask } from "../../engine/instance.js";
 import { serverConfig } from "../phil/launch.js";
 import { Hooks, metadataFile } from "../phil/hooks.js";
-import { coverTo } from "../phil/audio.js";
+import { coverFile } from "./covers.js";
 import { Library, scan } from "./library.js";
 import { logo, nowPlaying, somafmStations, stream } from "./radio.js";
 import { Player } from "./player.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 const SCAN_EVERY_MS = 5 * 60_000; // the library opened: the music folders scanned again if the last scan was longer ago
-const COVER_PX = 400;
 
 export function createServer({ profile = {}, controlSocket = null }) {
   const config = serverConfig(profile);
@@ -108,30 +107,6 @@ export function createServer({ profile = {}, controlSocket = null }) {
         tell("library", {});
       }
     })();
-  }
-
-  // A song's cover art, album-sized: made from the picture in it once, kept by its path, size and time.
-  async function cover(path) {
-    const stat = await Deno.stat(path);
-    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${path}\0${stat.size}\0${stat.mtime?.getTime()}`)));
-    const file = join(coversDir, Array.from(hash.subarray(0, 16), (b) => b.toString(16).padStart(2, "0")).join("") + ".jpg");
-    if (await Deno.stat(file).then(() => true, () => false)) return file;
-    if (await Deno.stat(`${file}.fail`).then(() => true, () => false)) return null;
-    await Deno.mkdir(coversDir, { recursive: true });
-    const raw = `${file}.${crypto.randomUUID().slice(0, 8)}.raw.jpg`, part = `${file}.${crypto.randomUUID().slice(0, 8)}.part.jpg`;
-    try {
-      await coverTo(path, raw);
-      const made = await new Deno.Command("vipsthumbnail", { args: [raw, "--size", `${COVER_PX}x${COVER_PX}`, "-o", `${part}[Q=85,strip]`], stdin: "null", stdout: "null", stderr: "null" }).output();
-      if (!made.success) throw new Error("vips");
-      await Deno.rename(part, file);
-      return file;
-    } catch {
-      await Deno.writeFile(`${file}.fail`, new Uint8Array()).catch(() => {});
-      return null;
-    } finally {
-      await Deno.remove(raw).catch(() => {});
-      await Deno.remove(part).catch(() => {});
-    }
   }
 
   const stationOf = (url) => {
@@ -291,7 +266,7 @@ export function createServer({ profile = {}, controlSocket = null }) {
         case "HEAD /api/file":
           return serveFile(req, absolute(path));
         case "GET /api/cover": {
-          const file = await cover(absolute(path)).catch(() => null);
+          const file = await coverFile(absolute(path), coversDir).catch(() => null);
           return file ? serveFile(req, file, { "cache-control": "private, max-age=86400" }) : text(404, "No cover art");
         }
         case "GET /api/stations":

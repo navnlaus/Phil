@@ -55,6 +55,7 @@ final class Serve {
             if (p.startsWith("/theme/")) return theme(p.substring(7));
             if (p.startsWith("/phone/")) return phone(p.substring(7), u, req.getRequestHeaders());
             if (p.startsWith("/pc/")) return pc(p.substring(4), u, req.getRequestHeaders());
+            if (p.startsWith("/music/")) return music(p.substring(7), u);
             return error(404, "Not found");
         } catch (Net.Answer e) {
             if (e.status == 401) forget();
@@ -194,6 +195,59 @@ final class Serve {
     }
 
     private boolean fetch(String path, java.io.OutputStream out) throws IOException {
+        return fetchPc(store, path, out);
+    }
+
+    // ---------------------------------------------------------------- music (MusicService)
+
+    private WebResourceResponse music(String what, Uri u) throws Exception {
+        switch (what) {
+            case "state":
+                return json(MusicService.stateNow());
+            case "phone": // the phone's own songs (Android's media index)
+                return json(new JSONObject().put("songs", Local.music(context)));
+            case "pc": { // the PC's library (musicview's) and its stations, the stations kept for when it's away
+                JSONObject lib = Net.call(store, "GET", "/m/api/music", null);
+                if (lib.optJSONArray("stations") != null && lib.optJSONArray("stations").length() > 0) {
+                    write(new File(context.getFilesDir(), "stations.json"), lib.getJSONArray("stations").toString());
+                }
+                return json(lib);
+            }
+            case "stations": { // the PC's, as last had; else SomaFM's (the app's own copy)
+                File kept = new File(context.getFilesDir(), "stations.json");
+                if (kept.exists()) return json(new org.json.JSONArray(Net.read(new FileInputStream(kept))));
+                return json(new JSONObject(Net.read(context.getAssets().open("www/somafm.json"))).getJSONArray("stations"));
+            }
+            case "cover": { // a song's: a phone song's made here, a PC song's from phil there (both kept)
+                File f = "pc".equals(u.getQueryParameter("kind"))
+                    ? pcCover(thumbs, store, param(u, "path"), num(u, "mtime"))
+                    : thumbs.local(new File(param(u, "path")));
+                return f == null ? error(404, "No cover") : response(200, "image/jpeg", new FileInputStream(f), Map.of("cache-control", "max-age=31536000, immutable"));
+            }
+            case "logo": { // a station's (kept)
+                File f = logo(thumbs, u.getQueryParameter("url"));
+                return f == null ? error(404, "No logo") : response(200, "image/png", new FileInputStream(f), Map.of("cache-control", "max-age=86400"));
+            }
+            default:
+                return error(404, "Not found");
+        }
+    }
+
+    /** A PC song's cover (musicview's, through the link), kept here by its path and time. */
+    static File pcCover(Thumbs thumbs, Store store, String path, long mtime) throws IOException {
+        return thumbs.pc("c-" + Thumbs.pcName(path, 0, mtime), (o) -> fetchPc(store, "/m/api/music/cover?path=" + Uri.encode(path), o));
+    }
+
+    /** A station's logo, from the web, kept. */
+    static File logo(Thumbs thumbs, String url) throws IOException {
+        if (url == null || !url.matches("(?i)^https?://\\S+")) return null;
+        return thumbs.pc("l-" + Thumbs.hash(url) + ".img", (o) -> {
+            MusicService.fetchWeb(url, o);
+            return true;
+        });
+    }
+
+    static boolean fetchPc(Store store, String path, java.io.OutputStream out) throws IOException {
         HttpsURLConnection c;
         try {
             c = Net.request(store, "GET", path, null);

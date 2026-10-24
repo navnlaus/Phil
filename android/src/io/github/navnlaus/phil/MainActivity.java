@@ -100,18 +100,20 @@ public class MainActivity extends Activity {
                 else request.deny();
             }
         });
-        // What the service did that the page shows (files sent into a folder it shows, a download done).
+        // What the services did that the page shows (files sent into a folder it shows, a download done; the music player).
         LinkService.listener = (event) -> runOnUiThread(() -> web.evaluateJavascript("window.philEvent && philEvent(" + event + ")", null));
+        MusicService.listener = LinkService.listener;
         if (store.paired() && store.sharing()) LinkService.start(this);
         show();
         if (Updater.UPDATE.equals(getIntent().getAction())) Updater.install(this);
     }
 
-    // The update notification tapped while the app's open.
+    // The update notification tapped while the app's open; the music's: its view.
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (Updater.UPDATE.equals(intent.getAction())) Updater.install(this);
+        if ("music".equals(intent.getAction())) web.evaluateJavascript("window.philShowMusic && philShowMusic()", null);
     }
 
     private void show() {
@@ -313,6 +315,11 @@ public class MainActivity extends Activity {
             Updater.install(MainActivity.this);
         }
 
+        // The music player's commands ({cmd, ...}: MusicService).
+        @JavascriptInterface public void music(String command) {
+            MusicService.command(MainActivity.this, command);
+        }
+
         @JavascriptInterface public void setup() {
             runOnUiThread(() -> web.loadUrl(SETUP));
         }
@@ -335,6 +342,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         LinkService.listener = null;
+        MusicService.listener = null;
         web.destroy();
         super.onDestroy();
     }

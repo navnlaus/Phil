@@ -1369,6 +1369,7 @@ export function createServer({ profile, controlSocket }) {
     list: (dir) => readEntries(dir), // (thumbnails and folder summaries looked up, as for phil's page)
     summary: (dir) => summarize(dir, "name", new AbortController().signal),
     audio: (path) => audioInfo.get(path),
+    music: { db: join(dirname(config.stateFile), "music.sqlite"), covers: join(config.thumbDir, "music-covers") }, // (musicview's)
     touched: (dir) => totals.touched(dir),
     apk: join(Deno.env.get("XDG_DATA_HOME") || join(home(), ".local", "share"), "phil", "phil.apk"), // (scripts/install.sh puts it there)
   });

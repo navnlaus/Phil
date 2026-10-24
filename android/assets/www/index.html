@@ -14,12 +14,39 @@
   <header id="bar">
     <button id="up" class="icon" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
     <div id="where"><span id="title">phil</span><span id="path"></span></div>
+    <button id="to-music" class="text" aria-label="Music">Music</button>
     <button id="cols" class="icon" aria-label="Tile size"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg></button>
     <button id="menu-button" class="icon" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="12" cy="19" r="1.3"/></svg></button>
   </header>
   <nav id="places" aria-label="Places"></nav>
   <div id="update" hidden><span></span><button>Update</button></div>
   <main id="grid"></main>
+  <!-- Music (music.js): the phone's songs, the PC's, the radio. -->
+  <nav id="music-sources" aria-label="Music" hidden></nav>
+  <div id="music-modes" hidden><button data-mode="albums" class="here">Albums</button><button data-mode="songs">Songs</button></div>
+  <main id="music" hidden></main>
+  <!-- What's playing (MusicService), along the bottom: a tap opens the player. -->
+  <div id="mini" hidden>
+    <button class="mini-now"><span class="mini-cover"><img alt=""></span><span class="mini-text"><span class="mini-title"></span><span class="mini-artist"></span></span></button>
+    <button class="icon mini-prev" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M18 5v14L8 12z" fill="currentColor"/><path d="M6 5v14"/></svg></button>
+    <button class="icon mini-play" aria-label="Play"><svg viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg></button>
+    <button class="icon mini-next" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M6 5v14l10-7z" fill="currentColor"/><path d="M18 5v14"/></svg></button>
+  </div>
+  <div id="player" hidden>
+    <button id="player-close" class="icon" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+    <div class="player-cover"><img alt=""></div>
+    <div class="player-title"></div>
+    <div class="player-artist"></div>
+    <div class="player-seek"><span class="player-time">0:00</span><input type="range" class="player-pos" min="0" max="1000" value="0" aria-label="Position"><span class="player-length">0:00</span></div>
+    <div class="player-buttons">
+      <button class="icon player-shuffle" aria-label="Shuffle"><svg viewBox="0 0 24 24"><path d="m18 14 4 4-4 4"/><path d="m18 2 4 4-4 4"/><path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22"/><path d="M2 6h1.972a4 4 0 0 1 3.6 2.2"/><path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45"/></svg></button>
+      <button class="icon player-prev" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M18 5v14L8 12z" fill="currentColor"/><path d="M6 5v14"/></svg></button>
+      <button class="icon player-play" aria-label="Play"><svg viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg></button>
+      <button class="icon player-next" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M6 5v14l10-7z" fill="currentColor"/><path d="M18 5v14"/></svg></button>
+      <button class="icon player-repeat" aria-label="Repeat"><svg viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg><span class="one">1</span></button>
+    </div>
+    <div class="player-next-up"><span class="heading-text">Next up</span><ol class="player-queue"></ol></div>
+  </div>
   <div id="message" hidden><p></p><button hidden></button></div>
   <button id="send-here" class="fab" hidden aria-label="Send files here"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
   <div id="menu" hidden>
@@ -37,5 +64,6 @@
   </div>
   <div id="toast" hidden></div>
 <script src="/ui/app.js" type="module"></script>
+<script src="/ui/music.js" type="module"></script>
 </body>
 </html>

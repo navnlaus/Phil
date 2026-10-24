@@ -57,6 +57,7 @@ mkdir -p "$out/assets"
 cp -r assets/. "$out/assets/"
 cp ../themes/base.css "$out/assets/www/theme-base.css"
 cp ../themes/overlay.css "$out/assets/www/theme-theme.css"
+cp ../apps/musicview/somafm.json "$out/assets/www/somafm.json" # (the radio, with no PC in reach)
 
 "$bt/aapt2" compile --dir res -o "$out/res.zip"
 "$bt/aapt2" link -I "$jar" --manifest AndroidManifest.xml -A "$out/assets" \

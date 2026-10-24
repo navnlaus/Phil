@@ -518,6 +518,18 @@ and over [Tailscale](https://tailscale.com) away from it.
   phone's other files open in their app; the PC's are saved to the phone first.
   A long press: Open with…, Send to the PC, Save to phone. On a PC folder, +
   sends files from the phone into it.
+- Music on the phone: "Music" in the app's bar. The phone's own songs (by
+  their tags, as Android's media index has them), this PC's (musicview's
+  library, while it's in reach) and the radio (musicview's stations, kept on
+  the phone; SomaFM's, the app's own copy, before it's had them), as albums
+  with their covers or a list of songs, an album's songs over them. The player
+  is the app's (Android's MediaPlayer in a service of its own): it plays on with
+  the app closed and the screen off, with its notification, the lock screen's
+  controls, headphones' and Bluetooth buttons, and it pauses when headphones
+  are unplugged or a call comes. A small player along the bottom of both views
+  while there's something in it; a tap opens the big one (position, shuffle,
+  repeat, Next up). The PC's songs stream through the pinned link (a proxy on
+  127.0.0.1, for the player); their covers are musicview's, kept on the phone.
 - Share → "Send to PC" on the phone sends files (or text, as a note) into the
   PC's Downloads, in the Transfers list as they come.
 - Updates: when phil here has a newer build of the app (`deno task install`

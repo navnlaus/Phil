@@ -36,6 +36,8 @@
 import { basename, dirname, join, normalize } from "@std/path";
 import { httpError, json, serveFile, text } from "../../engine/http.js";
 import { currentTheme, themeFile } from "../../engine/themes.js";
+import { Library } from "../musicview/library.js";
+import { coverFile } from "../musicview/covers.js";
 import { downloadDir, reportsDir } from "./browserdownloads.js";
 import { gioInfo, mount } from "./locate.js";
 
@@ -51,10 +53,12 @@ const enc = new TextEncoder();
  * entries as phil's page gets them: thumbnails made, folder summaries saved),
  * `summary(dir)` (a folder's summary, made now), `audio(path)` (a song's title,
  * artist, album and length: audio.js), `touched(dir)` (a file was
- * added there), `apk` (phil's Android app, offered while pairing, if it's
- * there). Call start(); stop() frees the port (an engine retiring).
+ * added there), `music` ({db, covers}: musicview's library and its covers'
+ * folder, for the app's music), `apk` (phil's Android app, offered while pairing,
+ * if it's there). Call start(); stop() frees the port (an engine retiring).
  */
-export function createLink({ configDir, broadcast, thumbs, list, summary: summaryOf, audio = () => Promise.resolve(null), touched = () => {}, apk = null }) {
+export function createLink({ configDir, broadcast, thumbs, list, summary: summaryOf, audio = () => Promise.resolve(null), music = null, touched = () => {}, apk = null }) {
+  let library = null; // musicview's (music: {db, covers}), opened when the app first asks
   const stateFile = join(configDir, "phones.json");
   const certDir = join(configDir, "link");
   let phones = null; // [phone], loaded first
@@ -203,6 +207,14 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
         return json(await listing(pathParam(url), url.searchParams.get("hidden") === "1"));
       case "GET /m/api/audio": // a song's title, artist, album and length (audio.js), for its tile
         return json(await audio(pathParam(url)).catch(() => ({})));
+      case "GET /m/api/music": // musicview's library (its songs, by their tags) and its radio stations, for the app's music
+        if (!music) return json({ songs: [], stations: [] });
+        library ??= new Library(music.db, { write: false });
+        return json({ songs: library.songs(), stations: library.stations() });
+      case "GET /m/api/music/cover": { // a song's cover, album-sized (musicview's)
+        const file = music ? await coverFile(pathParam(url), music.covers).catch(() => null) : null;
+        return file ? serveFile(req, file, { "cache-control": "private, max-age=31536000, immutable" }) : text(404, "No cover");
+      }
       case "GET /m/api/summary": // a folder's, for its tile (its previews: thumbnails by name, /m/thumbs/...)
         return json(appSummary(await summaryOf(pathParam(url))));
       case "GET /m/file":

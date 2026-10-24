@@ -471,6 +471,8 @@ globalThis.philEvent = (event) => {
   }
   if (event.downloaded) toast(`Saved in Download: ${event.downloaded.split("/").pop()}`);
 };
+// The music view (music.js) gone: the folder's view as it was.
+globalThis.philFiles = { render };
 // Back in the app (all files allowed meanwhile, the PC paired): looked at again.
 globalThis.philResumed = () => {
   checkPc();

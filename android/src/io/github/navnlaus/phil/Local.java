@@ -145,6 +145,40 @@ final class Local {
         return out;
     }
 
+    // The phone's songs, as Android's media index has them (it reads their tags):
+    // [{kind: "phone", path, title, artist, album, albumArtist, track, disc, year, duration (s), mtime}].
+    static JSONArray music(Context context) throws JSONException {
+        JSONArray out = new JSONArray();
+        String[] cols = {"_data", "title", "artist", "album", "album_artist", "track", "year", "duration", "date_modified"};
+        try (android.database.Cursor c = context.getContentResolver().query(android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                cols, "is_music != 0", null, null)) {
+            if (c == null) return out;
+            while (c.moveToNext()) {
+                String path = c.getString(0);
+                if (path == null || !new File(path).isFile()) continue;
+                int track = c.isNull(5) ? 0 : c.getInt(5); // (disc × 1000 + track)
+                JSONObject s = new JSONObject().put("kind", "phone").put("path", path)
+                    .put("title", text(c.getString(1))).put("artist", unknownless(c.getString(2))).put("album", unknownless(c.getString(3)))
+                    .put("albumArtist", text(c.getString(4)))
+                    .put("track", track > 0 ? track % 1000 : JSONObject.NULL).put("disc", track >= 1000 ? track / 1000 : JSONObject.NULL)
+                    .put("year", c.isNull(6) || c.getInt(6) == 0 ? JSONObject.NULL : c.getInt(6))
+                    .put("duration", c.isNull(7) ? JSONObject.NULL : c.getLong(7) / 1000.0)
+                    .put("mtime", c.isNull(8) ? 0 : c.getLong(8) * 1000);
+                out.put(s);
+            }
+        }
+        return out;
+    }
+
+    private static Object text(String s) {
+        return s == null || s.isEmpty() ? JSONObject.NULL : s;
+    }
+
+    // ("<unknown>": what Android says for a tag that isn't there)
+    private static Object unknownless(String s) {
+        return s == null || s.isEmpty() || s.equals("<unknown>") ? JSONObject.NULL : s;
+    }
+
     // A folder's summary (made, its thumbnails too: Thumbs).
     static JSONObject summary(Thumbs thumbs, File dir) throws Exception {
         Object[] known = summaries.get(dir.getPath());

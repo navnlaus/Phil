@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- phil's phone link: the phone's files shared with phil on a PC (SFTP), and a light phil on
      the phone: its own files and the PC's (assets/www, Serve; the PC's through apps/phil/link.js). -->
+<!-- Plain HTTP: radio stations that stream it, and the music player's own proxy on 127.0.0.1
+     (PcProxy); the PC is only ever reached over HTTPS, its certificate pinned (Net). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.navnlaus.phil">
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -10,6 +12,7 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -26,7 +29,7 @@
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:requestLegacyExternalStorage="true"
-        android:usesCleartextTraffic="false"
+        android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
         <activity
@@ -68,6 +71,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Shares the phone's files with the user's own PC (an SFTP server) while it's on" />
         </service>
+
+        <!-- The music player (MusicService): playing on with the app closed. -->
+        <service
+            android:name=".MusicService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- The phone's files opened in other apps (Open with…): read-only, by granted URI. -->
         <provider

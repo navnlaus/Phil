@@ -44,11 +44,11 @@ export class Library {
 
   // ---------------------------------------------------------------- songs
 
-  /** Every song: [{path, root, title, artist, album, albumArtist, track, disc, year, genre, duration, cover, added}]. */
+  /** Every song: [{path, root, title, artist, album, albumArtist, track, disc, year, genre, duration, cover, added, mtime}]. */
   songs() {
     return this.#db.prepare("SELECT * FROM songs").all().map((r) => ({
       path: r.path, root: r.root, title: r.title, artist: r.artist, album: r.album, albumArtist: r.album_artist,
-      track: r.track, disc: r.disc, year: r.year, genre: r.genre, duration: r.duration, cover: !!r.cover, added: r.added,
+      track: r.track, disc: r.disc, year: r.year, genre: r.genre, duration: r.duration, cover: !!r.cover, added: r.added, mtime: r.mtime,
     }));
   }
 
