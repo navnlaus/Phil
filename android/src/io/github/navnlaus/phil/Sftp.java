@@ -99,10 +99,20 @@ final class Sftp {
         server = s;
     }
 
-    // A path as the PC sees it (under the shared storage, its root), told to the media index.
+    // A path as the PC sees it (under the shared storage, its root), told to the media index;
+    // once it's taken them in (a moment after the last), the page hears of it (the music's
+    // view reads the phone's songs again).
+    private static final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static final Runnable mediaChanged = () -> {
+        java.util.function.Consumer<String> to = LinkService.listener;
+        if (to != null) to.accept("{\"phoneMedia\":true}");
+    };
     private static void scan(Context context, Path path) {
         String inside = path.toString().replaceFirst("^/+", "");
-        MediaScannerConnection.scanFile(context, new String[] {new File(root(), inside).getPath()}, null, null);
+        MediaScannerConnection.scanFile(context, new String[] {new File(root(), inside).getPath()}, null, (p, uri) -> {
+            main.removeCallbacks(mediaChanged);
+            main.postDelayed(mediaChanged, 1500);
+        });
     }
 
     synchronized void stop() {

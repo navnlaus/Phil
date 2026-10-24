@@ -218,4 +218,18 @@ body.mini-on .fab { bottom: 84px; }
   #cam-view .cam-controls { left: auto; top: 60px; bottom: auto; width: 180px; padding: 0 12px 0 0; }
   #cam-presets { flex-wrap: wrap; justify-content: flex-end; }
 }
+/* ---------------------------------------------------------------- the PC's copies to here (transfers.js) */
+
+#transfers { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 7; display: flex; flex-direction: column; gap: 6px; }
+body.mini-on #transfers { bottom: 82px; }
+body.transfers-on { padding-bottom: calc(96px + var(--transfers-h, 0px)); }
+body.transfers-on .fab { bottom: calc(24px + var(--transfers-h, 0px)); }
+.tr { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; height: auto; padding: 9px 12px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-raised); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4); text-align: left; }
+.tr-text { display: flex; flex-direction: column; min-width: 0; }
+.tr-what { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-how { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.tr-bar, .copying .c-bar { display: block; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 15%, transparent); overflow: hidden; }
+.tr-fill, .copying .c-fill { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+.tr.paused .tr-fill { background: var(--text-dim); }
+.tile .copying { position: absolute; left: 6px; right: 6px; top: 6px; z-index: 2; display: flex; flex-direction: column; gap: 4px; padding: 5px 7px 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; pointer-events: none; }
 [hidden] { display: none !important; }

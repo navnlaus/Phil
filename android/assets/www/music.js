@@ -317,6 +317,10 @@ addEventListener("popstate", (e) => {
 const before = globalThis.philEvent;
 globalThis.philEvent = (event) => {
   if (event.music) return showState(event.music);
+  if (event.phoneMedia) { // (songs the PC sent, in Android's media index now: read again)
+    if (!m.on) return (m.phone = null);
+    return api("/music/phone").then((r) => ((m.phone = r.songs), render()), () => {});
+  }
   before?.(event);
 };
 // The music's notification tapped: its view.

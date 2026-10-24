@@ -504,9 +504,19 @@ and over [Tailscale](https://tailscale.com) away from it.
 
 - The phone is in the sidebar's Phones, with its battery (greyed when it's out
   of reach). A click opens its files (its shared storage, what its Files app
-  shows), mounted by gvfs over SFTP: they're a folder like any other, to copy
-  to and from, with thumbnails, folder sizes and the Transfers list. The
-  breadcrumbs start at its name. Right-click renames or forgets it.
+  shows), mounted over SFTP with sshfs (in `$XDG_RUNTIME_DIR/phil/phones/`):
+  they're a folder like any other, to copy to and from, with thumbnails,
+  folder sizes and the Transfers list. The breadcrumbs start at its name.
+  Right-click renames or forgets it. (sshfs, not gvfs: copies through gvfs's
+  folder go a piece at a time, about 2 MB/s over Wi-Fi; sshfs keeps many on the
+  way, 40 MB/s and more. Without sshfs installed, gvfs's mount, as before.)
+- On the phone, the PC's copies to it as they go: a bar each along the bottom
+  of the app (how far, how fast, the time left; a tap opens where it's going),
+  and how far each item, and the file it's at, is on their tiles. The folder
+  shown is read again as things land in it.
+- Songs copied in go into the music libraries: into a music folder here,
+  musicview reads it again (what's new or gone); onto the phone, Android's
+  media index takes them in and the app's Music shows them.
 - On the phone, phil: the phone's own files (its storage, and an SD card), and
   this PC's while it's in reach, as phil's tiles in phil's theme (the one in
   use here, taken when the PC's in reach and kept for when it isn't). A
@@ -570,8 +580,8 @@ How it works (`apps/phil/link.js`):
   on a network this PC is on, else at its Tailscale one.
 - The phone runs an SFTP server (Apache MINA SSHD) on port 47222, with one
   login, made by the app and given to phil when they pair. Its host key, given
-  then too, goes in `~/.ssh/known_hosts` for the address it's mounted from:
-  ssh takes that key from it and no other. What phil writes there is told to
+  then too, is the only one ssh takes for it (a known_hosts of phil's own,
+  `~/.config/phil/link/known_hosts-<phone>`, for the address it's mounted from). What phil writes there is told to
   Android's media index, so it shows in the phone's Gallery and pickers.
 - The phones are kept in `~/.config/phil/phones.json` (readable only by you:
   their SFTP logins are in it); the app's token there is kept as a hash.
@@ -584,10 +594,12 @@ Setting it up:
   and `~/Android/Sdk`, or `JAVA_HOME` and `ANDROID_HOME`. It gets its libraries
   from Maven Central and checks them against `android/libs.txt`. Its signing
   key is made the first time, in `~/.local/share/phil/android`: keep it, since
-  an update has to be signed with the same key. `deno task install` then puts
-  the app where "Add a phone…" offers it: an address to type in the phone's
+  an update has to be signed with the same key. `deno task install` builds it
+  again when it's out of date, and puts the app where "Add a phone…" offers it: an address to type in the phone's
   browser (`https://<this PC>:47210/app`), and a QR code of it for a camera
   that reads them.
+- **sshfs** for the phone's files: `sudo pacman -S sshfs` (without it, gvfs's
+  mount, much slower to copy to).
 - **The firewall.** With ufw on, let the port in from your own networks and
   Tailscale. The dialog shows the commands for this PC, like `sudo ufw allow
   from 192.168.1.0/24 to any port 47210 proto tcp` and `sudo ufw allow in on

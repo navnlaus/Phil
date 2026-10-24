@@ -70,7 +70,7 @@ const pcUrl = (url) => `/pc${url}`;
 
 // ---------------------------------------------------------------- folders
 
-async function open(side, path, { push = true } = {}) {
+async function open(side, path, { push = true, scroll = true } = {}) {
   closeViewer({ back: false });
   closeSheet();
   let listing;
@@ -86,7 +86,7 @@ async function open(side, path, { push = true } = {}) {
   if (push) history.pushState({ side, path: state.path }, "");
   keep("last", JSON.stringify({ side, path: state.path }));
   render();
-  scrollTo(0, 0);
+  if (scroll) scrollTo(0, 0);
 }
 
 function render() {
@@ -106,6 +106,7 @@ function render() {
   watching.disconnect();
   grid.replaceChildren(...state.entries.map(tile));
   showMessage(state.entries.length ? "" : "Nothing here");
+  globalThis.philTransfersShow?.(); // (the PC's copies to here, on their tiles: transfers.js)
 }
 
 // A tile, as phil makes it: .thumb (a picture, or the kind's icon; a folder's
@@ -485,7 +486,13 @@ globalThis.philEvent = (event) => {
   if (event.downloaded) toast(`Saved in Download: ${event.downloaded.split("/").pop()}`);
 };
 // The music view (music.js) gone: the folder's view as it was.
-globalThis.philFiles = { render };
+globalThis.philFiles = {
+  render,
+  // (transfers.js: where it is, and the folder read again, as it was, when a copy changes it)
+  where: () => ({ side: state.side, path: state.path, pcPaired: state.pc.paired }),
+  reread: () => state.path && $("#viewer").hidden && open(state.side, state.path, { push: false, scroll: false }),
+  openPhone: (path) => path && open("phone", path),
+};
 // Back in the app (all files allowed meanwhile, the PC paired): looked at again.
 globalThis.philResumed = () => {
   checkPc();

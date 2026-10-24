@@ -34,7 +34,7 @@ import { ask } from "../../engine/instance.js";
 import { serverConfig } from "../phil/launch.js";
 import { Hooks, metadataFile } from "../phil/hooks.js";
 import { coverFile } from "./covers.js";
-import { Library, scan } from "./library.js";
+import { Library, scan, onFilesChanged } from "./library.js";
 import { logo, nowPlaying, somafmStations, stream } from "./radio.js";
 import { Player } from "./player.js";
 
@@ -93,6 +93,17 @@ export function createServer({ profile = {}, controlSocket = null }) {
   const musicRoots = async () => Object.entries(await hooks.all()).filter(([, m]) => m?.music === true).map(([p]) => p).sort();
   const roots = async () => Promise.all((await musicRoots()).map(async (path) => ({ path, away: !(await Deno.stat(path).then((s) => s.isDirectory, () => false)) })));
 
+  // Files changed in a music folder (filesChanged: phil copied, moved or deleted
+  // some): read again soon (what's new or changed is read; what's gone, removed).
+  let again = false, soon = 0;
+  onFilesChanged(async (paths) => {
+    const roots = await musicRoots();
+    const inside = (p, r) => p === r || p.startsWith(r + "/") || r.startsWith(p + "/");
+    if (!paths.some((p) => roots.some((r) => inside(p, r)))) return;
+    clearTimeout(soon);
+    soon = setTimeout(() => (scanning ? (again = true) : rescan()), 1000);
+  });
+
   function rescan() {
     if (scanning) return;
     scanning = { done: 0, total: 0 };
@@ -105,6 +116,7 @@ export function createServer({ profile = {}, controlSocket = null }) {
       } finally {
         scanning = null;
         tell("library", {});
+        if (again) (again = false), rescan(); // (more came while it read)
       }
     })();
   }

@@ -165,6 +165,18 @@ final class Serve {
         if (what.equals("status")) return json(status(!"1".equals(u.getQueryParameter("fresh")))); // (fresh: asked now, "Check for updates")
         if (!store.paired()) return error(409, "Not paired with a PC");
         switch (what) {
+            case "transfers": { // ?since=: the PC's copies to this phone (answered when they change), their paths as here
+                JSONObject t = Net.call(store, "GET", "/m/api/transfers?since=" + num(u, "since"), null);
+                String top = Sftp.root().getPath();
+                org.json.JSONArray list = t.optJSONArray("transfers");
+                for (int i = 0; list != null && i < list.length(); i++) {
+                    JSONObject j = list.getJSONObject(i);
+                    for (String k : new String[] {"dest", "file", "at"}) if (!j.isNull(k) && j.has(k)) j.put(k, top + j.getString(k));
+                    org.json.JSONArray targets = j.optJSONArray("targets");
+                    for (int n = 0; targets != null && n < targets.length(); n++) targets.put(n, top + targets.getString(n));
+                }
+                return json(t);
+            }
             case "places":
                 return json(Net.call(store, "GET", "/m/api/places", null));
             case "list":

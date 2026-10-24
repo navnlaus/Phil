@@ -15,18 +15,22 @@
 // Then the phone checks in (POST /link/hello: its addresses, battery, free space) when it
 // starts, when its network changes and every five minutes; phil lists it as in
 // reach if it has in the last few, and answers with the app's version here: a
-// phone with an older one offers to update itself (GET /link/app.apk). Opening it mounts sftp://phil@<address>:<port>/
-// (gio mount, locate.js), at its Wi-Fi address if it's on this one, else its
-// Tailscale one, the login answered and its host key the one it paired with. What's shared to phil on the phone (Share → "Send to PC") comes
+// phone with an older one offers to update itself (GET /link/app.apk). Opening it
+// mounts its files with sshfs (OpenSSH's SFTP, at $XDG_RUNTIME_DIR/phil/phones/<its
+// name>), at its Wi-Fi address if it's on this one, else its Tailscale one, the
+// login answered and its host key the one it paired with (ssh is given only that:
+// a known_hosts of phil's own, ~/.config/phil/link/). Not gvfs's mount (gio mount),
+// which writes through its FUSE folder one piece at a time, each waiting for the
+// phone: 2 MB/s, where sshfs keeps many on the way (40 MB/s and more). Without
+// sshfs: gvfs's, as before (its host key in ssh's known_hosts then). What's shared to phil on the phone (Share → "Send to PC") comes
 // in at POST /link/upload, into the Downloads folder, in the Transfers list as
 // it comes.
 //
 // Kept in ~/.config/phil/phones.json (readable only by you: the phones' SFTP
 // logins are in it): {"phones": [{id, name, model, tokenHash, sftp: {port, user,
 // password, hostKey, publicKey}, addresses, remote, seen, battery, sharing,
-// paired, mounts}]}. `mounts`: where gvfs has its files, at each address it was
-// reached at ({host: path}). Its host key goes in ssh's known_hosts for the
-// address it's mounted from, before it is: ssh takes that key, and no other.
+// paired, mounts}]}. `mounts`: where its files are mounted, at each address it was
+// reached at ({host: path}).
 //
 // The app's light phil (its own page, in the app: the phone's files and these)
 // asks for this PC's at /m/: folders as phil lists them, with phil's thumbnails
@@ -229,6 +233,8 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
         return json(await live.ptz(await req.json()));
       case "GET /m/api/presets":
         return json({ presets: await live.presets(url.searchParams.get("id") ?? "") });
+      case "GET /m/api/transfers": // ?since=: the copies to this phone under way (answered when they change, or in a while)
+        return json(await transfersFor(phone, Number(url.searchParams.get("since") ?? -1), req.signal));
       case "GET /m/api/summary": // a folder's, for its tile (its previews: thumbnails by name, /m/thumbs/...)
         return json(appSummary(await summaryOf(pathParam(url))));
       case "GET /m/file":
@@ -355,25 +361,77 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
     }
     const { port, user, password, publicKey } = phone.sftp;
     if (!publicKey) throw httpError(409, `Pair ${phone.name} again (phil needs its key, which it didn't give before)`);
-    const url = `sftp://${user}@${host}:${port}/`;
-    // ssh is told the key it paired with, for this address: it takes that, and no other.
-    await knowHostKey(host, port, publicKey);
-    let ask;
-    try {
-      ask = await mount(url, { login: { user, password } });
-    } catch (err) {
-      if (/verif|identity|host key/i.test(err.message)) throw httpError(409, `${phone.name} at ${host} isn't the phone paired with (its key is another). Pair it again if phil's app was reinstalled.`);
-      throw httpError(409, `${phone.name}: ${err.message}`);
+    let path;
+    if (await hasSshfs) path = await sshfsMount(phone, host);
+    else { // (no sshfs: gvfs's mount, slower)
+      const url = `sftp://${user}@${host}:${port}/`;
+      // ssh is told the key it paired with, for this address: it takes that, and no other.
+      await knowHostKey(host, port, publicKey);
+      let ask;
+      try {
+        ask = await mount(url, { login: { user, password } });
+      } catch (err) {
+        if (/verif|identity|host key/i.test(err.message)) throw httpError(409, `${phone.name} at ${host} isn't the phone paired with (its key is another). Pair it again if phil's app was reinstalled.`);
+        throw httpError(409, `${phone.name}: ${err.message}`);
+      }
+      if (ask?.login) throw httpError(409, `${phone.name} didn't take phil's login: pair it again`);
+      if (ask?.question) throw httpError(409, `${phone.name} at ${host}: ${ask.question}`);
+      const here = await gioInfo(url);
+      if (!here) throw httpError(500, "gvfs mounted it but has no path for it");
+      path = here.path;
     }
-    if (ask?.login) throw httpError(409, `${phone.name} didn't take phil's login: pair it again`);
-    if (ask?.question) throw httpError(409, `${phone.name} at ${host}: ${ask.question}`);
-    const here = await gioInfo(url);
-    if (!here) throw httpError(500, "gvfs mounted it but has no path for it");
-    if (phone.mounts?.[host] !== here.path) {
-      phone.mounts = { ...phone.mounts, [host]: here.path };
+    if (phone.mounts?.[host] !== path) {
+      phone.mounts = { ...phone.mounts, [host]: path };
       await save();
     }
-    return { path: here.path, host };
+    return { path, host };
+  }
+
+  // Its files with sshfs at $XDG_RUNTIME_DIR/phil/phones/<its name>: mounted at
+  // `host` (one there already that answers, kept; one that doesn't, or at another
+  // address, unmounted first). A gvfs mount of it from before goes. sshfs runs on
+  // its own (as gvfs's did): the files stay mounted with phil closed, till the
+  // phone's forgotten or the PC restarts; it connects again when the phone's back.
+  async function sshfsMount(phone, host) {
+    const { port, user, password, publicKey } = phone.sftp;
+    const dir = join(runtimeDir(), "phil", "phones", clean(phone.name).replace(/\//g, "-") || phone.id);
+    for (const [h, old] of Object.entries(phone.mounts ?? {})) {
+      if (old.includes("/gvfs/")) await new Deno.Command("gio", { args: ["mount", "-u", `sftp://${user}@${h}:${port}/`], stdin: "null", stdout: "null", stderr: "null" }).output().catch(() => {});
+    }
+    const source = `phil-phone:${user}@${host}:${port}`; // (what the mount's called: where it's from)
+    const there = (await sshfsMounts()).get(dir);
+    if (there) {
+      if (there === source && await mountAnswers(dir)) return dir;
+      await unmountPath(dir);
+    }
+    await Deno.mkdir(dir, { recursive: true, mode: 0o700 });
+    if ((await Array.fromAsync(Deno.readDir(dir)).catch(() => [])).length) throw httpError(409, `${dir} isn't empty: phil mounts ${phone.name}'s files there`);
+    // ssh takes the key it paired with, for this address, and no other.
+    const known = join(certDir, `known_hosts-${phone.id}`);
+    await Deno.mkdir(certDir, { recursive: true, mode: 0o700 });
+    await Deno.writeTextFile(known, `[${host}]:${port} ${publicKey}\n`, { mode: 0o600 });
+    const options = [
+      "password_stdin", `UserKnownHostsFile=${known}`, "GlobalKnownHostsFile=/dev/null", "StrictHostKeyChecking=yes",
+      "PubkeyAuthentication=no", "PreferredAuthentications=password", "NumberOfPasswordPrompts=1",
+      "ConnectTimeout=8", "ServerAliveInterval=10", "ServerAliveCountMax=3", "reconnect", "idmap=user", `fsname=${source}`,
+    ];
+    const child = new Deno.Command("sshfs", {
+      args: [`${user}@${host}:/`, dir, "-p", String(port), "-o", options.join(",")],
+      stdin: "piped", stdout: "null", stderr: "piped",
+    }).spawn();
+    const writer = child.stdin.getWriter();
+    await writer.write(enc.encode(password + "\n")).catch(() => {});
+    await writer.close().catch(() => {});
+    const timer = setTimeout(() => child.kill("SIGTERM"), 25_000);
+    const [status, said] = await Promise.all([child.status, new Response(child.stderr).text()]);
+    clearTimeout(timer);
+    if (!status.success) {
+      await Deno.remove(dir).catch(() => {});
+      if (/host key|verification failed|IDENTIFICATION HAS CHANGED/i.test(said)) throw httpError(409, `${phone.name} at ${host} isn't the phone paired with (its key is another). Pair it again if phil's app was reinstalled.`);
+      if (/permission denied|authentication/i.test(said)) throw httpError(409, `${phone.name} didn't take phil's login: pair it again`);
+      throw httpError(409, `${phone.name}: ${said.trim().split("\n").at(-1) || "sshfs couldn't mount its files"}`);
+    }
+    return dir;
   }
 
   async function rename(id, name) {
@@ -393,9 +451,11 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
     await save();
     changed();
     if (unmount) {
-      for (const host of Object.keys(phone.mounts ?? {})) {
-        await new Deno.Command("gio", { args: ["mount", "-u", `sftp://${phone.sftp.user}@${host}:${phone.sftp.port}/`], stdin: "null", stdout: "null", stderr: "null" }).output().catch(() => {});
+      for (const [host, path] of Object.entries(phone.mounts ?? {})) {
+        if (path.includes("/gvfs/")) await new Deno.Command("gio", { args: ["mount", "-u", `sftp://${phone.sftp.user}@${host}:${phone.sftp.port}/`], stdin: "null", stdout: "null", stderr: "null" }).output().catch(() => {});
+        else await unmountPath(path);
       }
+      await Deno.remove(join(certDir, `known_hosts-${phone.id}`)).catch(() => {});
     }
     return { ok: true };
   }
@@ -424,6 +484,54 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
     const names = {};
     for (const p of await load()) for (const path of Object.values(p.mounts ?? {})) names[path] = p.name;
     return names;
+  }
+
+  // ---------------------------------------------------------------- copies to phones
+
+  // phil's copies under way (transfer()'s progress: server.js tells transferProgress),
+  // for the app's: those into a phone's files, their paths as the phone has them
+  // (from its storage's top: the SFTP server's root). The app asks with the version
+  // it has; the answer waits till there's a newer one (or WAIT_MS), at most a few a second.
+  const jobs = new Map(); // id -> its last progress
+  let jobsVersion = 0;
+  const jobWaiters = new Set();
+  function transferProgress(p) {
+    if (p.finished) {
+      if (!jobs.delete(p.id)) return;
+    } else jobs.set(p.id, p);
+    jobsVersion++;
+    for (const wake of jobWaiters) wake();
+    jobWaiters.clear();
+  }
+
+  async function transfersFor(phone, since, signal) {
+    const WAIT_MS = 10_000, EVERY_MS = 300;
+    if (since === jobsVersion) {
+      await new Promise((resolve) => {
+        const done = () => (clearTimeout(timer), jobWaiters.delete(done), resolve());
+        const timer = setTimeout(done, WAIT_MS);
+        jobWaiters.add(done);
+        signal?.addEventListener("abort", done);
+      });
+      await new Promise((r) => setTimeout(r, EVERY_MS)); // (several progress reports, one answer)
+    }
+    const mounts = Object.values(phone.mounts ?? {});
+    const onPhone = (path) => {
+      for (const m of mounts) if (path === m || path?.startsWith(m + "/")) return path.slice(m.length) || "/";
+      return null;
+    };
+    const transfers = [];
+    for (const p of jobs.values()) {
+      const dest = onPhone(p.dest);
+      if (dest === null) continue;
+      transfers.push({
+        id: p.id, op: p.op, dest, targets: (p.targets ?? []).map(onPhone).filter((t) => t !== null), items: p.items ?? 1,
+        bytes: p.bytes ?? 0, total: p.total ?? 0, percent: p.percent ?? 0, speed: p.speed ?? null, eta: p.eta ?? null,
+        paused: !!p.paused, preparing: p.preparing ?? null, file: onPhone(p.file), filePercent: p.filePercent ?? null,
+        at: onPhone(p.at), atPercent: p.atPercent ?? null,
+      });
+    }
+    return { version: jobsVersion, transfers };
   }
 
   // ---------------------------------------------------------------- files
@@ -480,7 +588,7 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
     return text(404, "No thumbnail");
   }
 
-  return { start, stop, list: phonesList, pairStart, pairStop, open, rename, forget, mountNames, status: () => ({ listening: !!server, problem }) };
+  return { start, stop, list: phonesList, pairStart, pairStop, open, rename, forget, mountNames, transferProgress, status: () => ({ listening: !!server, problem }) };
 }
 
 // ---------------------------------------------------------------- the app's light phil
@@ -657,6 +765,33 @@ function answersAt(host, port, ms = 2000) {
       resolve(true);
     }, () => (clearTimeout(timer), resolve(false)));
   });
+}
+
+// ---------------------------------------------------------------- sshfs
+
+const hasSshfs = new Deno.Command("sshfs", { args: ["--version"], stdin: "null", stdout: "null", stderr: "null" }).output().then(() => true, () => false);
+const runtimeDir = () => Deno.env.get("XDG_RUNTIME_DIR") || `/run/user/${Deno.uid?.() ?? 1000}`;
+
+// The sshfs mounts now: mount point -> its name (sshfsMount's: phil-phone:user@host:port).
+// (findmnt's: Deno won't read /proc/self without all permissions.)
+async function sshfsMounts() {
+  try {
+    const out = await new Deno.Command("findmnt", { args: ["-J", "-t", "fuse.sshfs", "-o", "TARGET,SOURCE"], stdin: "null", stdout: "piped", stderr: "null" }).output();
+    return new Map((JSON.parse(new TextDecoder().decode(out.stdout) || "{}").filesystems ?? []).map((f) => [f.target, f.source]));
+  } catch {
+    return new Map();
+  }
+}
+
+// Whether a mount answers (its folder read within a few seconds: a phone that's
+// gone leaves sshfs waiting for it).
+function mountAnswers(dir) {
+  return Promise.race([Deno.stat(dir).then(() => true, () => false), new Promise((r) => setTimeout(() => r(false), 4000))]);
+}
+
+async function unmountPath(dir) {
+  await new Deno.Command("fusermount3", { args: ["-u", "-z", dir], stdin: "null", stdout: "null", stderr: "null" }).output().catch(() => {});
+  await Deno.remove(dir).catch(() => {});
 }
 
 // An SSH public key as known_hosts has it, and its fingerprint as ssh shows it (SHA256:..., base64 unpadded).

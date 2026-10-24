@@ -26,6 +26,18 @@ const SCHEMA = `
 `;
 const READ_AT_ONCE = 4; // songs' tags read at once while scanning
 
+// Files added, moved or removed (phil's copies, moves and deletes; files sent from
+// the phone): musicview's server reads its music folders again when they're in one.
+// One list for both: they run in the same worker.
+const changeListeners = new Set();
+export function onFilesChanged(fn) {
+  changeListeners.add(fn);
+  return () => changeListeners.delete(fn);
+}
+export function filesChanged(paths) {
+  for (const fn of changeListeners) fn(paths);
+}
+
 export class Library {
   #db;
   #write;

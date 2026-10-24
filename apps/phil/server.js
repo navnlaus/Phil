@@ -25,6 +25,7 @@ import { locate } from "./locate.js";
 import { createLink } from "./link.js";
 import { AudioInfo, readAudio, readCover, writeAudio } from "./audio.js";
 import { feed, setDownloads } from "./downloadfeed.js";
+import { filesChanged } from "../musicview/library.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
 const DEFAULT_THEME = "overlay"; // see ~/.config/phil/themes (engine/themes.js)
@@ -442,14 +443,16 @@ export function createServer({ profile, controlSocket }) {
         await downloads.deleting(paths); // a download writing them stops (with nothing left of it: it's removed)
         const deleted = await totals.deleting(paths);
         const forget = async (gone) => (await deleted(gone), await forgetDeleted(gone));
-        const result = await deletePaths(paths, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress)), forget });
+        const result = await deletePaths(paths, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress), link?.transferProgress(progress)), forget });
         await movedHooks(paths, result, () => null);
+        filesChanged(paths); // (musicview: songs gone)
         return json(result);
       }
       case "POST /api/transfer": { // {op, paths, dest}; progress to every page as {transfer} (see transfer())
         const body = await req.json();
         const transferred = await totals.transferring(body.op, Array.isArray(body.paths) ? body.paths : [], requirePath(body.dest));
-        const result = await transfer(body, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress)), track: copyRecords });
+        const result = await transfer(body, { report: (progress) => (broadcast({ transfer: progress }), barProgress(progress), link?.transferProgress(progress)), track: copyRecords });
+        filesChanged([...(result.made ?? []), ...(body.op === "move" ? body.paths ?? [] : [])]); // (musicview: songs come, or go)
         broadcast({ stoppedTransfers: true }); // cut off (×), or done (a stopped one gone on with)
         transferred(result).catch((err) => console.error(`phil: folders' totals after a ${body.op}: ${err.message}`)); // (a folder copied: walked, in the background)
         if (body.op === "move") await movedHooks(body.paths ?? [], result, (p) => join(body.dest, basename(p)));
@@ -1370,7 +1373,7 @@ export function createServer({ profile, controlSocket }) {
     summary: (dir) => summarize(dir, "name", new AbortController().signal),
     audio: (path) => audioInfo.get(path),
     music: { db: join(dirname(config.stateFile), "music.sqlite"), covers: join(config.thumbDir, "music-covers") }, // (musicview's)
-    touched: (dir) => totals.touched(dir),
+    touched: (dir) => (totals.touched(dir), filesChanged([dir])),
     apk: join(Deno.env.get("XDG_DATA_HOME") || join(home(), ".local", "share"), "phil", "phil.apk"), // (scripts/install.sh puts it there)
   });
   link?.start().catch((err) => console.error(`phil: phone link: ${err.message}`));
@@ -2095,8 +2098,11 @@ async function transfer({ op, paths = [], dest, resume = false, target: resumeTa
     if (Date.now() - lastRecord > 3000) (lastRecord = Date.now()), record(job.paused ? "paused" : "running", done);
     if (Date.now() - last < 250 || !total) return;
     last = Date.now();
+    // (the item it's at, and how far that is: the phone's tiles show it, link.js)
+    const itemTotal = current ? sizes[items.indexOf(current)]?.total ?? 0 : 0;
     job.last = { id, started, op, dest, targets: items.filter((it) => !it.quick).map((it) => it.target), items: items.length, bytes: done, total,
       percent: Math.floor((done / total) * 100), paused: job.paused, file: file?.path ?? null, filePercent: file?.percent ?? null,
+      at: current?.target ?? null, atPercent: itemTotal ? Math.min(100, Math.floor(((done - doneBefore) / itemTotal) * 100)) : null,
       ...speedOf(done) };
     report(job.last);
   };
