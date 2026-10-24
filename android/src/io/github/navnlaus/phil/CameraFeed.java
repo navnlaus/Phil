@@ -40,7 +40,11 @@ import java.util.concurrent.TimeUnit;
 // upright the way the phone's held: the camera's frames into a GL texture, drawn
 // turned (0, 90, 180 or 270°: the sensor's mounting and the phone's turn) into the
 // hardware encoder's input surface, its frames out as NAL units. 16:9 at the size
-// asked for (or the nearest below it); held upright, 9:16.
+// asked for (or the nearest below it); held upright, 9:16. Turned while it runs
+// (turn()): the next frame's drawn the new way; to the other shape (upright to
+// sideways), the encoder alone starts again at it (the camera stays open), its
+// new SPS and PPS going out in the stream before its first key frame: a viewer's
+// decoder takes the new size as it comes, nobody's let go.
 final class CameraFeed {
     interface Listener {
         void config(byte[] sps, byte[] pps);
@@ -66,6 +70,9 @@ final class CameraFeed {
     private SurfaceTexture texture;
     private Surface cameraOut;
     private int program, textureId, outWidth, outHeight, turn;
+    private CameraCharacteristics info;
+    private boolean front;
+    private EGLConfig eglConfig;
     private final float[] texMatrix = new float[16], turnMatrix = new float[16];
     private static final float[] FLIP = {1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1}; // t → 1 - t
 
@@ -139,6 +146,60 @@ final class CameraFeed {
         } catch (Exception ignored) { /* stopping */ }
     }
 
+    /** The phone's turned (0, 90, 180, 270): the picture turned with it, at once. */
+    void turn(int phone) {
+        Handler h = handler;
+        if (h != null) h.post(() -> {
+            if (!running || info == null || egl == EGL14.EGL_NO_DISPLAY) return;
+            int t = turnFor(info, front, phone);
+            if (t == turn) return;
+            boolean reshape = t % 180 != turn % 180;
+            turn = t;
+            setTurnMatrix();
+            if (!reshape) return; // (the same shape: the next frame's drawn the new way)
+            int w = outWidth;
+            outWidth = outHeight;
+            outHeight = w;
+            try {
+                newEncoder();
+            } catch (Exception e) {
+                fail("The encoder couldn't start again: " + e.getMessage());
+            }
+        });
+    }
+
+    // The encoder at the new shape, drawn into from the next frame (the camera, its
+    // texture and GL go on); the old one let go.
+    private void newEncoder() throws Exception {
+        MediaCodec oldEncoder = encoder;
+        Thread oldDrain = drain;
+        Surface oldInput = input;
+        EGL14.eglMakeCurrent(egl, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, eglContext);
+        if (eglSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(egl, eglSurface);
+        if (oldDrain != null) oldDrain.interrupt();
+        try {
+            if (oldDrain != null) oldDrain.join(500);
+        } catch (InterruptedException ignored) { /* going on */ }
+        try {
+            if (oldEncoder != null) {
+                oldEncoder.stop();
+                oldEncoder.release();
+            }
+        } catch (Exception ignored) { /* gone */ }
+        if (oldInput != null) oldInput.release();
+        startEncoder();
+        eglSurface = EGL14.eglCreateWindowSurface(egl, eglConfig, input, new int[] {EGL14.EGL_NONE}, 0);
+        EGL14.eglMakeCurrent(egl, eglSurface, eglSurface, eglContext);
+    }
+
+    private void setTurnMatrix() {
+        // The turn, about the picture's middle (in texture space: what's drawn at a spot is what's `turn`° back from it).
+        Matrix.setIdentityM(turnMatrix, 0);
+        Matrix.translateM(turnMatrix, 0, 0.5f, 0.5f, 0);
+        Matrix.rotateM(turnMatrix, 0, turn, 0, 0, 1);
+        Matrix.translateM(turnMatrix, 0, -0.5f, -0.5f, 0);
+    }
+
     private void open(boolean front, int height, int phone) {
         CameraManager cm = context.getSystemService(CameraManager.class);
         try {
@@ -152,7 +213,8 @@ final class CameraFeed {
             }
             if (id == null && cm.getCameraIdList().length > 0) id = cm.getCameraIdList()[0];
             if (id == null) throw new IllegalStateException("This phone has no camera");
-            CameraCharacteristics info = cm.getCameraCharacteristics(id);
+            info = cm.getCameraCharacteristics(id);
+            this.front = front;
             Size size = sizeFor(info, height);
             turn = turnFor(info, front, phone);
             boolean upright = turn % 180 != 0;
@@ -252,6 +314,7 @@ final class CameraFeed {
         EGLConfig[] configs = new EGLConfig[1];
         int[] n = new int[1];
         if (!EGL14.eglChooseConfig(egl, attrs, 0, configs, 0, 1, n, 0) || n[0] == 0) throw new IllegalStateException("No EGL config");
+        eglConfig = configs[0];
         eglContext = EGL14.eglCreateContext(egl, configs[0], EGL14.EGL_NO_CONTEXT, new int[] {EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE}, 0);
         eglSurface = EGL14.eglCreateWindowSurface(egl, configs[0], input, new int[] {EGL14.EGL_NONE}, 0);
         EGL14.eglMakeCurrent(egl, eglSurface, eglSurface, eglContext);
@@ -267,11 +330,7 @@ final class CameraFeed {
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-        // The turn, about the picture's middle (in texture space: what's drawn at a spot is what's `turn`° back from it).
-        Matrix.setIdentityM(turnMatrix, 0);
-        Matrix.translateM(turnMatrix, 0, 0.5f, 0.5f, 0);
-        Matrix.rotateM(turnMatrix, 0, turn, 0, 0, 1);
-        Matrix.translateM(turnMatrix, 0, -0.5f, -0.5f, 0);
+        setTurnMatrix();
         texture = new SurfaceTexture(textureId);
         texture.setDefaultBufferSize(camera.getWidth(), camera.getHeight());
         texture.setOnFrameAvailableListener(t -> draw(), handler);

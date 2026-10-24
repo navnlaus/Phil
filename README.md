@@ -561,10 +561,12 @@ and over [Tailscale](https://tailscale.com) away from it.
   off. Its notification turns it off. The card shows its address, and copies it
   with its login for another player (VLC). The picture's upright the way the
   phone's held (its tilt, from the accelerometer, so with the screen off too):
-  upright, a 9:16 picture; on its side, 16:9. Turned (and held so for a
-  second), or another camera or size chosen on the phone, the camera starts
-  again that way and its viewers are let go: camview's connect again and show
-  it in a few seconds. Android lets an app use the camera
+  upright, a 9:16 picture; on its side, 16:9. Turned, it turns with it as it
+  plays, in about a quarter of a second, nobody disconnected: the same shape,
+  the next frame's drawn the other way; the other shape, only the encoder starts
+  again at it, its new size coming to the viewers in the stream (camview's mpv
+  takes it as it comes). Another camera or size chosen on the phone: the camera
+  opens again so (under a second), the viewers kept the same way. Android lets an app use the camera
   in the background only if it started it while open: after a restart it's on
   again once the app is opened.
 - Share → "Send to PC" on the phone sends files (or text, as a note) into the

@@ -82,14 +82,6 @@ final class RtspServer {
         playing.clear();
     }
 
-    /**
-     * Every viewer let go (the picture changed: another camera, size or turn); their
-     * players connect again (camview's do, in a few seconds) and get the new one.
-     */
-    void dropViewers() {
-        for (Client c : clients) c.close();
-    }
-
     // ---------------------------------------------------------------- from the camera
 
     void config(byte[] sps, byte[] pps) {

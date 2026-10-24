@@ -25,9 +25,9 @@ import org.json.JSONObject;
 // "This phone as a camera"), an RTSP server (RtspServer) with the camera behind
 // it, opened only while something watches (CameraFeed), Wi-Fi and the CPU kept
 // awake then. Its picture is upright the way the phone's held (its tilt, from the
-// accelerometer: the screen may be off); turned for a second, or another camera
-// or size chosen, the camera starts again that way and the viewers are let go,
-// so their players connect again and get it (camview's do, in a few seconds). The PC is told it's there (POST /link/camera: its port and login),
+// accelerometer: the screen may be off), turned as it plays (CameraFeed.turn);
+// another camera or size: the camera opens again so. Either way the viewers stay
+// connected, the new picture's size coming to them in the stream. The PC is told it's there (POST /link/camera: its port and login),
 // and camview lists it. A foreground service of the camera's kind: started with
 // the app open (Android lets the camera be used in the background only so).
 public class CameraService extends Service {
@@ -47,7 +47,7 @@ public class CameraService extends Service {
     private android.view.OrientationEventListener tilt;
     private int phoneTurn = 0; // how the phone's held: 0, 90, 180, 270° clockwise from upright
     private int turnSeen = -1;
-    private static final long TURN_SETTLE_MS = 1000;
+    private static final long TURN_SETTLE_MS = 150; // (the ±30° around each way keeps it from flickering between two)
 
     // ---------------------------------------------------------------- settings
 
@@ -170,7 +170,7 @@ public class CameraService extends Service {
         } catch (IOException e) {
             error = "Its port (" + RtspServer.PORT + ") is taken";
         }
-        tilt = new android.view.OrientationEventListener(this) {
+        tilt = new android.view.OrientationEventListener(this, android.hardware.SensorManager.SENSOR_DELAY_UI) {
             @Override public void onOrientationChanged(int degrees) {
                 if (degrees == ORIENTATION_UNKNOWN) return; // (flat: as it was)
                 int nearest = ((degrees + 45) / 90 * 90) % 360;
@@ -188,18 +188,20 @@ public class CameraService extends Service {
         tell(this);
     }
 
-    // The phone held another way (for a second): the picture turned with it.
+    // The phone held another way (for a moment): the picture turned with it, as it plays.
     private final Runnable turned = () -> {
         if (turnSeen < 0 || turnSeen == phoneTurn) return;
         phoneTurn = turnSeen;
-        restartPicture();
+        if (feed != null) feed.turn(phoneTurn);
     };
 
-    // The camera started again as it's set now (its turn, which, its size), the viewers let go to get it.
+    // Another camera or size: the camera opened again so, the viewers kept (the new
+    // picture's size comes to them in the stream, as a turn's does).
     private void restartPicture() {
         if (feed == null) return; // (not watched: the next viewer gets it)
-        closeCamera();
-        if (rtsp != null) rtsp.dropViewers();
+        feed.stop();
+        feed = null;
+        startFeed();
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -238,6 +240,14 @@ public class CameraService extends Service {
             return;
         }
         if (feed != null) return;
+        startFeed();
+        hold(true);
+        watched = true;
+        notifyNow();
+        tell(this);
+    }
+
+    private void startFeed() {
         error = null;
         feed = new CameraFeed(this, new CameraFeed.Listener() {
             @Override public void config(byte[] sps, byte[] pps) {
@@ -256,10 +266,6 @@ public class CameraService extends Service {
             }
         });
         feed.start(front(this), height(this), phoneTurn);
-        hold(true);
-        watched = true;
-        notifyNow();
-        tell(this);
     }
 
     private void closeCamera() {
