@@ -253,6 +253,8 @@ const thumbs = {
       if (msg.stoppedTransfers) return loadStoppedTransfers();
       if (msg.places) return refreshPlaces(); // the sidebar arranged, in some window
       if (msg.cameras) return (state.cameras = msg.cameras), renderCameras(); // found, renamed, forgotten
+      if (msg.phones) return (state.phones = msg.phones), renderPhones(); // paired, in reach or not, forgotten
+      if (msg.phonePairing) return onPhonePairing(msg.phonePairing);
       if ("clipboard" in msg) return (state.clip = msg.clipboard), markClipboard();
       const path = msg.folder ?? msg.path;
       if (!this.wanted.delete(path)) return;
@@ -772,9 +774,10 @@ async function load(path, { recount = false } = {}) {
   thumbs.tag(state.autoTagged ? listing.path : null);
   showTagStatus("");
   renderTags();
-  document.title = (listing.path === "/" ? "/" : listing.path.split("/").pop()) + (state.init.incognito ? " — phil (incognito)" : " — phil");
+  document.title = (state.phoneMounts[listing.path] ?? (listing.path === "/" ? "/" : listing.path.split("/").pop())) + (state.init.incognito ? " — phil (incognito)" : " — phil");
   renderCrumbs();
   markPlace(listing.path); // only the lit one changes: rebuilding the sidebar on every click made it blink
+  if (state.phones.length) renderPhones(); // (the one shown lit)
   refreshSpace(); // into a share that mounts on use: now it has its space
   $("#btn-up").disabled = !listing.parent;
   filterInput.value = "";
@@ -1260,12 +1263,15 @@ function showGridMessage(message) {
 }
 
 function renderCrumbs() {
-  const parts = state.path.split("/").filter(Boolean);
-  // "/", then each folder on the way, with a "/" between (keyed by the path it ends).
-  const items = [{ path: "/", label: "/" }];
+  // A phone's files (gvfs's mount of them): from its name, not /run/user/.../gvfs/sftp:host=...
+  const phone = Object.keys(state.phoneMounts).find((m) => state.path === m || state.path.startsWith(m + "/"));
+  const base = phone ?? "";
+  const parts = state.path.slice(base.length).split("/").filter(Boolean);
+  // "/" (or the phone), then each folder on the way, with a "/" between (keyed by the path it ends).
+  const items = [phone ? { path: phone, label: state.phoneMounts[phone] } : { path: "/", label: "/" }];
   parts.forEach((part, i) => {
-    const path = "/" + parts.slice(0, i + 1).join("/");
-    if (i > 0) items.push({ path, sep: true });
+    const path = base + "/" + parts.slice(0, i + 1).join("/");
+    if (i > 0 || phone) items.push({ path, sep: true });
     items.push({ path, label: part });
   });
   keyed(crumbs, items, {
@@ -1936,6 +1942,7 @@ folderSizesSelect.onchange = async () => {
 
 themeSelect.onchange = () => api("/api/theme", { method: "PUT", body: JSON.stringify({ theme: themeSelect.value }) }).catch((err) => alert(err.message));
 $("#prefs-transfers").onclick = () => openTransfersView();
+$("#prefs-phone").onclick = () => addPhone();
 
 function setTheme(theme) {
   state.settings.theme = theme;
@@ -2969,6 +2976,147 @@ async function addCamera() {
     alert(err.message);
   }
 }
+
+// ---------------------------------------------------------------- phones
+
+// Phones paired with phil (its Android app; the server's link.js), under the
+// sidebar's places. A click mounts one's files (gvfs, over SFTP: on this
+// Wi-Fi, else over Tailscale) and shows them; right-click renames or forgets
+// it. The + pairs another ("Add a phone…").
+state.phones = [];
+state.phoneMounts = {}; // a phone's gvfs mount point -> its name (the breadcrumbs start there)
+
+async function loadPhones() {
+  const [list, mounts] = await Promise.all([api("/api/phones").catch(() => null), api("/api/phone-mounts").catch(() => null)]);
+  if (mounts) state.phoneMounts = mounts;
+  if (list) state.phones = list, renderPhones();
+}
+
+function renderPhones() {
+  if (holdWhilePressed(renderPhones)) return;
+  $("#phones-panel").hidden = !state.phones.length;
+  keyed($("#phones"), state.phones, { key: (p) => p.id, make: makePhone, show: showPhone });
+}
+
+// A phone's row (its data: a.item, as it is now).
+function makePhone() {
+  const a = document.createElement("a");
+  a.tabIndex = 0;
+  a.innerHTML = icon("l:smartphone");
+  const text = Object.assign(document.createElement("span"), { className: "phone-text" });
+  text.append(document.createElement("span"), Object.assign(document.createElement("span"), { className: "note" }));
+  a.append(text);
+  a.onclick = () => openPhone(a.item, a);
+  a.onkeydown = (e) => void (e.key === "Enter" && (e.preventDefault(), openPhone(a.item, a)));
+  a.oncontextmenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // not the sidebar's menu
+    const p = a.item;
+    showMenu(e.clientX, e.clientY, [
+      ["Open", () => openPhone(p, a)],
+      ["Rename…", () => renamePhone(p)],
+      ["Forget…", () => forgetPhone(p)],
+      ["Add a phone…", addPhone],
+    ]);
+  };
+  return a;
+}
+
+function showPhone(a, p) {
+  const [name, note] = a.querySelector(".phone-text").children;
+  put(name, "textContent", p.name);
+  const battery = p.battery ? `${p.battery.percent}%${p.battery.charging ? ", charging" : ""}` : "";
+  put(note, "textContent", !p.sharing ? "not sharing its files" : p.online ? battery || "in reach" : `away${p.seen ? ` · seen ${ago(p.seen)}` : ""}`);
+  a.classList.toggle("away", !p.online || !p.sharing);
+  const mount = Object.keys(state.phoneMounts).find((m) => state.phoneMounts[m] === p.name && (state.path === m || state.path?.startsWith(m + "/")));
+  a.classList.toggle("current", !!mount);
+  put(a, "title", [p.model, p.addresses.length ? p.addresses.join(", ") : null, "Click: its files"].filter(Boolean).join("\n"));
+}
+
+// "5 min ago", "3 h ago", "2 days ago".
+function ago(ms) {
+  const m = Math.round((Date.now() - ms) / 60_000);
+  return m < 60 ? `${Math.max(1, m)} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+}
+
+async function openPhone(p, row = null) {
+  if (row?.classList.contains("busy")) return;
+  row?.classList.add("busy");
+  flashStatus(`Connecting to ${p.name}…`, 60_000);
+  try {
+    const { path } = await api("/api/phones/open", { method: "POST", body: JSON.stringify({ id: p.id }) });
+    state.phoneMounts = (await api("/api/phone-mounts").catch(() => null)) ?? state.phoneMounts;
+    flashStatus("");
+    navigate(path);
+  } catch (err) {
+    flashStatus("");
+    alert(`Couldn't open ${p.name}\n${err.message}`);
+  } finally {
+    row?.classList.remove("busy");
+  }
+}
+
+async function renamePhone(p) {
+  const answer = await askConfirm({ title: "Rename phone", ok: "Rename", danger: false, fields: [{ name: "name", label: "Name", value: p.name }] });
+  if (!answer?.name.trim()) return;
+  await api("/api/phone", { method: "PUT", body: JSON.stringify({ id: p.id, name: answer.name }) }).catch((err) => alert(err.message));
+  loadPhones();
+}
+
+async function forgetPhone(p) {
+  if (!(await askConfirm({ title: `Forget ${p.name}?`, detail: "phil no longer reaches its files, and its app here forgets this PC (when it next checks in). Pair it again to undo.", ok: "Forget" }))) return;
+  await api(`/api/phone?id=${encodeURIComponent(p.id)}`, { method: "DELETE" }).catch((err) => alert(err.message));
+}
+
+// "Add a phone…": pairing while the dialog's open; the code to type there, and
+// the fingerprint the phone should show (so it's this phil it pairs with).
+async function addPhone() {
+  let info;
+  try {
+    info = await api("/api/phones/pair", { method: "POST" });
+  } catch (err) {
+    return alert(`Can't pair a phone now\n${err.message}`);
+  }
+  const d = $("#phone-pair");
+  d.querySelector(".code").textContent = info.code;
+  d.querySelector(".fp").textContent = info.fingerprint ?? "?";
+  d.querySelector(".host").textContent = `phil on ${state.init.hostname}`;
+  d.querySelector(".addresses").textContent = info.addresses.length ? info.addresses.join(" or ") : "this PC's address";
+  d.querySelector(".apk").hidden = !info.apk;
+  d.querySelector(".no-apk").hidden = !!info.apk;
+  d.querySelector(".qr").hidden = !info.apk;
+  if (info.apk) {
+    Object.assign(d.querySelector(".apk-link"), { href: info.apk, textContent: info.apk });
+    d.querySelector(".qr").src = `/api/qr?text=${encodeURIComponent(info.apk)}`;
+  }
+  const problem = d.querySelector(".problem");
+  problem.hidden = !info.problem;
+  problem.textContent = info.problem ? `The phone can't reach phil now: ${info.problem}` : "";
+  d.querySelector(".firewall").hidden = !info.firewall;
+  d.querySelector(".firewall code").textContent = info.firewall ?? "";
+  d.querySelector(".paired").hidden = true;
+  d.querySelector(".steps").hidden = false;
+  d.showModal();
+  d.addEventListener("close", () => api("/api/phones/pair", { method: "DELETE" }).catch(() => {}), { once: true });
+}
+
+// Pairing's news (every window gets it; the one with the dialog open shows it).
+function onPhonePairing({ paired, ended }) {
+  const d = $("#phone-pair");
+  if (!d.open) return;
+  if (paired) {
+    d.querySelector(".steps").hidden = true;
+    d.querySelector(".problem").hidden = true;
+    d.querySelector(".firewall").hidden = true;
+    Object.assign(d.querySelector(".paired"), { hidden: false, textContent: `${paired} is paired: its files are in the sidebar's Phones.` });
+    loadPhones();
+  } else if (ended) {
+    d.querySelector(".steps").hidden = true;
+    Object.assign(d.querySelector(".problem"), { hidden: false, textContent: ended === "tries" ? "Wrong code too many times: pairing ended. Try again." : "Pairing timed out. Try again." });
+  }
+}
+
+$("#btn-phone-add").onclick = addPhone;
 
 // ---------------------------------------------------------------- folder icons
 
@@ -4954,7 +5102,7 @@ $("#btn-new").onclick = () => createIn(state.path, "dir");
 $("#sidebar").addEventListener("contextmenu", (e) => {
   if (e.target.closest("a, button, input") || e.shiftKey) return;
   e.preventDefault();
-  showMenu(e.clientX, e.clientY, [...newItemsIn(state.path), ...cameraMenuItems()]);
+  showMenu(e.clientX, e.clientY, [...newItemsIn(state.path), ...cameraMenuItems(), ["Add a phone…", addPhone]]);
 });
 
 crumbs.addEventListener("click", editLocation);
@@ -5258,6 +5406,7 @@ applySettings();
 renderPlaces(); // once: after this, only when the places change (their space and speeds update in place)
 refreshSpeeds(); // the drives' last speed tests, for their tooltips
 loadCameras(); // the network cameras found so far (looked for again with the sidebar's refresh button)
+loadPhones(); // the phones paired (link.js)
 thumbs.connect();
 
 // (--terminal: the terminal covering the window, the keyboard in it.)

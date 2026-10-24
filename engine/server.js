@@ -33,7 +33,10 @@ async function start({ profile, controlSocket, tls }) {
     const forward = (message) => self.postMessage({ control: message });
     const listening = await listen(controlSocket, async (message, { stopListening }) => {
       if (message.to) return (await apps[message.to]?.server.control?.(message)) ?? { ok: false }; // for an app
-      if (message.retire) await stopListening();
+      if (message.retire) {
+        await stopListening();
+        await Promise.all(Object.values(apps).map((a) => a.server.retire?.())); // (ports of their own given up: phil's phone link)
+      }
       if (!message.ping) forward(message);
       return { ok: true };
     });

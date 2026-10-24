@@ -60,7 +60,8 @@ async function network(url, asked) {
 
 // gio mount: its prompts answered (User, Domain, Password, Choice), as given; one
 // it hasn't an answer for (or asked again: a wrong one) is what's to be asked.
-async function mount(url, { login, choice }) {
+// (Also a phone's files: link.js.)
+export async function mount(url, { login = null, choice = null } = {}) {
   // (stdbuf: gio's prompts, unended lines, come as they're written)
   const child = new Deno.Command("stdbuf", { args: ["-o0", "gio", "mount", url], stdin: "piped", stdout: "piped", stderr: "piped" }).spawn();
   const timer = setTimeout(() => child.kill(), MOUNT_MS);
@@ -100,7 +101,7 @@ async function mount(url, { login, choice }) {
 }
 
 // Where gvfs has it (a path, and what it is), or null: not there.
-async function gioInfo(url) {
+export async function gioInfo(url) {
   const out = await new Deno.Command("gio", { args: ["info", "-a", "standard::type", url], stdout: "piped", stderr: "null" }).output();
   if (!out.success) return null;
   const info = new TextDecoder().decode(out.stdout);

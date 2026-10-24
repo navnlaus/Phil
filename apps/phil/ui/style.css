@@ -144,6 +144,22 @@ body.sidebar #sidebar { position: static; transform: none; visibility: visible; 
 #cameras a .note { font-size: 11px; color: var(--text-dim); }
 #cameras svg { width: 16px; height: 16px; color: var(--text-dim); }
 #tags-panel > .heading { padding: 0 6px; }
+/* Phones paired (link.js): under the places; a click opens one's files. */
+#phones-panel { margin: 10px 4px 0; padding-top: 10px; border-top: 1px solid var(--border); }
+#phones-panel[hidden] { display: none; }
+#phones-panel > .heading { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 0 2px; }
+#btn-phone-add { width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--text-dim); }
+#btn-phone-add:hover { color: var(--text); background: var(--bg-hover); }
+#btn-phone-add svg { width: 14px; height: 14px; margin: 0; }
+#phones a { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 6px; color: inherit; text-decoration: none; white-space: nowrap; overflow: hidden; cursor: default; }
+#phones a:hover { background: var(--bg-hover); }
+#phones a.current { background: var(--accent-bg); color: var(--accent); }
+#phones a.away { opacity: 0.55; }
+#phones a.busy svg { animation: cam-spin 0.9s linear infinite; }
+#phones a .phone-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+#phones a .phone-text > span { overflow: hidden; text-overflow: ellipsis; }
+#phones a .note { font-size: 11px; color: var(--text-dim); }
+#phones svg { width: 16px; height: 16px; color: var(--text-dim); flex: none; }
 #tags-status { margin: 6px 6px 0; white-space: normal; }
 #tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 2px 4px; }
 #tags button {
@@ -708,6 +724,33 @@ main { padding-top: var(--bar-h); }
 #confirm .buttons button.danger { background: #c94b4b; border-color: #c94b4b; color: #fff; }
 #confirm .buttons button.danger:hover { background: #b03c3c; }
 #confirm button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* "Add a phone…" */
+
+#phone-pair {
+  width: min(480px, calc(100vw - 32px));
+  padding: 18px 20px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+#phone-pair::backdrop { background: rgba(0, 0, 0, 0.45); }
+#phone-pair .title { margin: 0 0 8px; font-weight: 600; font-size: 14px; }
+#phone-pair .steps { margin: 0 0 12px; padding-left: 20px; color: var(--text-dim); line-height: 1.5; user-select: text; }
+#phone-pair .steps li { margin: 0 0 10px; }
+#phone-pair .steps b, #phone-pair .fp, #phone-pair .addresses { color: var(--text); }
+#phone-pair .fp { font-family: ui-monospace, monospace; font-weight: 600; letter-spacing: 0.04em; }
+#phone-pair .code { margin: 8px 0 0; font: 600 34px/1.2 ui-monospace, monospace; letter-spacing: 0.3em; color: var(--accent); user-select: all; }
+#phone-pair .qr { display: block; width: 132px; height: 132px; margin: 8px 0 0; padding: 6px; background: #fff; border-radius: 6px; image-rendering: pixelated; }
+#phone-pair .qr[hidden], #phone-pair [hidden] { display: none; }
+#phone-pair a { color: var(--accent); word-break: break-all; }
+#phone-pair .problem, #phone-pair .firewall { margin: 0 0 12px; color: #e5675f; user-select: text; }
+#phone-pair code { user-select: all; color: var(--text); }
+#phone-pair .firewall code { display: block; margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--bg); font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+#phone-pair .paired { margin: 0 0 12px; color: var(--accent); font-weight: 600; }
+#phone-pair .buttons { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* Properties */
 

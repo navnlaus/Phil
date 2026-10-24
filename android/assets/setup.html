@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>phil</title>
+<style>
+  :root { --bg: #1c1d21; --panel: #26282d; --line: #34363c; --text: #e6e6e6; --muted: #9a9ca3; --accent: #5b8def; --bad: #e5675f; --good: #5fbf7f; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, sans-serif; padding: max(16px, env(safe-area-inset-top)) 16px 32px; }
+  h1 { font-size: 22px; margin: 8px 0 4px; display: flex; align-items: center; gap: 10px; }
+  h1 svg { width: 28px; height: 28px; fill: var(--accent); }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 28px 0 8px; font-weight: 600; }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 8px 0; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-height: 44px; }
+  button.main { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: .5; }
+  input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%; min-height: 44px; }
+  input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > input { flex: 1; }
+  .pc { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; margin: 6px 0; }
+  .fp { font: 600 22px/1.3 ui-monospace, monospace; letter-spacing: .04em; color: var(--accent); margin: 6px 0; }
+  .code { font: 600 26px ui-monospace, monospace; letter-spacing: .3em; text-align: center; }
+  .check { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .check:first-child { border-top: 0; }
+  .ok { color: var(--good); font-weight: 600; }
+  .error { color: var(--bad); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<h1><svg viewBox="0 0 24 24"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>phil</h1>
+
+<!-- Paired, on the way to the PC's phil (or it's out of reach). -->
+<section id="paired" hidden>
+  <div class="card">
+    <p id="paired-text"></p>
+    <p class="muted" id="paired-hint"></p>
+    <div class="row" style="margin-top:10px">
+      <button class="main" id="open">Open phil</button>
+    </div>
+  </div>
+</section>
+
+<!-- Not paired: a PC to pair with. -->
+<section id="pairing" hidden>
+  <p class="error" id="forgotten" hidden></p>
+  <p class="muted">Pair this phone with phil on your PC: its files show up in phil's sidebar there, and phil's files here.</p>
+  <h2>1 · On the PC</h2>
+  <p class="muted">In phil: the sidebar's gear → <b>Add a phone…</b> It shows a code.</p>
+  <h2>2 · Find it</h2>
+  <div id="found"></div>
+  <p class="muted" id="finding">Looking on this Wi-Fi…</p>
+  <div class="row">
+    <input id="address" placeholder="Or its address (192.168.1.10, or its Tailscale name)" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button id="go">Go</button>
+  </div>
+  <div class="card" id="confirm" hidden>
+    <p>phil on <b id="confirm-name"></b> should show this:</p>
+    <div class="fp" id="confirm-fp"></div>
+    <p class="muted">If it doesn't, don't go on: something between you and the PC isn't it.</p>
+    <h2>3 · Its code</h2>
+    <input id="code" class="code" inputmode="numeric" maxlength="6" placeholder="······" autocomplete="one-time-code">
+    <div class="row" style="margin-top:10px">
+      <button class="main" id="pair" disabled>Pair</button>
+      <button id="cancel">Cancel</button>
+    </div>
+  </div>
+  <p class="error" id="pair-error"></p>
+</section>
+
+<section id="permissions">
+  <h2>What it needs</h2>
+  <div class="card">
+    <div class="check">
+      <div><b>All files</b><div class="muted">To share the phone's files with the PC, and save what you download.</div></div>
+      <span id="files"></span>
+    </div>
+    <div class="check">
+      <div><b>Notifications</b><div class="muted">Files sent and received, and that it's sharing.</div></div>
+      <span id="notifications"></span>
+    </div>
+    <div class="check">
+      <div><b>Run in the background</b><div class="muted">So the PC can reach it while the screen's off.</div></div>
+      <span id="battery"></span>
+    </div>
+  </div>
+</section>
+
+<section id="settings" hidden>
+  <h2>This phone</h2>
+  <div class="card">
+    <div class="check">
+      <div><b>Share its files</b><div class="muted" id="sharing-text"></div></div>
+      <button id="sharing"></button>
+    </div>
+    <div class="check">
+      <div><b>Forget the PC</b><div class="muted">Pair again to use it.</div></div>
+      <button class="danger" id="unpair">Forget</button>
+    </div>
+  </div>
+  <p class="muted" id="version"></p>
+</section>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const waiting = new Map();
+let nextId = 1;
+// The app's answers come back here (MainActivity.callback).
+window.philCallback = (id, value) => {
+  const done = waiting.get(id);
+  waiting.delete(id);
+  done?.(value);
+};
+const ask = (method, ...args) => new Promise((resolve) => {
+  const id = String(nextId++);
+  waiting.set(id, resolve);
+  Phil[method](id, ...args);
+});
+const status = () => JSON.parse(Phil.status());
+let target = null; // {host, port, fp}
+
+function render() {
+  const s = status(), view = location.hash.slice(1);
+  $("#pairing").hidden = s.paired;
+  const forgot = /^forgotten:(.*)$/.exec(view);
+  $("#forgotten").hidden = !forgot;
+  if (forgot) $("#forgotten").textContent = `${decodeURIComponent(forgot[1])} forgot this phone. Pair it again to use it.`;
+  $("#paired").hidden = !s.paired;
+  $("#settings").hidden = !s.paired;
+  if (s.paired) {
+    $("#paired-text").textContent =
+      view === "connecting" ? `Connecting to ${s.pc}…` :
+      view === "offline" ? `${s.pc} isn't in reach.` :
+      view === "wrong-certificate" ? `That isn't ${s.pc}: its certificate is another.` :
+      `Paired with ${s.pc}.`;
+    $("#paired-hint").textContent =
+      view === "offline" ? "On its Wi-Fi: is phil running there, and its port open (sudo ufw allow 47210/tcp)? Away from home: is Tailscale on, here and there?" :
+      view === "wrong-certificate" ? "phil there made a new one (its config folder lost?), or something else answers at its address. Forget it and pair again if that's so." : "";
+    $("#open").hidden = view === "connecting";
+    $("#open").textContent = view === "offline" || view === "wrong-certificate" ? "Try again" : "Open phil";
+    $("#sharing").textContent = s.sharing ? "Stop" : "Start";
+    $("#sharing-text").textContent = s.sharing ? `${s.pc} sees them in its sidebar.` : "Stopped: the PC can't see them.";
+  }
+  for (const [key, ask] of [["files", "askFiles"], ["notifications", "askNotifications"], ["battery", "askBattery"]]) {
+    const cell = $(`#${key}`);
+    if (s[key]) cell.innerHTML = '<span class="ok">✓</span>';
+    else {
+      cell.innerHTML = "";
+      const b = Object.assign(document.createElement("button"), { textContent: "Allow" });
+      b.onclick = () => Phil[ask]();
+      cell.append(b);
+    }
+  }
+  $("#version").textContent = `phil ${s.version} · ${s.name}`;
+}
+window.philResumed = render;
+window.onhashchange = render;
+
+async function find() {
+  $("#finding").hidden = false;
+  $("#finding").textContent = "Looking on this Wi-Fi…";
+  const list = await ask("find");
+  const box = $("#found");
+  box.innerHTML = "";
+  for (const pc of list) {
+    const b = Object.assign(document.createElement("button"), { className: "pc" });
+    b.innerHTML = `<span></span><span class="muted"></span>`;
+    b.firstChild.textContent = pc.name;
+    b.lastChild.textContent = pc.host;
+    b.onclick = () => probe(pc.host, pc.port);
+    box.append(b);
+  }
+  $("#finding").textContent = list.length ? "" : "None found on this Wi-Fi. Type its address below.";
+  $("#finding").hidden = !!list.length;
+}
+
+async function probe(host, port = 47210) {
+  $("#pair-error").textContent = "";
+  const m = /^\[?([^\]]+?)\]?(?::(\d+))?$/.exec(host.trim());
+  if (!m) return;
+  host = m[1], port = Number(m[2] ?? port);
+  const info = await ask("probe", host, port);
+  if (info.error) return void ($("#pair-error").textContent = `${host}: ${info.error}`);
+  if (!info.pairing) return void ($("#pair-error").textContent = `phil on ${info.name} isn't pairing now: open "Add a phone…" there first.`);
+  target = { host, port, fp: info.fp };
+  $("#confirm-name").textContent = info.name;
+  $("#confirm-fp").textContent = info.short;
+  $("#confirm").hidden = false;
+  $("#code").value = "";
+  $("#code").focus();
+}
+
+$("#go").onclick = () => {
+  if ($("#address").value.trim()) probe($("#address").value);
+};
+$("#address").onkeydown = (e) => {
+  if (e.key === "Enter") $("#go").onclick();
+};
+$("#code").oninput = () => {
+  $("#pair").disabled = !/^\d{6}$/.test($("#code").value.trim());
+};
+$("#code").onkeydown = (e) => {
+  if (e.key === "Enter" && !$("#pair").disabled) $("#pair").onclick();
+};
+$("#cancel").onclick = () => ($("#confirm").hidden = true, target = null);
+$("#pair").onclick = async () => {
+  if (!target) return;
+  $("#pair").disabled = true;
+  const r = await ask("pair", target.host, target.port, target.fp, $("#code").value);
+  $("#pair").disabled = false;
+  if (r.error) return void ($("#pair-error").textContent = r.error);
+  Phil.home();
+};
+$("#open").onclick = () => Phil.home();
+$("#sharing").onclick = () => (Phil.setSharing(!status().sharing), render());
+$("#unpair").onclick = () => {
+  if (confirm(`Forget ${status().pc}? Its phil forgets this phone too.`)) Phil.unpair();
+};
+
+render();
+if (!status().paired) find();
+</script>
+</body>
+</html>

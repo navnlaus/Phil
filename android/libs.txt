@@ -1,0 +1,8 @@
+# The app's libraries: their path on Maven Central and SHA-256 (build.sh checks them).
+# Apache MINA SSHD: the SFTP server the phone's files are shared with (Apache License 2.0).
+org/apache/sshd/sshd-common/2.20.0/sshd-common-2.20.0.jar 55612c7c6a03302940c047d8b8b80761e963f4c529a032f47acda99a1a064334
+org/apache/sshd/sshd-core/2.20.0/sshd-core-2.20.0.jar 0f2fd957d1c7162b7fa682942e30de21be3377b98d698b6b5b729657df74e576
+org/apache/sshd/sshd-sftp/2.20.0/sshd-sftp-2.20.0.jar 70ce2e0e35b1106c4371471fb93313e67e0ceab8f127bc09432e115f67a5089e
+# SLF4J, which SSHD logs to (MIT); nop: its logging goes nowhere.
+org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar 7b751d952061954d5abfed7181c1f645d336091b679891591d63329c622eb832
+org/slf4j/slf4j-nop/2.0.17/slf4j-nop-2.0.17.jar 3716f83649ec66161a2edefd4f49df34d1dd1c51cdcf941996c6987260f0a829

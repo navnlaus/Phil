@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- The light phil: this PC's files on a paired phone (phil's Android app shows it; ../link.js serves it). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>phil</title>
+<link rel="stylesheet" href="ui/style.css">
+</head>
+<body>
+  <header id="bar">
+    <button id="up" class="icon" title="Up" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    <div id="where"><span id="title">phil</span><span id="path"></span></div>
+    <button id="grid-toggle" class="icon" title="Grid or list" aria-label="Grid or list"><svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg></button>
+    <button id="menu-button" class="icon" title="More" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg></button>
+  </header>
+  <nav id="places" aria-label="Places"></nav>
+  <main id="list" aria-live="polite"></main>
+  <p id="message" hidden></p>
+  <div id="uploads" hidden></div>
+  <button id="upload" class="fab" title="Send files here" aria-label="Send files here"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+  <input id="files" type="file" multiple hidden>
+  <div id="menu" hidden>
+    <button data-do="reload">Reload</button>
+    <button data-do="hidden">Show hidden files</button>
+    <button data-do="phone">This phone…</button>
+  </div>
+  <!-- A picture, a video or a song, over the list; Back (or ×) closes it. -->
+  <div id="viewer" hidden>
+    <button id="viewer-close" class="icon" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div id="viewer-body"></div>
+    <div id="viewer-foot"><span id="viewer-name"></span><a id="viewer-download" download>Download</a></div>
+  </div>
+<script src="ui/app.js" type="module"></script>
+</body>
+</html>

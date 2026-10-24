@@ -216,6 +216,9 @@ new build.
   hides them when that's more than 15 seconds old, phil being gone. panda-dl's
   downloads under way (torrents too) are there as well ("󰇚 name 45%"), with no
   phil window open too (phil asks panda-dl every few seconds for it).
+- phil's Android app, if it's been built (`android/build.sh`; see
+  [Phones](#phones)): in `~/.local/share/phil/phil.apk`, for "Add a phone…" to
+  offer to phones.
 - `jsonedit.desktop` and `textedit.desktop`, made the default apps for JSON and
   for text files (plain text, Markdown, scripts, code, configs, logs; not HTML
   or XML), so they open from browsers' download lists, `xdg-open` and file
@@ -464,6 +467,70 @@ stop.
   to `$XDG_RUNTIME_DIR/phil/transfers/<name>.json` (`apps/phil/browserdownloads.js`
   has the format): [Streamgrab](https://github.com/navnlaus/streamgrab), a browser extension that downloads the videos and
   streams a page plays, does.
+
+### Phones
+
+phil's Android app (`android/`) links a phone to phil: on the Wi-Fi at home,
+and over [Tailscale](https://tailscale.com) away from it.
+
+- The phone is in the sidebar's Phones, with its battery (greyed when it's out
+  of reach). A click opens its files (its shared storage, what its Files app
+  shows), mounted by gvfs over SFTP: they're a folder like any other, to copy
+  to and from, with thumbnails, folder sizes and the Transfers list. The
+  breadcrumbs start at its name. Right-click renames or forgets it.
+- On the phone, a light phil of this PC's files: folders (a list or a grid,
+  with phil's thumbnails), pictures (swipe for the next), videos and music
+  played there (the next song in the folder after one), anything else
+  downloaded into its Download folder (a long press downloads any file), and
+  + sends files from the phone into the folder shown.
+- Share → "Send to PC" on the phone sends files (or text, as a note) into the
+  PC's Downloads, in the Transfers list as they come.
+
+Pairing: "Add a phone…" (Preferences, the sidebar's right-click menu, or the +
+by Phones) shows a code. The app finds phil on the Wi-Fi, or is given its
+address, and shows the start of phil's certificate's fingerprint, to compare
+with the dialog's, before it takes the code. Pairing only works while the
+dialog is open, and five wrong codes end it.
+
+How it works (`apps/phil/link.js`):
+
+- phil's main engine (not an incognito one) serves the phone on port 47210,
+  on every address, over HTTPS with a certificate of its own
+  (`~/.config/phil/link/`, made once), which the app trusts by its
+  fingerprint. It's announced on the Wi-Fi by mDNS (`avahi-publish-service`,
+  `_phil._tcp`). It runs while the engine does, after its windows close too.
+- The app checks in when it starts, when its network changes, and every five
+  minutes, with its addresses. phil mounts it at its Wi-Fi address when it's
+  on a network this PC is on, else at its Tailscale one.
+- The phone runs an SFTP server (Apache MINA SSHD) on port 47222, with one
+  login, made by the app and given to phil when they pair. Its host key, given
+  then too, goes in `~/.ssh/known_hosts` for the address it's mounted from:
+  ssh takes that key from it and no other. What phil writes there is told to
+  Android's media index, so it shows in the phone's Gallery and pickers.
+- The phones are kept in `~/.config/phil/phones.json` (readable only by you:
+  their SFTP logins are in it); the app's token there is kept as a hash.
+
+Setting it up:
+
+- **The app.** `android/build.sh` builds `android/build/phil.apk` with javac,
+  d8, aapt2 and apksigner, no Gradle. It needs a JDK 17 or later and the
+  Android SDK's build-tools 36.1.0 and platform 36: by default `~/Android/jdk`
+  and `~/Android/Sdk`, or `JAVA_HOME` and `ANDROID_HOME`. It gets its libraries
+  from Maven Central and checks them against `android/libs.txt`. Its signing
+  key is made the first time, in `~/.local/share/phil/android`: keep it, since
+  an update has to be signed with the same key. `deno task install` then puts
+  the app where "Add a phone…" offers it, as a link and a QR code to scan with
+  the phone's camera.
+- **The firewall.** With ufw on, let the port in from your own networks and
+  Tailscale. The dialog shows the commands for this PC, like `sudo ufw allow
+  from 192.168.1.0/24 to any port 47210 proto tcp` and `sudo ufw allow in on
+  tailscale0 to any port 47210 proto tcp`.
+- **Away from home.** Tailscale on both: on the PC `sudo pacman -S tailscale`,
+  `sudo systemctl enable --now tailscaled` and `sudo tailscale up`; on the
+  phone, its app, with the same account.
+- **On the phone.** The app asks for what it needs: all files access (to
+  share them and to save downloads), notifications, and running in the
+  background (so the PC can reach it while its screen is off).
 
 ### Settings
 
@@ -1249,4 +1316,6 @@ exits. `deno task imageresize file` runs it from the source.
 
 Public domain: the Unlicense (`LICENSE`), no rights reserved. What's bundled
 from others keeps its own license, next to it: xterm.js (MIT), Lucide's icons
-(ISC), Day.js (MIT), highlight.js (BSD-3-Clause), hls.js (Apache-2.0).
+(ISC), Day.js (MIT), highlight.js (BSD-3-Clause), hls.js (Apache-2.0). The
+Android app's libraries aren't in the repository; its build fetches them:
+Apache MINA SSHD (Apache-2.0) and SLF4J (MIT).

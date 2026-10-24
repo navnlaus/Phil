@@ -76,6 +76,11 @@
     <!-- Beside the sidebar button, under the top bar: it shows while the bar is faded out. -->
     <div class="brand" aria-hidden="true">PHIL</div>
     <nav id="places" aria-label="Folders and drives"></nav>
+    <!-- Phones paired with phil (its Android app; link.js): a click opens one's files. + pairs another. -->
+    <section id="phones-panel" hidden>
+      <h3 class="heading"><span>Phones</span> <button id="btn-phone-add" class="icon" type="button" title="Add a phone…"><svg><use href="#i-plus"/></svg></button></h3>
+      <nav id="phones" aria-label="Phones"></nav>
+    </section>
     <!-- Copies, moves, deletes and downloads under way (or paused): a click shows where it goes. Its heading opens the Transfers view. -->
     <section id="transfers-panel" class="empty">
       <h3 class="heading"><button id="btn-transfers" type="button" title="All transfers, and the settings for downloads">Transfers</button></h3>
@@ -216,6 +221,11 @@
               <div class="tv-row"><button type="button" id="prefs-transfers">Transfers and downloads…</button></div>
               <p class="hint">panda-dl's settings: the download folder, connections, links copied to the clipboard.</p>
             </div>
+            <span>Phones</span>
+            <div class="tv-field">
+              <div class="tv-row"><button type="button" id="prefs-phone">Add a phone…</button></div>
+              <p class="hint">phil's Android app: the phone's files in the sidebar, and this PC's on the phone, on the Wi-Fi or over Tailscale.</p>
+            </div>
             <span>Version</span>
             <div class="tv-field">
               <p class="prefs-version"></p>
@@ -317,6 +327,23 @@
     </form>
   </dialog>
 
+  <!-- "Add a phone…": the code to type on the phone, and the fingerprint it should show (phil's certificate's). -->
+  <dialog id="phone-pair">
+    <form method="dialog">
+      <p class="title">Add a phone</p>
+      <ol class="steps">
+        <li><span class="get">Install phil's app on it<span class="apk" hidden>: scan this with its camera, or open <a class="apk-link" target="_blank"></a> in its browser (it warns of the certificate: go on)</span><span class="no-apk" hidden> (it isn't built here yet: <code>android/build.sh</code> in phil's source folder, then <code>deno task install</code>)</span>.</span>
+          <img class="qr" alt="" hidden></li>
+        <li>Open it there, and pick <b class="host"></b> (or type <span class="addresses"></span>).</li>
+        <li>Check that it shows <span class="fp"></span> and type this code:
+          <div class="code"></div></li>
+      </ol>
+      <p class="problem" hidden></p>
+      <p class="firewall" hidden>The firewall keeps the phone out. Let it in once (from your own networks and Tailscale only):<code></code></p>
+      <p class="paired" hidden></p>
+      <div class="buttons"><button value="cancel">Close</button></div>
+    </form>
+  </dialog>
   <dialog id="confirm">
     <form method="dialog">
       <button value="copy" class="copy icon" type="button" title="Copy the message" hidden><svg><use href="#i-copy"/></svg></button>

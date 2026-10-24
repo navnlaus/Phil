@@ -22,6 +22,7 @@ import { mediaKind, Thumbnailer } from "./thumbs.js";
 import { unfinished, watchDownloads } from "./downloads.js";
 import { watchBrowserDownloads } from "./browserdownloads.js";
 import { locate } from "./locate.js";
+import { createLink } from "./link.js";
 import { feed, setDownloads } from "./downloadfeed.js";
 
 export const UI_DIR = new URL("./ui/", import.meta.url);
@@ -355,6 +356,30 @@ export function createServer({ profile, controlSocket }) {
         } catch (err) {
           throw cameraError(err);
         }
+      case "GET /api/phones": // the phones paired (link.js), for the sidebar
+        return json(link ? await link.list() : []);
+      case "POST /api/phones/pair": // "Add a phone…": pairing starts; its code and what the dialog shows
+        if (!link) throw httpError(409, "Phones pair with the main phil (not an incognito one)");
+        return json(await link.pairStart());
+      case "DELETE /api/phones/pair": // the dialog closed
+        link?.pairStop();
+        return json({ ok: true });
+      case "POST /api/phones/open": // {id}: its files mounted (gvfs), {path, host}
+        if (!link) throw httpError(409, "Phones are the main phil's");
+        return json(await link.open(String((await req.json()).id ?? "")));
+      case "PUT /api/phone": { // {id, name}: renamed
+        const { id, name } = await req.json();
+        return json(await link?.rename(String(id ?? ""), name));
+      }
+      case "DELETE /api/phone": // ?id=: forgotten (unpaired)
+        return json(await link?.forget(url.searchParams.get("id") ?? ""));
+      case "GET /api/phone-mounts": // the phones' gvfs mount points: {path: name}
+        return json(link ? await link.mountNames() : {});
+      case "GET /api/qr": { // ?text=: a QR code of it (qrencode), SVG
+        const out = await new Deno.Command("qrencode", { args: ["-t", "SVG", "-m", "1", "-o", "-", url.searchParams.get("text") ?? ""], stdin: "null", stdout: "piped", stderr: "null" }).output().catch(() => null);
+        if (!out?.success) return text(404, "No qrencode");
+        return new Response(out.stdout, { headers: { "content-type": "image/svg+xml", "cache-control": "no-cache" } });
+      }
       case "GET /api/space": // ?path=...&path=...: the sidebar's drives, size and free space
         return json(await freeSpace(url.searchParams.getAll("path")));
       case "GET /api/init":
@@ -1300,7 +1325,21 @@ export function createServer({ profile, controlSocket }) {
     return { ok: true };
   }
 
-  return { handle, control, port: config.port || undefined };
+  // The phone link (link.js): in the main engine only (not incognito's, nor one of
+  // another profile, phil --port's...), so one engine has its port.
+  const link = Object.keys(profile ?? {}).length ? null : createLink({
+    configDir: dirname(config.settingsFile),
+    broadcast,
+    thumbs,
+    touched: (dir) => totals.touched(dir),
+    apk: join(Deno.env.get("XDG_DATA_HOME") || join(home(), ".local", "share"), "phil", "phil.apk"), // (scripts/install.sh puts it there)
+  });
+  link?.start().catch((err) => console.error(`phil: phone link: ${err.message}`));
+
+  // A newer engine took over (phil-engine --retire): it gets the link's port.
+  const retire = () => link?.stop();
+
+  return { handle, control, retire, port: config.port || undefined };
 }
 
 // bash --rcfile needs a real file, and under `deno compile` ours lives in the

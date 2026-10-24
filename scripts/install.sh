@@ -41,6 +41,11 @@ else
 fi
 # The themes, where they can be edited (~/.config/phil/themes).
 "$engine" --install-themes
+# phil's Android app (the phone link), if it's been built (android/build.sh: it needs
+# the Android SDK): "Add a phone…" offers it to the phone.
+if [[ -f android/build/phil.apk ]]; then
+  install -Dm644 android/build/phil.apk "$data/phil/phil.apk"
+fi
 # An app's command runs the engine with the app's name.
 for app in phil jsonedit textedit imageview videoplayer imageresize camview mediaview phil-editor; do
   printf '#!/bin/sh\nexec "%s" %s "$@"\n' "$engine" "$app" > "$bindir/$app.tmp"
