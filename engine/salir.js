@@ -43,6 +43,12 @@ export async function findSalir() {
   return null;
 }
 
+// The setting "sharedTextures" (~/.config/phil/settings.json): on unless false.
+async function sharedTextures() {
+  const config = Deno.env.get("XDG_CONFIG_HOME") || join(Deno.env.get("HOME") ?? "/", ".config");
+  return await Deno.readTextFile(join(config, "phil", "settings.json")).then((t) => JSON.parse(t).sharedTextures !== false, () => true);
+}
+
 /** phil's mpv plugin for salir: PHIL_SALIR_MPV, else installed (~/.local/lib/phil), else built here. */
 export async function findMpvPlugin() {
   const home = Deno.env.get("HOME") ?? "/";
@@ -86,7 +92,13 @@ export function createApp({ name, program, ephemeral = false, keepRunning = fals
       const plugin = await findMpvPlugin();
       trace(plugin ? `mpv plugin: ${plugin}` : "no mpv plugin");
       const args = ["--control", "--data", profile, ...(plugin ? ["--plugin", `mpv=${plugin}`] : [])];
-      const child = new Deno.Command(program, { args, stdin: "piped", stdout: "piped", stderr: "inherit" }).spawn();
+      // "sharedTextures": false in phil's settings: pages' frames through memory, not
+      // shared on the GPU (salir's SALIR_SHARED_TEXTURES=0: slower; for a driver that
+      // misbehaves with them).
+      const shared = await sharedTextures();
+      trace(shared ? "pages' frames shared on the GPU" : "pages' frames through memory (sharedTextures: false)");
+      const env = shared ? undefined : { SALIR_SHARED_TEXTURES: "0" };
+      const child = new Deno.Command(program, { args, env, stdin: "piped", stdout: "piped", stderr: "inherit" }).spawn();
       const writer = child.stdin.getWriter();
       const encoder = new TextEncoder();
       const { promise: ready, resolve: isReady } = Promise.withResolvers();

@@ -1260,6 +1260,8 @@ export function createServer({ profile, controlSocket }) {
     return !await onUsb(path);
   }
 
+  const ENGINE_SETTINGS = ["log", "sharedTextures"];
+
   async function readSettings() {
     try {
       const settings = JSON.parse(await Deno.readTextFile(config.settingsFile));
@@ -1274,9 +1276,12 @@ export function createServer({ profile, controlSocket }) {
   // The theme is in the settings file (edited by hand, or set by pickTheme):
   // the page's other settings are saved around it. It's written out even when
   // unset, so the file shows where it goes.
+  // The engine's own settings (set by hand: "log", "sharedTextures") are kept as they are.
   async function writeSettings(settings, { theme } = {}) {
-    theme ??= (await readSettings()).theme ?? DEFAULT_THEME;
+    const now = await readSettings();
+    theme ??= now.theme ?? DEFAULT_THEME;
     delete settings.theme;
+    for (const key of ENGINE_SETTINGS) if (key in now && !(key in settings)) settings[key] = now[key];
     await Deno.mkdir(dirname(config.settingsFile), { recursive: true });
     const tmp = `${config.settingsFile}.${crypto.randomUUID().slice(0, 8)}.tmp`;
     await Deno.writeTextFile(tmp, JSON.stringify({ theme, ...settings }, null, 2) + "\n");
