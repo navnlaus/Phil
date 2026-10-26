@@ -27,12 +27,28 @@ final class Discovery {
     private static final ArrayDeque<Runnable> waiting = new ArrayDeque<>();
     private static boolean resolving;
 
+    // Its address to use: an older Android resolves it to its IPv6 link-local one (no
+    // interface with it: unusable), so then one of the IPv4 ones it lists (a=), the one
+    // on this phone's network first.
+    static String usable(NsdServiceInfo s) {
+        String host = s.getHost().getHostAddress();
+        byte[] a = s.getAttributes().get("a");
+        if (!host.contains(":") || a == null) return host;
+        String[] listed = new String(a, StandardCharsets.UTF_8).split(",");
+        for (String mine : Net.addresses()) {
+            String net = mine.substring(0, mine.lastIndexOf('.') + 1);
+            for (String l : listed) if (l.startsWith(net)) return l;
+        }
+        for (String l : listed) if (!l.isEmpty() && !l.startsWith("100.")) return l;
+        return listed.length > 0 && !listed[0].isEmpty() ? listed[0] : host;
+    }
+
     static void resolve(NsdManager nsd, NsdServiceInfo service, Found found) {
         Runnable job = () -> nsd.resolveService(service, new NsdManager.ResolveListener() {
             @Override public void onResolveFailed(NsdServiceInfo s, int code) { next(); }
             @Override public void onServiceResolved(NsdServiceInfo s) {
                 byte[] fp = s.getAttributes().get("fp");
-                if (s.getHost() != null) found.found(s.getHost().getHostAddress(), s.getPort(), fp == null ? null : new String(fp, StandardCharsets.UTF_8));
+                if (s.getHost() != null) found.found(usable(s), s.getPort(), fp == null ? null : new String(fp, StandardCharsets.UTF_8));
                 next();
             }
         });

@@ -166,7 +166,9 @@ export function createLink({ configDir, broadcast, thumbs, list, summary: summar
     await new Deno.Command("pkill", { args: ["-f", "^(/usr/bin/)?avahi-publish-service -s phil on "], stdin: "null", stdout: "null", stderr: "null" }).output().catch(() => {});
     try {
       const mine = avahi = new Deno.Command("avahi-publish-service", {
-        args: ["-s", `phil on ${name}`, "_phil._tcp", String(LINK_PORT), `fp=${fingerprint.slice(0, 16)}`, "v=1"],
+        // (a=: its IPv4 addresses: an older Android finds it at its IPv6 link-local address,
+        // which it can't use, and takes one of these instead)
+        args: ["-s", `phil on ${name}`, "_phil._tcp", String(LINK_PORT), `fp=${fingerprint.slice(0, 16)}`, "v=1", `a=${(await addressesHere()).join(",")}`],
         stdin: "null", stdout: "null", stderr: "null",
       }).spawn();
       mine.status.then(() => {
