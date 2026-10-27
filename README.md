@@ -22,10 +22,14 @@ Developed and tested on Omarchy, the install scripts assumes a similar setup.
 | Torrents and web downloads (panda-dl) and browser videos (Streamgrab), as they come in | The Transfers view: each in full, and the settings for downloads |
 | ![mediaview: the movies in the media folders as pictures with their IMDb ratings, what's been started first, one still downloading](docs/screenshots/media.webp) | ![mediaview: a show's details, its next episode to play, and its season's episodes, watched, here or missing](docs/screenshots/media-show.webp) |
 | Movies and TV shows from the folders marked as media, matched with IMDb's titles and ratings on this computer (mediaview): what's been started first, downloads as they come in | A show's seasons and episodes: watched, here, or missing; the next one to play |
-| ![The chips theme](docs/screenshots/chips.webp) | |
-| Themes: here, chips | |
+| ![camview: six cameras live side by side, five landscape webcams with the time on them and a phone's camera standing upright](docs/screenshots/camview.webp) | ![phil showing a phone's camera folder: the phone in the sidebar's Phones with its battery, its photos as thumbnails](docs/screenshots/phone.webp) |
+| Network cameras and streams, live (camview), the phone's own camera among them, upright as it's held | A paired phone in the sidebar: its files, mounted over SFTP, a folder like any other |
+| ![Add a phone: the address for the app, a QR code, the PC's fingerprint and a six-digit code](docs/screenshots/phone-pair.webp) | ![The Android app: two albums being copied from the PC into the phone's Music, with a bar on the tile and along the bottom; the phone's albums with their covers; the PC's cameras, played through it](docs/screenshots/android.webp) |
+| Pairing a phone: a code, and the fingerprint to check | The Android app: the PC's copies as they come, the phone's music, the cameras |
+| ![The Android app: the PC's Pictures folder, the settings with the phone as a camera, and pairing with phil on the Wi-Fi](docs/screenshots/android-2.webp) | ![The chips theme](docs/screenshots/chips.webp) |
+| The PC's files on the phone; the phone as a camera; finding phil on the Wi-Fi | Themes: here, chips |
 
-<sub>Photos from [Unsplash](https://unsplash.com). mediaview's library is made up: the titles are real, the pictures are those same photos.</sub>
+<sub>Photos from [Unsplash](https://unsplash.com). mediaview's library is made up: the titles are real, the pictures are those same photos. So are the cameras (those photos, played as live streams), the songs, and the phone (Android's emulator).</sub>
 
 ## The engine and its apps
 
